@@ -53,6 +53,8 @@ final class EchoState: ObservableObject {
     @Published var overview: Data?
     /// 总览里点了某个会话：浏览窗口打开它
     @Published var openSessionID: String?
+    /// 同时给了时间（毫秒）：打开后跳到那个时间的位置（总览里点了版本或提交）
+    var openAt: Double?
     private var buildingOverview = false
     private var overviewAgain = false
     /// 上次跑备份的时间（成功失败都算），打开窗口时 5 分钟内跑过就不再跑
@@ -61,6 +63,7 @@ final class EchoState: ObservableObject {
     private var timer: Timer?
 
     func start() {
+        overview = EchoStats.loadLast()   // 先显示上次整理好的总览，后台再刷新
         lastSuccess = EchoBackupRecord.load(EchoPrefs.computerDir.appendingPathComponent("备份记录.json")).lastSuccess
         cleanupDays = EchoBackup.cleanupDays()
         backupIfNeeded()
@@ -223,6 +226,8 @@ enum EchoWindows {
         }
         // 浏览读的是备份：打开窗口时顺手增量备份一次，今天的会话也能看到（只写变过的文件，一两秒）
         let s = EchoState.shared
+        // 列表还没读过时先读已有的备份，不等这次备份做完（备份完会再读一遍）
+        if s.sessions.isEmpty { s.reloadSessions() }
         if s.running { } else if let d = s.lastBackupRun, Date().timeIntervalSince(d) < 300 { s.reloadSessions() } else { s.backupNow() }
         NSApp.activate(ignoringOtherApps: true)
         browser?.makeKeyAndOrderFront(nil)

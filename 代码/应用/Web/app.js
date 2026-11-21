@@ -652,6 +652,17 @@
     $("search").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); next(); } });
     document.addEventListener("keydown", (e) => { if ((e.metaKey || e.ctrlKey) && e.key === "f") { e.preventDefault(); $("search").focus(); $("search").select(); } });
 
+    // 从总览点版本或提交进来时带 ?at=毫秒：跳到离那个时间最近的提交要点（15 分钟内），没有就跳到那时候正在进行的那一段
+    window.echoJump = (at) => {
+      const near = keys.filter((k) => k.kind === "commit" && k.ts).map((k) => [Math.abs(new Date(k.ts) - at), k]).sort((a, b) => a[0] - b[0])[0];
+      if (near && near[0] < 15 * 60e3) return goTo(partOf[near[1].turn], near[1].id);
+      let i = -1;
+      S.turns.forEach((t, j) => { if (t.ts && new Date(t.ts) <= at) i = j; });
+      if (i >= 0) goTo(partOf[i], "p" + partOf[i]);
+    };
+    const at0 = +new URLSearchParams(location.search).get("at");
+    if (at0) setTimeout(() => window.echoJump(at0), 0);
+
     // 从全局搜索跳进来时带 ?q=关键词，打开就定位到第一个命中
     const q0 = new URLSearchParams(location.search).get("q");
     if (q0) { $("search").value = q0; $("search").parentElement.classList.add("has"); search(q0); }

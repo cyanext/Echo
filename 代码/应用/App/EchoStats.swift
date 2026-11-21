@@ -86,6 +86,15 @@ enum EchoStats {
         return comps.count >= 3 ? comps[2] : comps.last ?? "~"
     }
 
+    /// 总览卡片上写的路径：大目录加项目（~/Desktop/项目代码/NAS/伙伴云NAS应用 → 项目代码/NAS）
+    static func projectPath(_ path: String) -> String {
+        let home = NSHomeDirectory()
+        let under = path == home || path.hasPrefix(home + "/")
+        var comps = (under ? String(path.dropFirst(home.count)) : path).split(separator: "/").map(String.init)
+        if let dot = comps.firstIndex(where: { $0.hasPrefix(".") }), dot >= 2 { comps = Array(comps[..<dot]) }
+        return comps.count >= 3 ? comps[1] + "/" + comps[2] : comps.last ?? "~"
+    }
+
     // MARK: Git
 
     struct Commit: Codable { var p: String; var d: String; var s: String; var a: Int; var r: Int; var f: [String] }
@@ -107,15 +116,24 @@ enum EchoStats {
     /// 会话所在目录里的 Git 仓库，从 since 起的提交（不含合并提交）；同一个提交在几个工作区只算一次
     static func commits(cwds: Set<String>, since: String) -> [Commit] {
         let fm = FileManager.default
-        var repos = Set<String>()
-        for c in cwds where fm.fileExists(atPath: c) {
-            let top = git(["-C", c, "rev-parse", "--show-toplevel"]).trimmingCharacters(in: .whitespacesAndNewlines)
-            if !top.isEmpty { repos.insert(top) }
+        // 几十个目录、十几个仓库，一个个跑要几秒：并行跑
+        let dirs = cwds.filter { fm.fileExists(atPath: $0) }.sorted()
+        var tops = [String](repeating: "", count: dirs.count)
+        tops.withUnsafeMutableBufferPointer { buf in
+            DispatchQueue.concurrentPerform(iterations: dirs.count) { i in
+                buf[i] = git(["-C", dirs[i], "rev-parse", "--show-toplevel"]).trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+        }
+        let repos = Set(tops.filter { !$0.isEmpty }).sorted()
+        var logs = [String](repeating: "", count: repos.count)
+        logs.withUnsafeMutableBufferPointer { buf in
+            DispatchQueue.concurrentPerform(iterations: repos.count) { i in
+                buf[i] = git(["-C", repos[i], "log", "--all", "--no-merges", "--since=\(since)", "--date=iso-strict",
+                              "--pretty=format:%x1e%H%x1f%aI%x1f%s", "--numstat"])
+            }
         }
         var seen = Set<String>(), out: [Commit] = []
-        for r in repos.sorted() {
-            let log = git(["-C", r, "log", "--all", "--no-merges", "--since=\(since)", "--date=iso-strict",
-                           "--pretty=format:%x1e%H%x1f%aI%x1f%s", "--numstat"])
+        for (r, log) in zip(repos, logs) {
             for rec in log.split(separator: "\u{1e}") {
                 let lines = rec.split(separator: "\n", omittingEmptySubsequences: true)
                 guard let head = lines.first else { continue }
@@ -155,7 +173,7 @@ enum EchoStats {
             guard !days.isEmpty else { continue }
             let dict = days.mapValues { d -> [String: Any] in ["m": d.m, "ms": d.ms, "lg": d.lg, "k": d.k, "a": d.a, "b": d.b] }
             list.append(["id": s.id, "t": s.meta.title == s.sessionId ? "未命名会话" : s.meta.title,
-                         "p": project(s.projectPath), "c": s.computer, "days": dict])
+                         "p": project(s.projectPath), "d": projectPath(s.projectPath), "c": s.computer, "days": dict])
         }
         if let d = try? JSONEncoder().encode(fresh) { try? d.write(to: cacheURL, options: .atomic) }
 
@@ -168,6 +186,12 @@ enum EchoStats {
         let gitList = commits.map { ["p": $0.p, "d": $0.d, "s": $0.s, "a": $0.a, "r": $0.r, "f": $0.f] as [String: Any] }
 
         let out: [String: Any] = ["today": EchoTime.formatted(Date(), "yyyy-MM-dd"), "sessions": list, "commits": gitList]
-        return (try? JSONSerialization.data(withJSONObject: out)) ?? Data("{}".utf8)
+        let data = (try? JSONSerialization.data(withJSONObject: out)) ?? Data("{}".utf8)
+        try? data.write(to: lastURL, options: .atomic)
+        return data
     }
+
+    /// 上次整理好的总览：应用打开时先显示它，后台整理完再换
+    private static var lastURL: URL { EchoLibrary.supportDir.appendingPathComponent("总览数据.json") }
+    static func loadLast() -> Data? { try? Data(contentsOf: lastURL) }
 }

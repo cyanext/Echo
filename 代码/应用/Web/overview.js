@@ -63,7 +63,7 @@
           d.models[name] = (d.models[name] || 0) + u;
         }
         d.tot += tot; d.usd += usd; d.msg += v.m; d.ms += v.ms; d.lg = Math.max(d.lg, v.lg);
-        if (tot || v.m) d.sess.push({ id: s.id, t: s.t, p: s.p, tot, usd, msg: v.m, ms: v.ms, a: (v.a || 0) * 1000, b: (v.b || 0) * 1000, commits: [] });
+        if (tot || v.m) d.sess.push({ id: s.id, t: s.t, p: s.p, dir: s.d || s.p, tot, usd, msg: v.m, ms: v.ms, a: (v.a || 0) * 1000, b: (v.b || 0) * 1000, commits: [] });
       }
     }
     for (const c of data.commits) {
@@ -198,19 +198,23 @@
   // 会话下面一条条列它的提交（时间、版本号、说明、增删行）；对不上会话的提交列在最后
   const hm = (t) => { const d = new Date(t); return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`; };
   const dur = (ms) => ms >= 3.6e6 ? (ms / 3.6e6).toFixed(1) + " 小时" : Math.max(1, Math.round(ms / 6e4)) + " 分钟";
-  function commitRow(c, label) {
-    return `<div class="cr2">${IC.commit}<span class="tm2">${hm(c.time)}</span><span class="t">${c.ver ? `<b>${c.ver}</b>` : ""}${esc(c.s)}${label ? `<em>${esc(label)}</em>` : ""}</span><span class="x">+${fmtN(c.a)} −${fmtN(c.r)}</span></div>`;
+  function commitRow(c, label, sid) {
+    return `<div class="cr2"${sid ? ` data-sid="${esc(sid)}" data-at="${c.time}"` : ""}>${IC.commit}<span class="tm2">${hm(c.time)}</span><span class="t">${c.ver ? `<b>${c.ver}</b>` : ""}${esc(c.s)}${label ? `<em>${esc(label)}</em>` : ""}</span><span class="x">+${fmtN(c.a)} −${fmtN(c.r)}</span></div>`;
   }
   // 只看一天：上面一张卡写日期、左右切天、「看整周」和六个数；下面一个会话一张卡，两列瀑布排，按 Token 从多到少。
   // 会话卡：标题、项目和时间段；一行四个数；这天发的版本（主色标签）；最近几次提交；对不上会话的提交另放一张卡
+  // 会话卡：标题；下面一行灰字写项目路径（项目代码/NAS）和时间段；一行文字标签写 Token、折合、消息、AI 干活；
+  // 这天发的版本（主色标签，悬停看提交说明，点了跳到会话里那次提交）；最近 4 次提交（点了同样跳过去）
   function sessCard(s) {
-    const cs = [...s.commits].sort((a, b) => b.time - a.time), vers = [...new Set(cs.filter((c) => c.ver).map((c) => c.ver))];
+    const cs = [...s.commits].sort((a, b) => b.time - a.time), vs = [];
+    cs.forEach((c) => { if (c.ver && !vs.some((v) => v.ver === c.ver)) vs.push(c); });
     const more = open.has(s.id), list = more ? cs : cs.slice(0, 4);
+    const tags = [fmtM(s.tot) + " Token", fmtU(s.usd), s.msg + " 条消息", s.ms ? "AI " + dur(s.ms) : ""].filter(Boolean);
     return `<article class="scard" data-id="${esc(s.id)}">
-      <header><div class="st">${esc(s.t)}</div><div class="sp"><span class="pt">${esc(s.p)}</span>${s.a ? `<span>${hm(s.a)}–${hm(s.b)}</span>` : ""}</div></header>
-      <div class="sn">${[["Token", fmtM(s.tot)], ["折合", fmtU(s.usd)], ["消息", s.msg + " 条"], ["AI 干活", s.ms ? dur(s.ms) : "—"]].map(([l, v]) => `<div><span>${l}</span><b>${v}</b></div>`).join("")}</div>
-      ${vers.length ? `<div class="vs">${vers.slice(0, 6).map((v) => `<span class="vt">${IC.tag}${v}</span>`).join("")}${vers.length > 6 ? `<span class="vm" title="${vers.slice(6).join("、")}">等 ${vers.length} 个版本</span>` : ""}</div>` : ""}
-      ${cs.length ? `<div class="cl"><div class="ch">${cs.length} 次提交</div>${list.map((c) => commitRow(c)).join("")}${cs.length > 4 ? `<div class="sm" data-cm="${esc(s.id)}">${more ? "收起" : `还有 ${cs.length - 4} 次`}</div>` : ""}</div>` : ""}
+      <header><div class="st">${esc(s.t)}</div><div class="sp">${esc(s.dir)}${s.a ? ` · ${hm(s.a)}–${hm(s.b)}` : ""}</div></header>
+      <div class="tg2">${tags.map((t) => `<span>${t}</span>`).join("")}</div>
+      ${vs.length ? `<div class="vs">${vs.slice(0, 6).map((c) => `<span class="vt" data-sid="${esc(s.id)}" data-at="${c.time}" data-tip="${esc(c.ver)}|${hm(c.time)}|${esc(c.s)}|+${c.a} −${c.r}">${IC.tag}${c.ver}</span>`).join("")}${vs.length > 6 ? `<span class="vm">等 ${vs.length} 个版本</span>` : ""}</div>` : ""}
+      ${cs.length ? `<div class="cl"><div class="ch">${cs.length} 次提交</div>${list.map((c) => commitRow(c, "", s.id)).join("")}${cs.length > 4 ? `<div class="sm" data-cm="${esc(s.id)}">${more ? "收起" : `还有 ${cs.length - 4} 次`}</div>` : ""}</div>` : ""}
     </article>`;
   }
   function dayCard() {
@@ -227,7 +231,7 @@
     const other = (x.other || []).sort((a, b) => b.time - a.time);
     // 用得很少（不到 1M Token）又没有提交的会话，合成一张「其他会话」卡，一行一个
     const small = x.sess.filter((s) => s.tot < 1e6 && !s.commits.length), big = x.sess.filter((s) => !small.includes(s));
-    const smallCard = small.length ? `<article class="scard oc3"><header><div class="st">其他 ${small.length} 个会话</div><div class="sp"><span>用得少、没有提交</span></div></header>${small.map((s) => `<div class="sr3" data-id="${esc(s.id)}">${IC.msg}<span class="t">${esc(s.t)}<em>${esc(s.p)}</em></span><span class="v">${s.msg} 条</span></div>`).join("")}</article>` : "";
+    const smallCard = small.length ? `<article class="scard oc3"><header><div class="st">其他 ${small.length} 个会话</div><div class="sp"><span>用得少、没有提交</span></div></header>${small.map((s) => `<div class="sr3" data-id="${esc(s.id)}">${IC.msg}<span class="t">${esc(s.t)}<em>${esc(s.dir)}</em></span><span class="v">${s.msg} 条</span></div>`).join("")}</article>` : "";
     h += `<div class="sgrid">${big.map(sessCard).join("")}${smallCard}` +
       (other.length ? `<article class="scard oc3"><header><div class="st">没对上会话的提交</div><div class="sp"><span>${other.length} 次</span></div></header><div class="cl">${other.map((c) => commitRow(c, c.p)).join("")}</div></article>` : "") + `</div>`;
     el.innerHTML = h;
@@ -271,6 +275,8 @@
   $("next").onclick = () => { if (cur < weeks.length - 1) { cur++; open.clear(); dayView = null; draw(); } };
   $("kpis").onclick = (e) => { const b = e.target.closest(".spark i"); if (b) { cur = +b.dataset.i; open.clear(); dayView = null; draw(); } };
   $("week").onclick = (e) => {
+    const j = e.target.closest("[data-at]");
+    if (j) { post({ open: j.dataset.sid, at: +j.dataset.at }); return; }
     const g = e.target.closest("[data-go]");
     if (g) { if (g.dataset.go) showDay(+g.dataset.go); return; }
     if (e.target.closest("[data-back]")) { dayView = null; draw(); return; }
@@ -284,5 +290,19 @@
     if (m) { const i = +m.dataset.d; open.has(i) ? open.delete(i) : open.add(i); week(); }
   };
   $("cal").onclick = (e) => { const c = e.target.closest(".c[data-t]"); if (c) showDay(+c.dataset.t); };
+  // 版本标签悬停：气泡写版本号、时间、提交说明、增删行
+  const tip = document.createElement("div");
+  tip.className = "vtip";
+  document.body.appendChild(tip);
+  document.addEventListener("mouseover", (e) => {
+    const v = e.target.closest(".vt[data-tip]");
+    if (!v) { tip.style.display = "none"; return; }
+    const [ver, t, msg, ln] = v.dataset.tip.split("|");
+    tip.innerHTML = `<div class="h"><b>${ver}</b><span>${t} · ${ln}</span></div><div class="m">${msg}</div><div class="f">点一下跳到会话里这次提交</div>`;
+    tip.style.display = "block";
+    const r = v.getBoundingClientRect(), w = tip.offsetWidth;
+    tip.style.left = Math.max(8, Math.min(r.left + r.width / 2 - w / 2, innerWidth - w - 8)) + scrollX + "px";
+    tip.style.top = r.top + scrollY - tip.offsetHeight - 8 + "px";
+  });
   load(false);
 })();

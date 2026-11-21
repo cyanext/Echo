@@ -43,6 +43,7 @@ struct EchoBrowserView: View {
     @State private var tree: [EchoDir] = []                            // 会话列表变了才重新分组，不在每次刷新时算
     @State private var showAll: Set<String> = []                       // 点过「再显示」的项目
     @State private var showOverview = true                             // 打开窗口默认停在总览
+    @State private var jumpAt: Double?                                 // 从总览点版本或提交进来：打开后跳到这个时间
 
     private var computers: [String] { Array(Set(state.sessions.map(\.computer))).sorted() }
     private var dirState: [String: Bool] {
@@ -69,7 +70,7 @@ struct EchoBrowserView: View {
                 .overlay(alignment: .trailing) { Rectangle().fill(EchoColor.sideLine).frame(width: 1) }
             ZStack {
                 if showOverview { EchoOverview() }
-                else if let t = target { EchoConversation(target: t) }
+                else if let t = target { EchoConversation(target: t, at: jumpAt) }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
@@ -86,6 +87,8 @@ struct EchoBrowserView: View {
             picked = []
             collectionID = nil
             sessionID = id
+            jumpAt = state.openAt
+            state.openAt = nil
             showOverview = false
         }
         .alert("改名", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
@@ -205,6 +208,7 @@ struct EchoBrowserView: View {
                 } action: {
                     collectionID = c.id
                     picked = []
+                    jumpAt = nil
                     showOverview = false
                 }
                 .contextMenu {
@@ -363,6 +367,7 @@ struct EchoBrowserView: View {
                 picked = []
                 collectionID = nil
                 sessionID = s.id
+                jumpAt = nil
                 showOverview = false
             }
         }
@@ -501,12 +506,13 @@ enum EchoTarget: Hashable {
 
 struct EchoConversation: View {
     let target: EchoTarget
+    var at: Double?
     @State private var loading = false
     @State private var failed: String?
 
     var body: some View {
         ZStack {
-            EchoWebView(target: target, loading: $loading, failed: $failed)
+            EchoWebView(target: target, at: at, loading: $loading, failed: $failed)
             if loading { ProgressView().controlSize(.small) }
             if let f = failed {
                 VStack(spacing: 6) {
@@ -520,6 +526,7 @@ struct EchoConversation: View {
 
 struct EchoWebView: NSViewRepresentable {
     let target: EchoTarget
+    var at: Double?
     @Binding var loading: Bool
     @Binding var failed: String?
 
@@ -536,7 +543,7 @@ struct EchoWebView: NSViewRepresentable {
     }
 
     func updateNSView(_ w: WKWebView, context: Context) {
-        context.coordinator.show(target, loading: $loading, failed: $failed)
+        context.coordinator.show(target, at: at, loading: $loading, failed: $failed)
     }
 
     @MainActor
@@ -544,10 +551,16 @@ struct EchoWebView: NSViewRepresentable {
         let scheme = EchoScheme()
         weak var web: WKWebView?
         private var current: String?
+        private var currentAt: Double?
 
-        func show(_ t: EchoTarget, loading: Binding<Bool>, failed: Binding<String?>) {
+        func show(_ t: EchoTarget, at: Double?, loading: Binding<Bool>, failed: Binding<String?>) {
             let key = t.key
-            guard key != current else { return }
+            if key == current {
+                // 同一个会话已经开着：只换跳转位置
+                if let at, at != currentAt { currentAt = at; web?.evaluateJavaScript("window.echoJump && window.echoJump(\(Int(at)))") }
+                return
+            }
+            currentAt = at
             current = key
             loading.wrappedValue = true
             failed.wrappedValue = nil
@@ -560,7 +573,8 @@ struct EchoWebView: NSViewRepresentable {
                     case .success(let data):
                         let token = UUID().uuidString
                         self.scheme.sessions = [token: data]
-                        self.web?.load(URLRequest(url: URL(string: "echo://app/index.html?s=\(token)")!))
+                        let jump = at.map { "&at=\(Int($0))" } ?? ""
+                        self.web?.load(URLRequest(url: URL(string: "echo://app/index.html?s=\(token)\(jump)")!))
                     case .failure(let e):
                         failed.wrappedValue = e.localizedDescription
                     }
@@ -621,6 +635,7 @@ struct EchoOverviewWeb: NSViewRepresentable {
         /// 网页里点了会话：{open: 会话 id}
         func userContentController(_ c: WKUserContentController, didReceive message: WKScriptMessage) {
             guard let body = message.body as? [String: Any], let id = body["open"] as? String else { return }
+            EchoState.shared.openAt = (body["at"] as? NSNumber)?.doubleValue
             EchoState.shared.openSessionID = id
         }
     }
