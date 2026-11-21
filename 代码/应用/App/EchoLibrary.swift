@@ -135,12 +135,16 @@ enum EchoLibrary {
         var cache = (try? Data(contentsOf: cacheURL)).flatMap { try? JSONDecoder().decode(EchoScanCache.self, from: $0) } ?? EchoScanCache()
         var fresh = EchoScanCache()
         var out: [EchoSession] = []
-        let computers = (try? fm.contentsOfDirectory(at: backupRoot, includingPropertiesForKeys: [.isDirectoryKey], options: .skipsHiddenFiles)) ?? []
+        // 只跳过名字以「.」开头的，不按系统的隐藏标记跳：备份改名后可能还带着临时文件的隐藏标记（11-21 本会话就这样从列表里消失过）
+        func list(_ u: URL, _ keys: [URLResourceKey]? = nil) -> [URL] {
+            ((try? fm.contentsOfDirectory(at: u, includingPropertiesForKeys: keys)) ?? []).filter { !$0.lastPathComponent.hasPrefix(".") }
+        }
+        let computers = list(backupRoot, [.isDirectoryKey])
         for c in computers {
             let projects = c.appendingPathComponent("projects")
-            for p in (try? fm.contentsOfDirectory(at: projects, includingPropertiesForKeys: nil, options: .skipsHiddenFiles)) ?? [] {
+            for p in list(projects) {
                 let keys: Set<URLResourceKey> = [.fileSizeKey, .contentModificationDateKey]
-                for f in (try? fm.contentsOfDirectory(at: p, includingPropertiesForKeys: Array(keys), options: .skipsHiddenFiles)) ?? [] where f.pathExtension == "jsonl" {
+                for f in list(p, Array(keys)) where f.pathExtension == "jsonl" {
                     guard let v = try? f.resourceValues(forKeys: keys) else { continue }
                     let stamp = EchoFileStamp(size: Int64(v.fileSize ?? 0), mtime: v.contentModificationDate?.timeIntervalSince1970 ?? 0)
                     var meta: EchoSessionMeta

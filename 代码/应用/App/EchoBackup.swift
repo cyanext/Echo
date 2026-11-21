@@ -1,5 +1,5 @@
 // 备份：~/.claude/projects → 备份目录/<电脑名>/projects，结构不变。~/.claude 只读。
-// 流程见立项方案（需求文档/归档/方案.md）第六节：比大小和修改时间，变了才写；先写临时文件再改名；原文件被删时备份保留。
+// 流程见立项方案（需求文档/归档/方案.md）第六节：比大小和修改时间，变了才写；先写到本机暂存目录再挪进备份目录；原文件被删时备份保留。
 import Foundation
 
 enum EchoBackupRule {
@@ -81,6 +81,15 @@ enum EchoBackup {
         }
         result.total = todo.count
 
+        // 暂存目录：本机 ~/Library/Application Support/回响/暂存/<这次备份>/，只清自己的；中途退出留下的，过一天再清
+        let stagingRoot = EchoLibrary.supportDir.appendingPathComponent("暂存")
+        for old in (try? fm.contentsOfDirectory(at: stagingRoot, includingPropertiesForKeys: [.contentModificationDateKey])) ?? [] {
+            if let d = try? old.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate, Date().timeIntervalSince(d) > 86400 { try? fm.removeItem(at: old) }
+        }
+        let staging = stagingRoot.appendingPathComponent(UUID().uuidString)
+        try fm.createDirectory(at: staging, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: staging) }
+
         // 2. 和备份记录比，变了才写
         var sinceSave = 0
         for (n, f) in todo.enumerated() {
@@ -92,8 +101,9 @@ enum EchoBackup {
             }
             do {
                 try fm.createDirectory(at: out.deletingLastPathComponent(), withIntermediateDirectories: true)
-                let tmp = out.deletingLastPathComponent().appendingPathComponent(".\(out.lastPathComponent).echo-tmp")
-                try? fm.removeItem(at: tmp)
+                // 先写到本机暂存目录，写完再一步挪进备份目录：iCloud 只看到写好的文件，不会同步到写了一半的，
+                // 也不会给以「.」开头的临时文件打隐藏标记（11-21 几个会话就这样从列表里消失过）
+                let tmp = staging.appendingPathComponent(UUID().uuidString + ".echo-tmp")
                 if f.action == .slim {
                     let s = try EchoSlim.slimFile(f.url, to: tmp)
                     result.bytesIn += Int64(s.bytesIn)
@@ -103,12 +113,23 @@ enum EchoBackup {
                     result.bytesIn += f.stamp.size
                     result.bytesOut += f.stamp.size
                 }
-                // 写完再改名覆盖，iCloud 不会同步到写了一半的文件
-                guard rename(tmp.path, out.path) == 0 else {
-                    let msg = String(cString: strerror(errno))
-                    try? fm.removeItem(at: tmp)
-                    throw CocoaError(.fileWriteUnknown, userInfo: [NSLocalizedDescriptionKey: msg])
+                if rename(tmp.path, out.path) != 0 {
+                    // 暂存目录和备份目录不在同一块盘上（改名挪不过去）：在备份目录旁边写一份再改名
+                    let near = out.deletingLastPathComponent().appendingPathComponent(".\(out.lastPathComponent).echo-tmp")
+                    try? fm.removeItem(at: near)
+                    defer { try? fm.removeItem(at: tmp) }
+                    try fm.copyItem(at: tmp, to: near)
+                    guard rename(near.path, out.path) == 0 else {
+                        let msg = String(cString: strerror(errno))
+                        try? fm.removeItem(at: near)
+                        throw CocoaError(.fileWriteUnknown, userInfo: [NSLocalizedDescriptionKey: msg])
+                    }
                 }
+                // 万一还带着隐藏标记（走了上面的退路），清掉
+                var visible = URLResourceValues()
+                visible.isHidden = false
+                var o = out
+                try? o.setResourceValues(visible)
                 record.files[f.rel] = f.stamp
                 result.copied += 1
                 sinceSave += 1

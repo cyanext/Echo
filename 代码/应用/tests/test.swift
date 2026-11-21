@@ -16,6 +16,20 @@ enum EchoTests {
         if a.count == 3, a[1] == "--rules" { rules(); try renameTest(fixture: URL(fileURLWithPath: a[2])) }
         else if a.count == 3, a[1] == "--backup" { try backup(URL(fileURLWithPath: a[2])) }
         else if a.count == 3, a[1] == "--time" { try timeExport(URL(fileURLWithPath: a[2])) }
+        else if a.count == 4, a[1] == "--scan" {   // 手动排查：按应用的方式扫备份目录，看某个会话在不在、归到哪
+            let list = EchoLibrary.scan(backupRoot: URL(fileURLWithPath: a[2]))
+            print("  扫到 \(list.count) 个会话")
+            let fm = FileManager.default
+            for c in (try? fm.contentsOfDirectory(at: URL(fileURLWithPath: a[2]), includingPropertiesForKeys: nil, options: .skipsHiddenFiles)) ?? [] {
+                for p in (try? fm.contentsOfDirectory(at: c.appendingPathComponent("projects"), includingPropertiesForKeys: nil, options: .skipsHiddenFiles)) ?? [] {
+                    for f in (try? fm.contentsOfDirectory(at: p, includingPropertiesForKeys: [.fileSizeKey], options: .skipsHiddenFiles)) ?? [] where f.lastPathComponent.hasPrefix(a[3]) {
+                        print("  目录里有：\(f.lastPathComponent)，扩展名 \(f.pathExtension)，属性 \(String(describing: try? f.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey]).fileSize))")
+                        do { let m = try EchoSessionScan.read(f); print("  读出：标题「\(m.title)」开始 \(m.start)") } catch { print("  读出错：\(error)") }
+                    }
+                }
+            }
+            for s in list where s.url.lastPathComponent.hasPrefix(a[3]) { print("  \(s.url.lastPathComponent)：标题「\(s.meta.title)」，项目 \(s.projectPath)，开始 \(s.meta.start)") }
+        }
         else if a.count == 4 { try compare(URL(fileURLWithPath: a[1]), slimmed: URL(fileURLWithPath: a[2]), dataJS: URL(fileURLWithPath: a[3])) }
         else { print("用法：test <会话.jsonl> <原型瘦身结果> <原型 data.js> 或 test --rules"); exit(2) }
         if failed > 0 { print("失败 \(failed) 项"); exit(1) }
@@ -161,5 +175,16 @@ enum EchoTests {
         check((try? EchoDelete.trash(.init(original: home.appendingPathComponent("x2.jsonl"), backup: bak.appendingPathComponent("x2.jsonl"), record: rec, rel: "-p/x2.jsonl"), remove: mv)) == nil
               && fm.fileExists(atPath: home.appendingPathComponent("x2.jsonl").path), "还在写的会话不应该删")
         print("  删除 6 项")
+
+        // 带隐藏标记的会话文件也要列出来；名字以「.」开头的临时文件不列
+        let lib = dir.appendingPathComponent("库/机/projects/-p")
+        try FileManager.default.createDirectory(at: lib, withIntermediateDirectories: true)
+        var hid = lib.appendingPathComponent("h1.jsonl")
+        try body.write(to: hid)
+        var rv = URLResourceValues(); rv.isHidden = true; try hid.setResourceValues(rv)
+        try body.write(to: lib.appendingPathComponent(".h2.jsonl.echo-tmp"))
+        let found = EchoLibrary.scan(backupRoot: dir.appendingPathComponent("库")).map(\.url.lastPathComponent)
+        check(found == ["h1.jsonl"], "带隐藏标记的会话没列出来，或临时文件被列出来：\(found)")
+        print("  隐藏标记 1 项")
     }
 }
