@@ -148,10 +148,12 @@
   }
 
   // 版本号和它前面的模块名：「后台接口 v0.14.2」→ 模块「后台接口」、版本「0.14.2」。
-  // 只认说明开头的「模块 v版本号」（模块里可以有空格，如「NAS 网站」）；版本号在句子中间时没有模块，中文分不出词，往前取会取到半句话
+  // 认说明开头的「模块 v版本号」，开头可以先有一个「方案：」这类短前缀；三段的 0.1.0 带不带 v 都行，两段的必须写成 v0.1。
+  // 版本号在句子中间时：三段的照样认（没有模块），两段的不认，免得把「3.5」这类数字当版本
+  const HEAD_VER = /^\s*(?:[^\s:：]{1,6}[:：]\s*)?([\p{L}\p{N}_ -]{0,12}?)\s*(?:v?(\d+\.\d+\.\d+)|v(\d+\.\d+))(?![\d.])/iu;
   function versionKey(label) {
-    const head = label.match(/^\s*([\p{L}\p{N}_ -]{0,12}?)\s*v?(\d+\.\d+\.\d+)/u);
-    if (head) return (head[1].replace(/[\s_-]*v?$/i, "").trim() + " " + head[2]).trim();
+    const head = label.match(HEAD_VER);
+    if (head) return (head[1].replace(/[\s_-]*v?$/i, "").trim() + " " + (head[2] || head[3])).trim();
     const any = label.match(/(\d+\.\d+\.\d+)/);
     return any ? any[1] : null;
   }
@@ -181,13 +183,19 @@
         });
       }
     });
-    // 同一个版本标最后一次提交：提交是这一版的终点，它前面的对话都属于这一版
+    // 同一个版本标在它最后一次提交的位置：提交是这一版的终点。版本之后没带版本号的提交（「方案：按反馈改…」、小修）
+    // 并进这个版本，位置延到下一个版本之前的最后一次提交；说明取这一版第一次提交那句
     const anyVer = found.some((k) => k.ver);
-    // 位置在最后一次提交，说明取第一次提交那句（最后一次多是「验收、更新记录」，第一次才写这一版做了什么）
     const last = new Map(), first = new Map();
-    found.forEach((k, i) => { if (k.kind === "commit" && k.ver) { last.set(k.ver, i); if (!first.has(k.ver)) first.set(k.ver, k.label); } });
-    const keys = found.filter((k, i) => k.kind !== "commit" || !anyVer || (k.ver && last.get(k.ver) === i));
-    keys.forEach((k) => { if (k.kind === "commit" && k.ver) k.label = first.get(k.ver); });
+    let curVer = null;
+    found.forEach((k, i) => {
+      if (k.kind !== "commit") return;
+      if (k.ver) { curVer = k.ver; if (!first.has(k.ver)) first.set(k.ver, k.label); }
+      if (curVer) last.set(curVer, i);
+    });
+    const at = new Map([...last].map(([v, i]) => [i, v]));
+    const keys = found.filter((k, i) => k.kind !== "commit" || !anyVer || at.has(i));
+    keys.forEach((k) => { if (k.kind === "commit" && anyVer) { k.ver = at.get(found.indexOf(k)); k.label = first.get(k.ver); } });
     keys.forEach((k, n) => { k.id = "k" + n; k.obj._kid = k.id; delete k.obj; });
     return keys;
   }
@@ -418,7 +426,7 @@
         if (!k.ver) return `<span class="n-text">${esc(k.label.replace(PREFIX, ""))}</span>`;
         return `<span class="n-ver">${esc(verOf(k))}</span><span class="n-text">${esc(brief(k))}</span>`;
       };
-      const full = (k) => (k.kind === "compact" ? `手动压缩：${esc(k.sub || "")}` : k.kind === "part" ? esc(k.label) : esc(k.label).replace(/(v?\d+\.\d+\.\d+)/, '<b class="ver">$1</b>'));
+      const full = (k) => (k.kind === "compact" ? `手动压缩：${esc(k.sub || "")}` : k.kind === "part" ? esc(k.label) : esc(k.label).replace(/(v\d+\.\d+(?:\.\d+)?|\d+\.\d+\.\d+)/i, '<b class="ver">$1</b>'));
 
       // 标题跟着当前段换：标题写这一段的要点，小字写会话标题和时间；后面没有要点时恢复会话标题
       const homeTitle = $("h-title").innerHTML, homeMeta = $("h-meta").innerHTML;

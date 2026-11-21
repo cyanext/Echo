@@ -48,6 +48,18 @@ eq(versionKey("v0.3.1 回收站改为最近删除"), "0.3.1", "开头的 v 不�
 eq(versionKey("NAS 网站 v0.3.1：回收站"), "NAS 网站 0.3.1", "模块里可以有空格");
 eq(versionKey("site-v0.3.0 合并"), "site 0.3.0", "模块末尾的连字符去掉");
 eq(versionKey("统一文件查看页拆到文件管理 v0.4.0"), "0.4.0", "句子中间的版本号没有模块");
+eq(versionKey("方案：论文知识库 v0.1 架构方案"), "论文知识库 0.1", "两段的 v0.1，前面可以有「方案：」前缀");
+eq(versionKey("v0.2：初版跑通"), "0.2", "两段的 v0.2 在开头");
+eq(versionKey("模型从 3.5 升到 4.0"), null, "两段数字不带 v 不算版本");
+eq(versionKey("方案：架构图箭头改为数据流向，v0.1 架构设计、v0.2 初版跑通"), null, "两段的版本号在句子中间不算");
+// 版本之后没带版本号的提交并进这个版本：位置延到下一个版本之前的最后一次提交，说明取第一次那句
+const ext = keyPoints([
+  { role: "assistant", ts: "2026-11-20T01:00:00Z", blocks: [bash('git commit -m "方案：论文知识库 v0.1 架构方案"')] },
+  { role: "assistant", ts: "2026-11-20T02:00:00Z", blocks: [bash('git commit -m "方案：按反馈改论文拆解"')] },
+  { role: "assistant", ts: "2026-11-20T03:00:00Z", blocks: [bash('git commit -m "方案：多用架构图"')] },
+  { role: "assistant", ts: "2026-11-20T04:00:00Z", blocks: [bash('git commit -m "v0.2：初版跑通"')] },
+]);
+eq(ext.map((k) => `${k.turn}:${k.label}`).join(" | "), "2:方案：论文知识库 v0.1 架构方案 | 3:v0.2：初版跑通", "版本之后的无版本提交并进这个版本");
 const plain = keyPoints([{ role: "assistant", ts: "2026-11-20T01:00:00Z", blocks: [bash('git commit -m "改 A"'), bash('git commit -m "改 B"')] }]);
 eq(plain.map((k) => k.label).join(" | "), "改 A | 改 B", "会话里一次版本提交都没有时，每次提交都标");
 
