@@ -15,6 +15,7 @@ enum EchoTests {
         let a = CommandLine.arguments
         if a.count == 2, a[1] == "--rules" { rules() }
         else if a.count == 3, a[1] == "--backup" { try backup(URL(fileURLWithPath: a[2])) }
+        else if a.count == 3, a[1] == "--time" { try timeExport(URL(fileURLWithPath: a[2])) }
         else if a.count == 4 { try compare(URL(fileURLWithPath: a[1]), slimmed: URL(fileURLWithPath: a[2]), dataJS: URL(fileURLWithPath: a[3])) }
         else { print("用法：test <会话.jsonl> <原型瘦身结果> <原型 data.js> 或 test --rules"); exit(2) }
         if failed > 0 { print("失败 \(failed) 项"); exit(1) }
@@ -66,6 +67,18 @@ enum EchoTests {
                          n, r.total, r.copied, r.skipped, r.failures.count, Double(r.bytesIn) / 1e6, Double(r.bytesOut) / 1e6, r.seconds))
             for f in r.failures.prefix(5) { print("    \(f.path)：\(f.message)") }
         }
+    }
+
+    /// 量打开一个会话的耗时：整理、转 JSON、会话列表扫描
+    static func timeExport(_ url: URL) throws {
+        var t = Date()
+        let d = try EchoExport.export(url, computer: "测试机")
+        let a = Date().timeIntervalSince(t); t = Date()
+        let data = try JSONSerialization.data(withJSONObject: d)
+        let b = Date().timeIntervalSince(t); t = Date()
+        _ = try EchoSessionScan.read(url)
+        let c = Date().timeIntervalSince(t)
+        print(String(format: "  整理 %.2f 秒，转 JSON %.2f 秒（%.1fMB，%d 条），扫描标题 %.2f 秒", a, b, Double(data.count) / 1e6, (d["turns"] as! [Any]).count, c))
     }
 
     static func rules() {

@@ -7,7 +7,7 @@ enum EchoExport {
     static let systemPrefixes = [
         "<system-reminder>", "<command-name>", "<command-message>", "<local-command-stdout>",
         "<local-command-stderr>", "<task-notification>", "<user-prompt-submit-hook>",
-        "[Image:", "Caveat:",
+        "[Image:", "Caveat:", "[Request interrupted",
     ]
 
     private static let needles = ["\"type\":\"user\"", "\"type\":\"assistant\"", "\"type\":\"custom-title\"", "\"type\":\"ai-title\""].map { Array($0.utf8) }

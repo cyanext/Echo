@@ -6,24 +6,8 @@
 <title>回响</title>
 <link rel="stylesheet" href="style.css">
 </head>
-<body>
-<header class="session-head">
-  <div class="title-row">
-    <h1 id="title"></h1>
-    <button id="copy-resume" type="button">复制恢复命令</button>
-  </div>
-  <div class="meta" id="meta"></div>
-  <div class="toolbar">
-    <input id="search" type="search" placeholder="在本会话里搜索">
-    <span id="hits"></span>
-    <label><input type="checkbox" id="show-thinking" checked> 思考过程</label>
-    <label><input type="checkbox" id="show-tools" checked> 工具调用</label>
-    <label><input type="checkbox" id="show-system"> 系统消息</label>
-    <button id="expand-all" type="button">全部展开</button>
-  </div>
-</header>
-<main id="turns"></main>
-<div id="toast" class="toast"></div>
+<body class="conv">
+<div id="conv"></div>
 <script src="app.js"></script>
 </body>
 </html>

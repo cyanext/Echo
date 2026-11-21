@@ -1,6 +1,6 @@
 # 回响
 
-个人的 AI 记忆和上下文存档，Mac 菜单栏应用。功能和技术方案见 [方案.md](方案.md)，更新记录见 [CHANGELOG.md](CHANGELOG.md)。
+个人的 AI 记忆和上下文存档，Mac 应用。功能和技术方案见 [方案.md](方案.md)，更新记录见 [CHANGELOG.md](CHANGELOG.md)。
 
 ```text
 方案.md       功能、范围、技术方案

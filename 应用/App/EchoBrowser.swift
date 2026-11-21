@@ -1,141 +1,270 @@
-// 浏览窗口：左栏项目、中栏会话、右栏对话（WKWebView 加载 Web/ 里的页面）。
-// 列表照伙伴云NAS应用的设计规范：不用系统 List，用间距加悬停浅色圆角底。
+// 浏览窗口：左栏按项目分组的会话，右栏对话（WKWebView 加载 Web/ 里的页面）。
+// 照设计稿 docs/设计稿/浏览窗口/：外框照伙伴云NAS应用（图标栏灰底、白色内容区、靛蓝强调色），列表不用系统 List。
 import AppKit
 import SwiftUI
 import WebKit
 
+/// 颜色照伙伴云NAS应用的 RailColor，和设计稿 docs/设计稿/浏览窗口/设计稿.css 一致
+enum EchoColor {
+    static func dyn(_ light: UInt32, _ dark: UInt32, _ la: CGFloat = 1, _ da: CGFloat = 1) -> Color {
+        Color(nsColor: NSColor(name: nil) { a in
+            let isDark = a.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            let v = isDark ? dark : light
+            return NSColor(srgbRed: CGFloat(v >> 16 & 0xff) / 255, green: CGFloat(v >> 8 & 0xff) / 255, blue: CGFloat(v & 0xff) / 255, alpha: isDark ? da : la)
+        })
+    }
+    static let side = dyn(0xecedf3, 0x232428)
+    static let sideOn = dyn(0xffffff, 0x34353b)
+    static let sideFg = dyn(0x4b5468, 0xb4b9c5)
+    static let sideLine = dyn(0xe3e5ec, 0x2f3036)
+    static let surface = dyn(0xffffff, 0x1d1e23)
+    static let fg = dyn(0x1f2329, 0xe6e8ec)
+    static let fg2 = dyn(0x646a73, 0x9aa0ab)
+    static let fg3 = dyn(0x8f959e, 0x6f7581)
+    static let line = dyn(0xe3e5ec, 0x2c2e35)
+    static let accent = dyn(0x4e5bd8, 0x7c87f0)
+    static let sel = dyn(0x4e5bd8, 0x7c87f0, 0.10, 0.16)
+    static let hover = dyn(0x1f2329, 0xffffff, 0.05, 0.06)
+    static let good = dyn(0x12a150, 0x3ccf7e)
+    static let warn = dyn(0xe08a00, 0xf0a63a)
+}
+
 struct EchoBrowserView: View {
     @EnvironmentObject var state: EchoState
-    @State private var computer = ""          // 空表示全部电脑
-    @State private var projectID: String?
+    @AppStorage("filterComputer") private var computer = ""           // 空表示全部电脑
+    @AppStorage("collapsedProjects") private var collapsedRaw = ""     // 折叠的项目路径，换行分隔
     @State private var sessionID: String?
+    @State private var projects: [EchoProject] = []                    // 会话列表变了才重新分组，不在每次刷新时算
+    @State private var dupNames: Set<String> = []
+    @State private var showAll: Set<String> = []                       // 点过「再显示」的项目
 
     private var computers: [String] { Array(Set(state.sessions.map(\.computer))).sorted() }
-    private var projects: [EchoProject] {
-        EchoLibrary.group(computer.isEmpty ? state.sessions : state.sessions.filter { $0.computer == computer })
+    private var collapsed: Set<String> { Set(collapsedRaw.split(separator: "\n").map(String.init)) }
+    /// 没选过会话时打开最近的一个，右栏不空着
+    private var session: EchoSession? {
+        projects.lazy.flatMap(\.sessions).first { $0.id == sessionID } ?? projects.first?.sessions.first
     }
-    private var project: EchoProject? { projects.first { $0.id == projectID } ?? projects.first }
-    private var session: EchoSession? { project?.sessions.first { $0.id == sessionID } }
 
     var body: some View {
-        NavigationSplitView {
-            sidebar.navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 320)
-        } content: {
-            sessionList.navigationSplitViewColumnWidth(min: 240, ideal: 300, max: 420)
-        } detail: {
-            if let s = session {
-                EchoConversation(session: s)
-            } else {
-                Text(state.sessions.isEmpty ? "" : "选择一个会话").foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+        HStack(spacing: 0) {
+            sidebar
+                .frame(width: 300)
+                .background(EchoColor.side)
+                .overlay(alignment: .trailing) { Rectangle().fill(EchoColor.sideLine).frame(width: 1) }
+            ZStack {
+                if let s = session { EchoConversation(session: s) }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .navigationTitle(project?.name ?? "回响")
-        .frame(minWidth: 900, minHeight: 560)
+        .background(EchoColor.surface)
+        .foregroundStyle(EchoColor.fg)
+        .ignoresSafeArea()
+        .frame(minWidth: 860, minHeight: 560)
+        .onAppear(perform: regroup)
+        .onChange(of: state.sessions) { _, _ in regroup() }
+        .onChange(of: computer) { _, _ in regroup() }
     }
 
-    // MARK: 左栏
+    private func regroup() {
+        projects = EchoLibrary.group(computer.isEmpty ? state.sessions : state.sessions.filter { $0.computer == computer })
+        var seen = Set<String>(), dup = Set<String>()
+        for p in projects where !seen.insert(p.name).inserted { dup.insert(p.name) }
+        dupNames = dup
+    }
+
+    private func toggle(_ p: EchoProject) {
+        var c = collapsed
+        if c.contains(p.id) { c.remove(p.id) } else { c.insert(p.id) }
+        collapsedRaw = c.sorted().joined(separator: "\n")
+    }
+
+    // MARK: 左栏：按项目分组的会话
 
     private var sidebar: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            if computers.count > 1 {
-                Picker("", selection: $computer) {
-                    Text("全部").tag("")
-                    ForEach(computers, id: \.self) { Text($0).tag($0) }
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Spacer()
+                if computers.count > 1 {
+                    Menu {
+                        Button("全部电脑") { computer = "" }
+                        ForEach(computers, id: \.self) { c in Button(c) { computer = c } }
+                    } label: {
+                        Text(computer.isEmpty ? "全部电脑" : computer).font(.system(size: 12))
+                    }
+                    .menuStyle(.borderlessButton)
+                    .fixedSize()
+                    .foregroundStyle(EchoColor.fg2)
                 }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .padding(.horizontal, 10)
             }
+            .padding(.leading, 80).padding(.trailing, 14)
+            .frame(height: 52)
+            .background(EchoWindowDrag())                                     // 红绿灯那一行，按住能拖窗口
+
             if state.sessions.isEmpty {
                 empty
             } else {
                 ScrollView {
-                    LazyVStack(spacing: 2) {
-                        ForEach(projects) { p in
-                            EchoRow(selected: p.id == project?.id) {
-                                HStack(spacing: 8) {
-                                    Image(systemName: "folder").frame(width: 16).foregroundStyle(.secondary)
-                                    Text(p.name).lineLimit(1)
-                                    Spacer(minLength: 4)
-                                    Text("\(p.sessions.count)").font(.caption).foregroundStyle(.secondary).monospacedDigit()
-                                }
-                            } action: {
-                                projectID = p.id
-                                sessionID = p.sessions.first?.id
-                            }
-                            .help(p.path)
-                        }
+                    LazyVStack(alignment: .leading, spacing: 1) {
+                        ForEach(projects) { p in projectSection(p) }
                     }
-                    .padding(.horizontal, 8)
-                    .padding(.bottom, 12)
+                    .padding(.horizontal, 10).padding(.bottom, 12)
+                }
+                .scrollIndicators(.never)
+            }
+            footer
+        }
+    }
+
+    @ViewBuilder
+    private func projectSection(_ p: EchoProject) -> some View {
+        let folded = collapsed.contains(p.id)
+        // 项目标题：点了折叠或展开；不同路径下同名的文件夹，后面小字写上一级文件夹
+        EchoRow(fill: nil) {
+            HStack(spacing: 6) {
+                Image(systemName: "chevron.right").font(.system(size: 9, weight: .bold))
+                    .rotationEffect(.degrees(folded ? 0 : 90)).frame(width: 12)
+                Text(p.name).font(.system(size: 12, weight: .semibold)).lineLimit(1)
+                if dupNames.contains(p.name) {
+                    Text(((p.path as NSString).deletingLastPathComponent as NSString).lastPathComponent)
+                        .font(.system(size: 11)).foregroundStyle(EchoColor.fg3).lineLimit(1)
+                }
+                Spacer(minLength: 4)
+                if folded { Text("\(p.sessions.count)").font(.system(size: 11)).foregroundStyle(EchoColor.fg3).monospacedDigit() }
+            }
+            .foregroundStyle(EchoColor.sideFg)
+            .frame(height: 28)
+        } action: {
+            toggle(p)
+        }
+        .padding(.top, 8)
+        .help(p.path)
+
+        if !folded {
+            let limit = showAll.contains(p.id) ? p.sessions.count : 5
+            ForEach(p.sessions.prefix(limit)) { s in sessionRow(s) }
+            if p.sessions.count > limit {
+                EchoRow(fill: nil) {
+                    Text("再显示 \(p.sessions.count - limit) 个").font(.system(size: 12)).foregroundStyle(EchoColor.fg3)
+                        .padding(.leading, 18).frame(height: 26)
+                } action: {
+                    showAll.insert(p.id)
                 }
             }
         }
-        .padding(.top, 6)
+    }
+
+    private func sessionRow(_ s: EchoSession) -> some View {
+        let on = s.id == session?.id
+        return EchoRow(fill: on ? EchoColor.sideOn : nil, shadow: on) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(s.meta.title).font(.system(size: 13, weight: on ? .medium : .regular)).lineLimit(1)
+                    .foregroundStyle(on ? EchoColor.fg : EchoColor.sideFg)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                HStack(spacing: 6) {
+                    Text(EchoTime.short(s.endDate))
+                    if computers.count > 1 { Text(s.computer).lineLimit(1) }
+                    Spacer(minLength: 4)
+                    Text(ByteCountFormatter.string(fromByteCount: s.size, countStyle: .file))
+                }
+                .font(.system(size: 11)).foregroundStyle(EchoColor.fg3).monospacedDigit()
+            }
+            .padding(.leading, 18).padding(.vertical, 6)
+        } action: {
+            sessionID = s.id
+        }
     }
 
     private var empty: some View {
         VStack(spacing: 10) {
             if state.scanning || state.running {
                 ProgressView().controlSize(.small)
-                Text(state.running ? "正在备份" : "正在读取").font(.callout).foregroundStyle(.secondary)
             } else {
-                Text("还没有备份").font(.callout).foregroundStyle(.secondary)
+                Text("还没有备份").font(.system(size: 13)).foregroundStyle(EchoColor.fg2)
                 Button("立即备份") { state.backupNow() }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    // MARK: 中栏
-
-    private var sessionList: some View {
-        ScrollView {
-            LazyVStack(spacing: 2) {
-                ForEach(project?.sessions ?? []) { s in
-                    EchoRow(selected: s.id == sessionID) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(s.meta.title).lineLimit(2).frame(maxWidth: .infinity, alignment: .leading)
-                            HStack(spacing: 6) {
-                                Text(EchoTime.short(s.endDate))
-                                if computers.count > 1 { Text(s.computer) }
-                                Spacer(minLength: 4)
-                                Text(ByteCountFormatter.string(fromByteCount: s.size, countStyle: .file)).monospacedDigit()
-                            }
-                            .font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                        }
-                        .padding(.vertical, 3)
-                    } action: {
-                        sessionID = s.id
-                    }
-                }
+    /// 左下角：备份状态和立即备份
+    private var footer: some View {
+        HStack(spacing: 8) {
+            if state.running {
+                ProgressView().controlSize(.mini).frame(width: 6, height: 6)
+            } else {
+                Circle().fill(state.needsAttention ? EchoColor.warn : EchoColor.good).frame(width: 6, height: 6)
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 8)
+            Text(statusText).font(.system(size: 12)).foregroundStyle(EchoColor.fg3).lineLimit(1)
+                .help(state.cleanupDays != nil ? "在 ~/.claude/settings.json 把 cleanupPeriodDays 设成 36500 可永久保留" : state.failures.joined(separator: "\n"))
+            Spacer()
+            Button { state.backupNow() } label: {
+                Image(systemName: "arrow.clockwise").font(.system(size: 12, weight: .medium)).frame(width: 26, height: 26)
+            }
+            .buttonStyle(EchoIconButton())
+            .disabled(state.running)
+            .help("立即备份")
         }
+        .padding(.leading, 20).padding(.trailing, 12)
+        .frame(height: 44)
+    }
+
+    private var statusText: String {
+        if state.running { return state.total > 0 ? "正在备份 \(state.done)/\(state.total)" : "正在备份" }
+        if state.error != nil { return "备份失败，点右边重试" }
+        if !state.failures.isEmpty { return "\(state.failures.count) 个文件没备份上" }
+        if let n = state.staleDays { return "已经 \(n) 天没备份" }
+        if let n = state.cleanupDays { return "Claude Code 会删 \(n) 天前的会话" }
+        if let d = state.lastSuccess { return "上次备份 \(EchoTime.short(d))" }
+        return "还没有备份过"
     }
 }
 
-/// 列表行：悬停浅色圆角底，选中用强调色浅底
+/// 列表行：悬停浅色圆角底；选中时由调用方给底色
 struct EchoRow<Content: View>: View {
-    let selected: Bool
+    var fill: Color?
+    var shadow = false
     @ViewBuilder let content: Content
     let action: () -> Void
     @State private var hover = false
 
     var body: some View {
         content
-            .padding(.horizontal, 8)
-            .padding(.vertical, 5)
+            .padding(.horizontal, 10)
             .background(
-                RoundedRectangle(cornerRadius: 6)
-                    .fill(selected ? Color.accentColor.opacity(0.18) : hover ? Color.primary.opacity(0.06) : .clear)
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(fill ?? (hover ? EchoColor.hover : .clear))
+                    .shadow(color: .black.opacity(shadow ? 0.06 : 0), radius: 1, y: 1)
             )
             .contentShape(Rectangle())
             .onHover { hover = $0 }
             .onTapGesture(perform: action)
     }
+}
+
+struct EchoIconButton: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View { Styled(configuration: configuration) }
+    private struct Styled: View {
+        let configuration: Configuration
+        @State private var hover = false
+        var body: some View {
+            configuration.label
+                .foregroundStyle(hover ? EchoColor.fg : EchoColor.fg2)
+                .background(RoundedRectangle(cornerRadius: 6).fill(hover || configuration.isPressed ? EchoColor.hover : .clear))
+                .onHover { hover = $0 }
+        }
+    }
+}
+
+/// 拖窗口的区域：窗口没有标题栏，红绿灯那一行按住能拖，双击放大或还原（照伙伴云NAS应用 WindowDragArea）
+struct EchoWindowDrag: NSViewRepresentable {
+    final class V: NSView {
+        override var mouseDownCanMoveWindow: Bool { true }
+        override func mouseDown(with e: NSEvent) {
+            if e.clickCount == 2 { window?.performZoom(nil) } else { window?.performDrag(with: e) }
+        }
+    }
+    func makeNSView(context: Context) -> NSView { V() }
+    func updateNSView(_ v: NSView, context: Context) {}
 }
 
 // MARK: - 右栏：对话

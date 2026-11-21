@@ -17,6 +17,7 @@
 {"type":"user","uuid":"u7","timestamp":"2026-11-20T02:00:00.000Z","isCompactSummary":true,"message":{"content":"This session is being continued. 摘要：做了 A 和 B"}}
 {"type":"user","uuid":"u8","timestamp":"2026-11-20T02:01:00.000Z","message":{"content":"<task-notification>后台任务完成</task-notification>"}}
 {"type":"user","uuid":"u9","timestamp":"2026-11-20T02:02:00.000Z","origin":{"kind":"human"},"message":{"content":[{"type":"text","text":"  第二个问题  "}]}}
+{"type":"user","uuid":"u11","timestamp":"2026-11-20T02:02:10.000Z","message":{"content":[{"type":"text","text":"[Request interrupted by user]"}]}}
 {"type":"ai-title","aiTitle":"看图和 PDF","sessionId":"sess-0001"}
 {"type":"assistant","uuid":"a4","timestamp":"2026-11-20T02:02:30.000Z","message":{"id":"m3","content":[{"type":"text","text":"   "}]}}
 {"type":"custom-title","customTitle":"测试会话：各类记录","sessionId":"sess-0001"}

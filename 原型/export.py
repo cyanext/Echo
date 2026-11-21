@@ -14,7 +14,7 @@ import sys
 SYSTEM_PREFIXES = (
     "<system-reminder>", "<command-name>", "<command-message>", "<local-command-stdout>",
     "<local-command-stderr>", "<task-notification>", "<user-prompt-submit-hook>",
-    "[Image:", "Caveat:",
+    "[Image:", "Caveat:", "[Request interrupted",
 )
 
 

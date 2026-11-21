@@ -34,6 +34,13 @@ enum EchoTime {
     nonisolated(unsafe) private static let plain = ISO8601DateFormatter()
     static func parse(_ s: String) -> Date? { s.isEmpty ? nil : frac.date(from: s) ?? plain.date(from: s) }
 
+    static func formatted(_ d: Date, _ fmt: String) -> String {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "zh_CN")
+        f.dateFormat = fmt
+        return f.string(from: d)
+    }
+
     /// 今天 14:05；11月18日 14:05；2025年3月2日
     static func short(_ d: Date?) -> String {
         guard let d else { return "" }
@@ -128,6 +135,7 @@ enum EchoLibrary {
                     else if let m = try? EchoSessionScan.read(f) { meta = m }
                     else { continue }
                     fresh.entries[f.path] = .init(stamp: stamp, meta: meta)
+                    if meta.start.isEmpty { continue }   // 一条对话都没有的空会话不列
                     out.append(EchoSession(url: f, sessionId: String(f.lastPathComponent.dropLast(6)), computer: c.lastPathComponent, size: stamp.size, meta: meta))
                 }
             }

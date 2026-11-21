@@ -21,7 +21,6 @@ cat > "$APP/Contents/Info.plist" <<P
   <key>CFBundleShortVersionString</key><string>${VERSION}</string>
   <key>CFBundleVersion</key><string>${BUILD}</string>
   <key>LSMinimumSystemVersion</key><string>14.0</string>
-  <key>LSUIElement</key><true/>
   <key>LSApplicationCategoryType</key><string>public.app-category.productivity</string>
   <key>NSDesktopFolderUsageDescription</key><string>把会话备份到桌面上的回响文件夹</string>
   <key>NSDocumentsFolderUsageDescription</key><string>把会话备份到文稿里的文件夹</string>

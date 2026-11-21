@@ -1,5 +1,5 @@
-// 回响：菜单栏常驻，每天自动备份一次会话，浏览窗口按项目看会话。
-// 入口、备份状态、菜单栏菜单。浏览窗口见 EchoBrowser.swift，设置见 EchoSettings.swift。
+// 回响：程序坞应用（照伙伴云NAS应用 v0.5.0 起的做法），关掉窗口在后台照常运行，每天自动备份一次会话。
+// 入口、备份状态、主菜单。浏览窗口见 EchoBrowser.swift，设置见 EchoSettings.swift。
 import AppKit
 import Combine
 import ServiceManagement
@@ -48,6 +48,8 @@ final class EchoState: ObservableObject {
     @Published var cleanupDays: Int?
     @Published var sessions: [EchoSession] = []
     @Published var scanning = false
+    /// 上次跑备份的时间（成功失败都算），打开窗口时 5 分钟内跑过就不再跑
+    var lastBackupRun: Date?
 
     private var timer: Timer?
 
@@ -75,6 +77,7 @@ final class EchoState: ObservableObject {
     func backupNow() {
         guard !running else { return }
         running = true
+        lastBackupRun = Date()
         error = nil
         done = 0
         total = 0
@@ -126,87 +129,7 @@ final class EchoState: ObservableObject {
         return n > 3 ? n : nil
     }
 
-    var needsAttention: Bool { error != nil || !failures.isEmpty || staleDays != nil }
-}
-
-// MARK: - 菜单栏
-
-@MainActor
-final class EchoMenu: NSObject, NSMenuDelegate {
-    private let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-    private let menu = NSMenu()
-    private var bag: AnyCancellable?
-    private var open = false
-
-    override init() {
-        super.init()
-        menu.delegate = self
-        menu.autoenablesItems = false
-        item.menu = menu
-        updateIcon()
-        bag = EchoState.shared.objectWillChange.sink { [weak self] _ in
-            // 菜单展开时也刷新进度：放进 common 模式，菜单跟踪期间照样执行
-            RunLoop.main.perform(inModes: [.common]) {
-                MainActor.assumeIsolated {
-                    self?.updateIcon()
-                    if self?.open == true { self?.rebuild() }
-                }
-            }
-        }
-    }
-
-    private func updateIcon() {
-        let s = EchoState.shared
-        let name = s.needsAttention ? "exclamationmark.bubble" : "bubble.left.and.text.bubble.right"
-        let img = NSImage(systemSymbolName: name, accessibilityDescription: "回响")
-        img?.isTemplate = true
-        item.button?.image = img
-    }
-
-    func menuNeedsUpdate(_ menu: NSMenu) { rebuild() }
-    func menuWillOpen(_ menu: NSMenu) { open = true }
-    func menuDidClose(_ menu: NSMenu) { open = false }
-
-    private func rebuild() {
-        let s = EchoState.shared
-        menu.removeAllItems()
-        func info(_ t: String) {
-            let i = NSMenuItem(title: t, action: nil, keyEquivalent: "")
-            i.isEnabled = false
-            menu.addItem(i)
-        }
-        if s.running { info(s.total > 0 ? "正在备份 \(s.done) / \(s.total)" : "正在备份…") }
-        else if let e = s.error { info("备份失败：\(e)") }
-        else if let d = s.lastSuccess { info("上次备份 \(EchoTime.short(d))") }
-        else { info("还没有备份过") }
-        if !s.running {
-            if !s.failures.isEmpty { info("\(s.failures.count) 个文件没备份上，下次自动重试") }
-            if let n = s.staleDays { info("已经 \(n) 天没有备份成功") }
-        }
-        if let n = s.cleanupDays {
-            info("Claude Code 会自动删除 \(n) 天前的会话")
-            info("在 ~/.claude/settings.json 把 cleanupPeriodDays 设成 36500")
-        }
-        menu.addItem(.separator())
-        add("浏览会话…", #selector(browse), "o")
-        add("立即备份", #selector(backup), "b").isEnabled = !s.running
-        menu.addItem(.separator())
-        add("设置…", #selector(settings), ",")
-        add("退出回响", #selector(quit), "q")
-    }
-
-    @discardableResult
-    private func add(_ title: String, _ sel: Selector, _ key: String) -> NSMenuItem {
-        let i = NSMenuItem(title: title, action: sel, keyEquivalent: key)
-        i.target = self
-        menu.addItem(i)
-        return i
-    }
-
-    @objc private func browse() { EchoWindows.showBrowser() }
-    @objc private func backup() { EchoState.shared.backupNow() }
-    @objc private func settings() { EchoWindows.showSettings() }
-    @objc private func quit() { NSApp.terminate(nil) }
+    var needsAttention: Bool { error != nil || !failures.isEmpty || staleDays != nil || cleanupDays != nil }
 }
 
 // MARK: - 窗口
@@ -222,6 +145,8 @@ enum EchoWindows {
                              styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
                              backing: .buffered, defer: false)
             w.title = "回响"
+            w.titleVisibility = .hidden
+            w.titlebarAppearsTransparent = true
             w.isReleasedWhenClosed = false
             w.contentView = NSHostingView(rootView: EchoBrowserView().environmentObject(EchoState.shared))
             w.setContentSize(NSSize(width: 1280, height: 820))
@@ -229,7 +154,9 @@ enum EchoWindows {
             w.setFrameAutosaveName("EchoBrowser")
             browser = w
         }
-        EchoState.shared.reloadSessions()
+        // 浏览读的是备份：打开窗口时顺手增量备份一次，今天的会话也能看到（只写变过的文件，一两秒）
+        let s = EchoState.shared
+        if s.running { } else if let d = s.lastBackupRun, Date().timeIntervalSince(d) < 300 { s.reloadSessions() } else { s.backupNow() }
         NSApp.activate(ignoringOtherApps: true)
         browser?.makeKeyAndOrderFront(nil)
     }
@@ -253,26 +180,50 @@ enum EchoWindows {
 // MARK: - 入口
 
 final class EchoAppDelegate: NSObject, NSApplicationDelegate {
-    var menu: EchoMenu?
+    private var badge: AnyCancellable?
+    /// 开机自动启动时不弹窗口，在后台备份
+    private var quietLaunch = false
+
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        let e = NSAppleEventManager.shared().currentAppleEvent
+        quietLaunch = e?.paramDescriptor(forKeyword: keyAEPropData)?.enumCodeValue == keyAELaunchedAsLogInItem
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         MainActor.assumeIsolated {
             NSApp.mainMenu = Self.mainMenu()
-            menu = EchoMenu()
             // 第一次打开时设成开机自动启动，之后以设置里的开关为准
             if !UserDefaults.standard.bool(forKey: "loginItemAsked") {
                 UserDefaults.standard.set(true, forKey: "loginItemAsked")
                 try? SMAppService.mainApp.register()
             }
             EchoState.shared.start()
+            // 备份出问题时程序坞图标加「!」
+            badge = EchoState.shared.objectWillChange.sink { _ in
+                DispatchQueue.main.async { NSApp.dockTile.badgeLabel = EchoState.shared.needsAttention ? "!" : nil }
+            }
+            if !quietLaunch { EchoWindows.showBrowser() }
         }
     }
 
-    /// 菜单栏应用不显示主菜单，但拷贝、粘贴、全选、关窗口的快捷键要靠它
-    static func mainMenu() -> NSMenu {
+    /// 关掉窗口后照常在后台运行，每天备份
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
+
+    /// 点程序坞图标、再打开一次时弹出浏览窗口
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if !flag { MainActor.assumeIsolated { EchoWindows.showBrowser() } }
+        return true
+    }
+
+    @MainActor static func mainMenu() -> NSMenu {
         let main = NSMenu()
         let app = NSMenu()
-        app.addItem(withTitle: "关闭窗口", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
+        app.addItem(withTitle: "关于回响", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
+        app.addItem(.separator())
+        app.addItem(EchoAction.item("设置…", ",") { EchoWindows.showSettings() })
+        app.addItem(EchoAction.item("立即备份", "b") { EchoState.shared.backupNow() })
+        app.addItem(.separator())
+        app.addItem(withTitle: "隐藏回响", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
         app.addItem(withTitle: "退出回响", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         let edit = NSMenu(title: "编辑")
         edit.addItem(withTitle: "撤销", action: Selector(("undo:")), keyEquivalent: "z")
@@ -280,12 +231,33 @@ final class EchoAppDelegate: NSObject, NSApplicationDelegate {
         edit.addItem(withTitle: "拷贝", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
         edit.addItem(withTitle: "粘贴", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
         edit.addItem(withTitle: "全选", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
-        for m in [app, edit] {
+        let window = NSMenu(title: "窗口")
+        window.addItem(EchoAction.item("浏览会话", "0") { EchoWindows.showBrowser() })
+        window.addItem(withTitle: "最小化", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")
+        window.addItem(withTitle: "关闭", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
+        for m in [app, edit, window] {
             let i = NSMenuItem()
             i.submenu = m
             main.addItem(i)
         }
+        NSApp.windowsMenu = window
         return main
+    }
+}
+
+/// 菜单项直接带一个闭包
+final class EchoAction: NSObject {
+    private static var keep: [EchoAction] = []
+    private let run: () -> Void
+    private init(_ run: @escaping () -> Void) { self.run = run }
+    @objc private func fire() { run() }
+
+    @MainActor static func item(_ title: String, _ key: String, _ run: @escaping @MainActor () -> Void) -> NSMenuItem {
+        let a = EchoAction { MainActor.assumeIsolated { run() } }
+        keep.append(a)
+        let i = NSMenuItem(title: title, action: #selector(fire), keyEquivalent: key)
+        i.target = a
+        return i
     }
 }
 
@@ -297,7 +269,7 @@ enum EchoMain {
     static func main() {
         let app = NSApplication.shared
         app.delegate = delegate
-        app.setActivationPolicy(.accessory)
+        app.setActivationPolicy(.regular)
         app.run()
     }
 }
