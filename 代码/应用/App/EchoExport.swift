@@ -1,5 +1,5 @@
 // 把一个会话 jsonl 整理成浏览页面用的数据（meta + turns）。
-// 规则见方案第七节「消息显示规则」，行为以 原型/export.py 为准，tests/run.sh 拿原型现场生成的结果比对。
+// 规则见立项方案（需求文档/归档/方案.md）第七节「消息显示规则」，行为以 代码/原型/export.py 为准，tests/run.sh 拿原型现场生成的结果比对。
 import Foundation
 
 enum EchoExport {

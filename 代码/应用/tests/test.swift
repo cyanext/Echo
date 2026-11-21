@@ -1,4 +1,4 @@
-// 回归测试：瘦身、消息显示和原型（原型/slim.py、export.py）的结果一致，备份挑文件的规则。
+// 回归测试：瘦身、消息显示和原型（代码/原型/slim.py、export.py）的结果一致，备份挑文件的规则。
 // 由 tests/run.sh 编译运行：test <会话.jsonl> <原型瘦身结果> <原型 data.js>；test --rules <假会话>
 // 手动验收全量备份：test --backup <临时目录>（把本机会话备份到临时目录，跑两遍看耗时）
 import Foundation

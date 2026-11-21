@@ -2,7 +2,7 @@
 """会话瘦身原型：把 Claude Code 会话 jsonl 里的 base64 图片和文件换成占位，去掉请求记录，其余原样保留。
 
 用法：python3 slim.py <原会话.jsonl> <输出.jsonl>
-规则见 ../方案.md「瘦身规则」。正式应用用 Swift 重写，行为以本脚本为准。
+规则见 ../../需求文档/归档/方案.md「瘦身规则」。正式应用用 Swift 重写，行为以本脚本为准。
 """
 import json
 import sys

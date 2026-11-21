@@ -1,6 +1,6 @@
-// 对话正文。数据格式见 EchoExport.swift（规则以 原型/export.py 为准）。
+// 对话正文。数据格式见 EchoExport.swift（规则以 代码/原型/export.py 为准）。
 // 应用里数据来自 echo://app/session.json（EchoBrowser.swift 的 EchoScheme），复制恢复命令交给 Swift 写剪贴板；
-// 设计稿 docs/设计稿/浏览窗口/ 先放好 window.SESSION 再引用本文件。
+// 设计稿 设计/浏览窗口/ 先放好 window.SESSION 再引用本文件。
 (function () {
   const root = typeof document === "undefined" ? null : document.getElementById("conv");
 
@@ -155,7 +155,7 @@
     return any ? any[1] : null;
   }
 
-  // 定位条的关键点（方案 docs/versions/v0.3.0-会话定位条.html）：只标三类
+  // 定位条的关键点（方案 需求文档/版本需求/v0.3.0-会话定位条.html）：只标三类
   // 1. 手动压缩：阶段总结的 trigger 是 manual；自动压缩不标
   // 2. 版本提交：同一个「模块 + 版本号」只标最后一次；会话里一次版本提交都没有时，每次提交都标
   // 3. 合集里每个会话的开头

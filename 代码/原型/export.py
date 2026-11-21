@@ -2,7 +2,7 @@
 """把一个会话 jsonl 整理成浏览界面用的数据，写成 data.js 供 viewer/index.html 读取。
 
 用法：python3 export.py <会话.jsonl> <输出 data.js> [电脑名]
-整理规则见 ../方案.md「消息显示规则」。正式应用用 Swift 重写，行为以本脚本为准。
+整理规则见 ../../需求文档/归档/方案.md「消息显示规则」。正式应用用 Swift 重写，行为以本脚本为准。
 """
 import json
 import os

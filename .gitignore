@@ -3,6 +3,6 @@
 样例/*.jsonl
 样例/浏览样例/data.js
 # 编译产物、分支工作区
-应用/dist/
+代码/应用/dist/
 .worktrees/
 .DS_Store

@@ -1,10 +1,10 @@
 // 浏览窗口：左栏按目录二级分类的会话（大目录 > 项目 > 会话），右栏对话（WKWebView 加载 Web/ 里的页面）。
-// 照设计稿 docs/设计稿/浏览窗口/：外框照伙伴云NAS应用（图标栏灰底、白色内容区、靛蓝强调色），列表不用系统 List。
+// 照设计稿 设计/浏览窗口/：外框照伙伴云NAS应用（图标栏灰底、白色内容区、靛蓝强调色），列表不用系统 List。
 import AppKit
 import SwiftUI
 import WebKit
 
-/// 颜色照伙伴云NAS应用的 RailColor，和设计稿 docs/设计稿/浏览窗口/设计稿.css 一致
+/// 颜色照伙伴云NAS应用的 RailColor，和设计稿 设计/浏览窗口/设计稿.css 一致
 enum EchoColor {
     static func dyn(_ light: UInt32, _ dark: UInt32, _ la: CGFloat = 1, _ da: CGFloat = 1) -> Color {
         Color(nsColor: NSColor(name: nil) { a in
