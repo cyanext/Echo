@@ -155,7 +155,7 @@
 
   // 定位条的关键点（方案 docs/versions/v0.3.0-会话定位条.html）：只标三类
   // 1. 手动压缩：阶段总结的 trigger 是 manual；自动压缩不标
-  // 2. 版本提交：同一个「模块 + 版本号」只标第一次；会话里一次版本提交都没有时，每次提交都标
+  // 2. 版本提交：同一个「模块 + 版本号」只标最后一次；会话里一次版本提交都没有时，每次提交都标
   // 3. 合集里每个会话的开头
   function keyPoints(turns) {
     const found = [];
@@ -178,14 +178,13 @@
         });
       }
     });
+    // 同一个版本标最后一次提交：提交是这一版的终点，它前面的对话都属于这一版
     const anyVer = found.some((k) => k.ver);
-    const seen = new Set();
-    const keys = found.filter((k) => {
-      if (k.kind !== "commit" || !anyVer) return true;
-      if (!k.ver || seen.has(k.ver)) return false;
-      seen.add(k.ver);
-      return true;
-    });
+    // 位置在最后一次提交，说明取第一次提交那句（最后一次多是「验收、更新记录」，第一次才写这一版做了什么）
+    const last = new Map(), first = new Map();
+    found.forEach((k, i) => { if (k.kind === "commit" && k.ver) { last.set(k.ver, i); if (!first.has(k.ver)) first.set(k.ver, k.label); } });
+    const keys = found.filter((k, i) => k.kind !== "commit" || !anyVer || (k.ver && last.get(k.ver) === i));
+    keys.forEach((k) => { if (k.kind === "commit" && k.ver) k.label = first.get(k.ver); });
     keys.forEach((k, n) => { k.id = "k" + n; k.obj._kid = k.id; delete k.obj; });
     return keys;
   }
@@ -228,7 +227,7 @@
         out.push(renderAI(blocks));
       } else if (t.role === "user") {
         const long = t.text.length > 1200 || t.text.split("\n").length > 16;
-        out.push(`<div class="msg user${long ? " long" : ""}"><div class="bubble">${esc(t.text)}</div>${long ? '<button class="more" type="button">展开全部</button>' : ""}<div class="stamp">${d ? hm(d) : ""}</div></div>`);
+        out.push(`<div class="msg user${long ? " long" : ""}"${t._uid ? ` id="${t._uid}"` : ""}><div class="bubble">${esc(t.text)}</div>${long ? '<button class="more" type="button">展开全部</button>' : ""}<div class="stamp">${d ? hm(d) : ""}</div></div>`);
       } else if (t.role === "session") {
         // 合集里每个会话的开头
         out.push(`<div class="divider part" id="${t._kid}"><span><b>${esc(t.text)}</b>${t.computer ? "　" + esc(t.computer) : ""}</span></div>`);
@@ -268,7 +267,7 @@
           <button class="c-btn outline${m.kind === "collection" ? " hidden" : ""}" id="copy-resume" type="button">${ICON.copy}<span class="lbl">复制恢复命令</span></button>
         </div>
       </div></header>
-      <div class="c-body"><nav class="c-rail" id="rail"></nav><main class="c-main" id="turns"></main></div>
+      <div class="c-body"><nav class="c-rail" id="rail"></nav><main class="c-main" id="turns"></main><nav class="c-rail right" id="urail"></nav></div>
       <div class="toast" id="toast"></div>`;
 
     const $ = (id) => document.getElementById(id);
@@ -276,6 +275,8 @@
 
     // 先画前 80 段，滚到底再接着画
     const keys = keyPoints(S.turns);
+    const myMsgs = [];   // 你的消息，右边定位条用
+    S.turns.forEach((t, i) => { if (t.role === "user") { t._uid = "u" + i; myMsgs.push({ id: t._uid, turn: i, text: t.text, ts: t.ts }); } });
     const partOf = [];
     const parts = render(S.turns, partOf);
     let drawn = 0;
@@ -284,16 +285,91 @@
       if (drawn >= parts.length) return;
       const end = Math.min(parts.length, drawn + n);
       sentinel.remove();
-      $("turns").insertAdjacentHTML("beforeend", parts.slice(drawn, end).join(""));
+      // 每段前放一个锚点 p<段号>：左边定位条点一条时跳到这一段的开头
+      $("turns").insertAdjacentHTML("beforeend", parts.slice(drawn, end).map((h, j) => `<i class="pa" id="p${drawn + j}"></i>${h}`).join(""));
       drawn = end;
       if (drawn < parts.length) $("turns").appendChild(sentinel);
       applyToggles();
     }
     const drawAll = () => draw(parts.length);
     new IntersectionObserver((es) => { if (es.some((e) => e.isIntersecting)) draw(80); }, { rootMargin: "1200px" }).observe(sentinel);
-    // 定位条：对话左边一列短横线，一个关键点一行，间距固定，排不下时自己上下滚动。
-    // 左边空白够宽时每行在横线右边写两行说明；不够宽时只画横线，悬停浮出说明。
+    // 定位条：左边是关键点（版本、手动压缩、合集里的会话开头），右边是你的消息。两条共用 makeRail：
+    // 一项一行、间距固定、排不下时自己滚动；空白够宽时写一行说明，不够宽时只画横线、悬停浮出说明；
     // 点了跳过去；滚动对话时当前那条变蓝，定位条跟着把它滚到中间
+    const LINE = 120;   // 标题栏下面那条线，判断读到哪用它
+    const posOf = (id) => {
+      const el = document.getElementById(id);
+      return el ? (el.closest("details.steps:not([open])") || el).getBoundingClientRect().top : Infinity;   // 还没画出来的算在下面
+    };
+    let gutter = 0, pinned = null;   // pinned：刚点过的那条定位条和当时的滚动位置，页面没动时保持点中的那条
+    const layout = () => {
+      gutter = ((root.clientWidth || document.documentElement.clientWidth) - 840) / 2;   // 按对话区的宽度算，设计稿里对话区比窗口窄
+      root.classList.toggle("rail-wide", gutter >= 180);
+      root.querySelectorAll(".c-rail").forEach((r) => (r.style.width = gutter >= 180 ? Math.min(gutter - 8, 300) + "px" : ""));
+    };
+    // 画到第 part 段，滚到 id 那里（停在标题栏下），闪一下
+    const goTo = (part, id) => {
+      if (part >= drawn) draw(part - drawn + 1);
+      const el = document.getElementById(id);
+      if (!el) return;
+      const g = el.closest("details.steps");
+      if (g) g.open = true;
+      el.scrollIntoView({ block: "start" });
+      const fl = el.classList.contains("pa") ? el.nextElementSibling : el;
+      if (fl) { fl.classList.remove("flash"); void fl.offsetWidth; fl.classList.add("flash"); }
+    };
+
+    function makeRail(nav, items, o) {
+      let html = "", lastGroup;
+      items.forEach((it) => {
+        if (it.group !== lastGroup) { html += `<div class="r-group">${esc(it.group || "")}</div>`; lastGroup = it.group; }
+        html += `<div class="k-row ${it.cls}" role="button" data-k="${it.id}"><i></i><div class="note">${it.row}</div></div>`;
+      });
+      nav.innerHTML = `<div class="r-scroll"><div class="r-list">${html}</div></div><div class="tip"></div>`;
+      const scroller = nav.querySelector(".r-scroll"), tip = nav.querySelector(".tip");
+      const rows = [...nav.querySelectorAll(".k-row")];
+      const byId = Object.fromEntries(items.map((it) => [it.id, it]));
+      let over = false, current;
+      // 当前那条变蓝；它不在定位条中间 60% 的范围里时滚到中间；鼠标在定位条上时不滚，免得和用户自己滚冲突
+      const mark = (id) => {
+        if (id !== current) {
+          current = id;
+          rows.forEach((x) => x.classList.toggle("on", x.dataset.k === id));
+          if (o.onChange) o.onChange(id && byId[id]);
+          if (!id && !over) scroller.scrollTo({ top: 0, behavior: "smooth" });
+        }
+        const row = id && rows.find((x) => x.dataset.k === id);
+        if (!row || over) return;
+        const y = row.offsetTop - scroller.scrollTop + row.offsetHeight / 2, h = scroller.clientHeight;
+        if (y < h * 0.2 || y > h * 0.8) scroller.scrollTo({ top: row.offsetTop - h / 2 + row.offsetHeight / 2, behavior: "smooth" });
+      };
+      nav.addEventListener("mouseenter", () => (over = true));
+      nav.addEventListener("mouseleave", () => { over = false; tip.classList.remove("show"); });
+      nav.addEventListener("click", (e) => {
+        const t = e.target.closest("[data-k]");
+        if (!t) return;
+        o.jump(byId[t.dataset.k]);
+        mark(t.dataset.k);
+        pinned = { rail: nav, y: window.scrollY };
+        spot();
+      });
+      nav.addEventListener("mouseover", (e) => {
+        const t = e.target.closest(".k-row");
+        if (!t || root.classList.contains("rail-wide")) { tip.classList.remove("show"); return; }
+        const it = byId[t.dataset.k];
+        const d = it.ts ? new Date(it.ts) : null;
+        tip.style.maxWidth = Math.max(150, Math.min(280, gutter - 52)) + "px";
+        tip.innerHTML = `<div class="tip-label">${it.tip}</div><div class="tip-time">${d ? md0(d) + " " + hm(d) : ""}</div>`;
+        tip.style.top = t.offsetTop - scroller.scrollTop + scroller.offsetTop + t.offsetHeight / 2 + "px";
+        tip.classList.add("show");
+      });
+      return { nav, mark, cur: o.cur };
+    }
+
+    const rails = [];
+
+    // 左边：关键点。一个关键点是它前面那一段的终点（提交「0.1.0」之前的对话都属于 0.1.0），
+    // 所以读到哪，就看前面遇到的下一个关键点；合集里的会话开头相反，是后面那一段的起点
     if (keys.length) {
       root.classList.add("has-rail");
       const verOf = (k) => (k.ver || "").split(" ").pop();
@@ -313,101 +389,67 @@
         if (!k.ver) return `<span class="n-text">${esc(k.label)}</span>`;
         return `<span class="n-ver">${esc(verOf(k))}</span><span class="n-text">${esc(brief(k))}</span>`;
       };
-      // 连续几条属于同一个模块时，上面写一次模块名；换模块的地方留白
-      let lastMod = null;
-      const rowsHtml = keys.map((k) => {
-        const mod = moduleOf(k);
-        const head = mod !== lastMod ? `<div class="r-group">${esc(mod)}</div>` : "";
-        lastMod = mod;
-        return `${head}<div class="k-row t-${k.kind}" role="button" data-k="${k.id}"><i></i><div class="note">${noteText(k)}</div></div>`;
-      }).join("");
-      $("rail").innerHTML = `<div class="r-scroll" id="rscroll"><div class="r-list">${rowsHtml}</div></div><div class="tip" id="tip"></div>`;
-      const byId = Object.fromEntries(keys.map((k) => [k.id, k]));
-      const rows = [...$("rail").querySelectorAll(".k-row")];
-      const scroller = $("rscroll");
-      let gutter = 0, overRail = false, pinnedY = null, current = null;
+      const full = (k) => (k.kind === "compact" ? `手动压缩：${esc(k.sub || "")}` : k.kind === "part" ? esc(k.label) : esc(k.label).replace(/(v?\d+\.\d+\.\d+)/, '<b class="ver">$1</b>'));
 
-      // 左上角的标题跟着当前关键点换：标题写关键点的内容，小字写会话标题和这个关键点的时间；回到开头时恢复
+      // 左上角标题跟着当前段换：标题写这一段的关键点，小字写会话标题和时间；后面没有关键点时恢复会话标题
       const homeTitle = $("h-title").innerHTML, homeMeta = $("h-meta").innerHTML;
-      const headText = (k) => (k.kind === "compact" ? `手动压缩：${esc(k.sub || "")}` : k.kind === "part" ? esc(k.label) : esc(k.label).replace(/(v?\d+\.\d+\.\d+)/, '<b class="ver">$1</b>'));
-      const setHead = (id) => {
-        const k = id && byId[id];
+      const setHead = (k) => {
         const d = k && k.ts ? new Date(k.ts) : null;
-        $("h-title").innerHTML = k ? headText(k) : homeTitle;
+        $("h-title").innerHTML = k ? full(k) : homeTitle;
         $("h-meta").innerHTML = k ? `<span>${esc(m.title)}</span>${d ? `<span>${md0(d)} ${hm(d)}</span>` : ""}` : homeMeta;
         $("titles").classList.remove("swap"); void $("titles").offsetWidth; $("titles").classList.add("swap");
       };
 
-      // 左边空白：按对话区的宽度算（设计稿里对话区比窗口窄）
-      const layout = () => {
-        gutter = ((root.clientWidth || document.documentElement.clientWidth) - 840) / 2;
-        root.classList.toggle("rail-wide", gutter >= 180);
-        $("rail").style.width = gutter >= 180 ? Math.min(gutter - 8, 300) + "px" : "";
-      };
+      rails.push(makeRail($("rail"), keys.map((k) => ({
+        id: k.id, ts: k.ts, cls: "t-" + k.kind, group: moduleOf(k), row: noteText(k), tip: full(k),
+      })), {
+        onChange: (it) => setHead(it && keys.find((k) => k.id === it.id)),
+        // 点一条跳到这一段的开头：上一个关键点之后；会话开头就跳到它自己
+        jump: (it) => {
+          const n = keys.findIndex((k) => k.id === it.id), k = keys[n], prev = keys[n - 1];
+          if (k.kind === "part") return goTo(partOf[k.turn], k.id);
+          let start = prev ? partOf[prev.turn] + (prev.kind === "part" ? 0 : 1) : 0;
+          start = Math.min(start, partOf[k.turn]);
+          goTo(partOf[k.turn], "p" + start);
+        },
+        cur: () => {
+          const next = keys.find((k) => posOf(k.id) > LINE);
+          if (next && next.kind !== "part") return next.id;
+          let part = null;
+          keys.forEach((k) => { if (k.kind === "part" && posOf(k.id) <= LINE) part = k; });
+          return part ? part.id : null;
+        },
+      }));
+    }
+
+    // 右边：你的消息。消息是一段对话的起点，读到哪就看读过的最后一条；按天分组
+    if (myMsgs.length) {
+      root.classList.add("has-urail");
+      const dayOf = (ts) => (ts ? day(new Date(ts)) : "");
+      rails.push(makeRail($("urail"), myMsgs.map((a) => ({
+        id: a.id, ts: a.ts, cls: "t-ask" + (a.text.trim().length <= 6 ? " short" : ""), group: dayOf(a.ts),   // 「发布」「继续」这种短确认淡一些
+        row: `<span class="n-text">${esc(a.text.replace(/\s+/g, " ").slice(0, 80))}</span>`,
+        tip: esc(a.text.replace(/\s+/g, " ").slice(0, 200)),
+      })), {
+        jump: (it) => goTo(partOf[myMsgs.find((a) => a.id === it.id).turn], it.id),
+        cur: () => {
+          let cur = null;
+          for (const a of myMsgs) { const y = posOf(a.id); if (y > LINE) break; cur = a.id; }
+          return cur;
+        },
+      }));
+    }
+
+    function spot() {
+      if (pinned && Math.abs(window.scrollY - pinned.y) >= 4) pinned = null;
+      rails.forEach((r) => { if (!pinned || pinned.rail !== r.nav) r.mark(r.cur()); });
+    }
+    if (rails.length) {
       layout();
       window.addEventListener("resize", layout);
-
-      // 把一行滚到定位条中间；鼠标在定位条上时不动，免得和用户自己滚冲突
-      const center = (row, smooth) => {
-        if (overRail || !row) return;
-        scroller.scrollTo({ top: row.offsetTop - scroller.clientHeight / 2 + row.offsetHeight / 2, behavior: smooth ? "smooth" : "auto" });
-      };
-      // 当前那条变蓝；它不在定位条中间 60% 的范围里时滚到中间（当前那条没变也照样检查，读得远了它会滚出去）
-      const mark = (id) => {
-        if (id !== current) {
-          current = id;
-          rows.forEach((x) => x.classList.toggle("on", x.dataset.k === id));
-          setHead(id);
-          if (!id && !overRail) scroller.scrollTo({ top: 0, behavior: "smooth" });
-        }
-        const row = id && rows.find((x) => x.dataset.k === id);
-        if (!row) return;
-        const y = row.offsetTop - scroller.scrollTop + row.offsetHeight / 2, h = scroller.clientHeight;
-        if (y < h * 0.2 || y > h * 0.8) center(row, true);
-      };
-
-      $("rail").addEventListener("mouseenter", () => (overRail = true));
-      $("rail").addEventListener("mouseleave", () => { overRail = false; $("tip").classList.remove("show"); });
-      $("rail").addEventListener("click", (e) => {
-        const t = e.target.closest("[data-k]");
-        if (!t) return;
-        const k = byId[t.dataset.k];
-        if (partOf[k.turn] >= drawn) draw(partOf[k.turn] - drawn + 1);
-        const el = document.getElementById(k.id);
-        const g = el.closest("details.steps");
-        if (g) g.open = true;
-        el.scrollIntoView({ block: "start" });   // 停在标题栏下面（scroll-margin-top）
-        el.classList.remove("flash"); void el.offsetWidth; el.classList.add("flash");
-        mark(k.id);
-        pinnedY = window.scrollY;   // 跳转后页面还停在这里时保持点中的那条；一滚离就按实际位置重新判断
-      });
-      // 只画横线时悬停浮出说明，浮层宽度不超过左边空白
-      $("rail").addEventListener("mouseover", (e) => {
-        const t = e.target.closest(".k-row");
-        if (!t || root.classList.contains("rail-wide")) { $("tip").classList.remove("show"); return; }
-        const k = byId[t.dataset.k];
-        const d = k.ts ? new Date(k.ts) : null;
-        $("tip").style.maxWidth = Math.max(150, Math.min(280, gutter - 52)) + "px";
-        $("tip").innerHTML = `<div class="tip-label">${k.kind === "compact" ? "手动压缩：" + esc(k.sub || "") : esc(k.label)}</div><div class="tip-time">${d ? md0(d) + " " + hm(d) : ""}</div>`;
-        $("tip").style.top = t.offsetTop - scroller.scrollTop + scroller.offsetTop + t.offsetHeight / 2 + "px";
-        $("tip").classList.add("show");
-      });
-
-      // 当前位置：标题栏下面那条线以上的最后一个关键点（全部看一遍，不提前停）
-      const spot = () => {
-        if (pinnedY !== null && Math.abs(window.scrollY - pinnedY) < 4) return;
-        pinnedY = null;
-        let cur = null, best = -Infinity;
-        for (const k of keys) {
-          const el = document.getElementById(k.id);
-          if (!el) continue;
-          const top = (el.closest("details.steps:not([open])") || el).getBoundingClientRect().top;
-          if (top <= 120 && top > best) { best = top; cur = k.id; }
-        }
-        mark(cur);
-      };
       let ticking = false;
       window.addEventListener("scroll", () => { if (!ticking) { ticking = true; setTimeout(() => { spot(); ticking = false; }, 60); } }, { passive: true });
+      spot();
     }
 
     $("turns").addEventListener("toggle", (e) => { if (e.target.dataset && e.target.dataset.i && e.target.open) fillStep(e.target); }, true);

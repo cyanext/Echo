@@ -17,7 +17,7 @@ eq(commitMessage(bash("git log --grep commit")), null, "git log 不算");
 eq(commitMessage({ kind: "tool", name: "Read", input: { command: 'git commit -m "x"' } }), null, "别的工具不算");
 
 eq(summaryLine("This session is being continued from a previous conversation.\n\n<system-reminder>\n<tools-used-before-summary>Bash</tools-used-before-summary>\n</system-reminder>\nSummary:\n## 1. Primary Request and Intent\n\nThe user is setting up the company NAS."), "The user is setting up the company NAS.", "摘要兜底：跳过开场白、系统标签和标题");
-// 定位条只标三类：手动压缩、每个「模块 + 版本号」的第一次提交、合集里的会话开头
+// 定位条只标三类：手动压缩、每个「模块 + 版本号」的最后一次提交（这一版的终点，说明取第一次那句）、合集里的会话开头
 const turns = [
   { role: "user", ts: "2026-11-20T01:00:00Z", text: "把阶段总结做成定位条上的点" },
   { role: "assistant", ts: "2026-11-20T01:01:00Z", blocks: [bash('git commit -q -m "0.1.0：第一版"'), bash('git commit -q -m "0.1.0：补文档"'), bash('git commit -q -m "改注释"'), { kind: "text", text: "ok" }] },
@@ -31,8 +31,8 @@ const turns = [
 ];
 const keys = keyPoints(turns);
 eq(keys.map((k) => `${k.kind}:${k.label}`).join(" | "),
-   "commit:0.1.0：第一版 | commit:后台接口 v0.14.2：认人 | commit:会议 v0.14.2：录音 | compact:手动压缩 | compact:手动压缩 | part:另一个会话",
-   "只标手动压缩、每个模块加版本号的第一次提交、会话开头；自动压缩和不带版本号的提交不标");
+   "commit:0.1.0：第一版 | commit:会议 v0.14.2：录音 | commit:后台接口 v0.14.2：认人 | compact:手动压缩 | compact:手动压缩 | part:另一个会话",
+   "只标手动压缩、每个模块加版本号的最后一次提交（说明取第一次那句）、会话开头；自动压缩和不带版本号的提交不标");
 eq(keys[3].sub, "把阶段总结做成定位条上的点", "手动压缩的说明取压缩前最后一条有内容的消息，跳过短确认和命令");
 eq(keys[4].sub, "The user wants a timeline.", "两次压缩之间没有消息时从摘要里取");
 eq(keys.map((k) => k.id).join(","), "k0,k1,k2,k3,k4,k5", "关键点编号连续");

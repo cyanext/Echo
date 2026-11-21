@@ -206,7 +206,8 @@
    说明和浮层都只在左边空白里，不压正文。对话区照旧居中 */
 .c-rail { display: none; }
 @media (min-width: 760px) {
-  .has-rail .c-rail { display: block; position: fixed; left: 0; top: 90px; bottom: 24px; width: 44px; z-index: 4; }
+  .has-rail .c-rail, .has-urail .c-rail.right { display: block; position: fixed; left: 0; top: 90px; bottom: 24px; width: 44px; z-index: 4; }
+  .has-urail .c-rail.right { left: auto; right: 0; }
 }
 .r-scroll { position: absolute; inset: 0; display: flex; flex-direction: column; overflow-y: auto; scrollbar-width: none; }
 .r-scroll::-webkit-scrollbar { display: none; }
@@ -220,7 +221,7 @@
 .k-row.on i { background: var(--accent); }
 /* 模块名：一组上面写一次，组间留白；只画横线时不显示 */
 .r-group { display: none; }
-.rail-wide .r-group { display: block; margin: 14px 0 2px 40px; font-size: 11px; line-height: 16px; color: var(--fg-faint); }
+.rail-wide .r-group { display: block; margin: 14px 10px 2px 40px; font-size: 11px; line-height: 16px; color: var(--fg-faint); }
 .rail-wide .r-group:empty { margin-top: 8px; height: 0; }
 .rail-wide .r-group:first-child { margin-top: 0; }
 .note { display: none; }
@@ -234,6 +235,15 @@
 .rail-wide .k-row.on { background: var(--accent-soft); }
 .rail-wide .k-row.on .note { color: var(--fg); }
 .tip .ver { color: var(--accent); }
+/* 右边：你的消息。横线贴右边、字在左边，镜像左边那条；浮层往左弹 */
+.c-rail.right .k-row { flex-direction: row-reverse; padding: 0 14px 0 0; border-radius: 8px 0 0 8px; }
+.rail-wide .c-rail.right .k-row { padding-left: 10px; }
+.rail-wide .c-rail.right .r-group { margin-left: 10px; margin-right: 36px; }
+.c-rail.right .note { flex: 1; }
+.rail-wide .c-rail.right .k-row.short .note { color: var(--fg-faint); }
+.c-rail.right .tip { left: auto; right: 44px; }
+/* 段锚点：左边定位条点一条时跳到这一段的开头 */
+.pa { display: block; height: 0; }
 .tip {
   position: absolute; left: 44px; z-index: 6; width: max-content; max-width: 280px; padding: 8px 12px;
   border-radius: 10px; background: var(--bg); box-shadow: var(--shadow); transform: translateY(-50%);
@@ -244,7 +254,7 @@
 .tip-sub { margin-top: 2px; font-size: 12px; line-height: 1.5; color: var(--fg-muted); }
 .tip-time { margin-top: 2px; font-size: 11px; color: var(--fg-faint); font-variant-numeric: tabular-nums; }
 .ver { font-weight: 600; color: var(--accent); }
-[id^="k"] { scroll-margin-top: 88px; }
+[id^="k"], [id^="u"], .pa { scroll-margin-top: 88px; }
 .step.commit::before { border-color: var(--accent); background: var(--accent); }
 @keyframes flash { from { background: var(--accent-soft); } to { background: transparent; } }
 .flash, .flash > summary { animation: flash 1.6s ease-out; border-radius: 8px; }
