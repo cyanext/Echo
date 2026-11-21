@@ -144,32 +144,48 @@
     return line || "提交";
   }
 
-  // 给时间轴挑关键点，记在数据上，渲染时带 id
+  // 版本号和它前面的模块名：「后台接口 v0.14.2」→ 模块「后台接口」、版本「0.14.2」
+  const VER_RE = /(\S{0,8}?)\s?v?(\d+\.\d+\.\d+)/;
+  function versionKey(label) {
+    const m = label.match(VER_RE);
+    if (!m) return null;
+    return m[1].replace(/^[\s:：，,「（(]+|[\s:：，,「（(]+$/g, "") + " " + m[2];
+  }
+
+  // 定位条的关键点（方案 docs/versions/v0.3.0-会话定位条.html）：只标三类
+  // 1. 手动压缩：阶段总结的 trigger 是 manual；自动压缩不标
+  // 2. 版本提交：同一个「模块 + 版本号」只标第一次；会话里一次版本提交都没有时，每次提交都标
+  // 3. 合集里每个会话的开头
   function keyPoints(turns) {
-    const keys = [];
-    let n = 0, lastAsk = "", lastShort = "";
+    const found = [];
+    let lastAsk = "", lastShort = "";
     turns.forEach((t, i) => {
-      // 阶段总结的说明：压缩前你最后一条有内容的消息（原话，最好认；「做吧」「发布」这种短确认往前找）。
-      // 摘要的第一节每次都差不多，不用它
+      // 手动压缩的说明：压缩前最后一条 10 个字以上的消息（「做吧」这类短确认往前找，跳过 / 命令）
       if (t.role === "user" && !/^\//.test(t.text.trim())) {
         const x = t.text.replace(/\s+/g, " ").trim();
         if (x.length >= 10) lastAsk = x;
         else if (!lastAsk) lastShort = x;
-      }
-      else if (t.role === "summary") {
-        t._kid = "k" + n++;
-        const sub = (lastAsk || lastShort || summaryLine(t.text)).slice(0, 80);
-        keys.push({ id: t._kid, turn: i, kind: "compact", ts: t.ts, label: "阶段总结", sub });
+      } else if (t.role === "summary" && t.trigger === "manual") {
+        found.push({ obj: t, turn: i, kind: "compact", ts: t.ts, label: "手动压缩", sub: (lastAsk || lastShort || summaryLine(t.text)).slice(0, 80) });
         lastAsk = lastShort = "";
-      }
-      else if (t.role === "session") { t._kid = "k" + n++; keys.push({ id: t._kid, turn: i, kind: "part", ts: t.ts, label: t.text }); }
-      else if (t.role === "assistant") {
+      } else if (t.role === "session") {
+        found.push({ obj: t, turn: i, kind: "part", ts: t.ts, label: t.text });
+      } else if (t.role === "assistant") {
         t.blocks.forEach((b) => {
           const msg = commitMessage(b);
-          if (msg) { b._kid = "k" + n++; keys.push({ id: b._kid, turn: i, kind: "commit", ts: t.ts, label: msg }); }
+          if (msg && !/^Merge\b/.test(msg)) found.push({ obj: b, turn: i, kind: "commit", ts: t.ts, label: msg, ver: versionKey(msg) });
         });
       }
     });
+    const anyVer = found.some((k) => k.ver);
+    const seen = new Set();
+    const keys = found.filter((k) => {
+      if (k.kind !== "commit" || !anyVer) return true;
+      if (!k.ver || seen.has(k.ver)) return false;
+      seen.add(k.ver);
+      return true;
+    });
+    keys.forEach((k, n) => { k.id = "k" + n; k.obj._kid = k.id; delete k.obj; });
     return keys;
   }
 
@@ -218,7 +234,7 @@
       } else if (t.role === "command") {
         out.push(`<div class="event">${ICON.cmd}<code>${esc(t.text)}</code></div>`);
       } else if (t.role === "summary") {
-        out.push(`<details class="compact" id="${t._kid}"><summary><div class="divider"><span>会话在这里压缩过，点开看摘要</span></div></summary>${md(t.text)}</details>`);
+        out.push(`<details class="compact"${t._kid ? ` id="${t._kid}"` : ""}><summary><div class="divider"><span>会话在这里压缩过，点开看摘要</span></div></summary>${md(t.text)}</details>`);
       } else {
         out.push(`<div class="event system">${ICON.sys}<span>${esc(t.text.slice(0, 300))}</span></div>`);
       }
@@ -274,54 +290,57 @@
     }
     const drawAll = () => draw(parts.length);
     new IntersectionObserver((es) => { if (es.some((e) => e.isIntersecting)) draw(80); }, { rootMargin: "1200px" }).observe(sentinel);
-    // 时间轴：对话左边一列短横线，一个关键点一条；鼠标放上去浮出说明，点了跳过去；滚动时当前那条变蓝
+    // 定位条：对话左边一列短横线，一个关键点一行，间距固定，排不下时自己上下滚动。
+    // 左边空白够宽时每行在横线右边写两行说明；不够宽时只画横线，悬停浮出说明。
+    // 点了跳过去；滚动对话时当前那条变蓝，定位条跟着把它滚到中间
     if (keys.length) {
       root.classList.add("has-rail");
-      $("rail").innerHTML = `<div class="ticks">${keys.map((k) => `<button class="tick t-${k.kind}" type="button" data-k="${k.id}"><i></i></button>`).join("")}</div><div class="notes" id="notes"></div><div class="tip" id="tip"></div>`;
-      const byId = Object.fromEntries(keys.map((k) => [k.id, k]));
-      const ticks = [...$("rail").querySelectorAll(".tick")];
-      const mark = (id) => $("rail").querySelectorAll("[data-k]").forEach((x) => x.classList.toggle("on", x.dataset.k === id));
-
-      // 重点写字：会话开头 > 阶段总结 > 带版本号的提交，按这个顺序摆，和已摆的挨太近就只留横线。
-      // 字只放在对话左边的空白里，空白不够（窗口窄）时不写字
-      const VER = /v?\d+\.\d+\.\d+/;
-      // 同一个版本号只在第一次出现的提交上写字
-      const firstOfVer = new Set();
-      const seenVer = new Set();
-      keys.forEach((k) => { const v = k.kind === "commit" && k.label.match(VER); if (v && !seenVer.has(v[0].replace(/^v/, ""))) { seenVer.add(v[0].replace(/^v/, "")); firstOfVer.add(k.id); } });
-      const rank = (k) => (k.kind === "part" ? 0 : k.kind === "compact" ? 1 : firstOfVer.has(k.id) ? 2 : 9);
+      const VERB = /v?\d+\.\d+\.\d+/;
       const noteText = (k) => {
-        if (k.kind === "compact") return `<span class="n-tag">总结</span>${esc(k.sub || "阶段总结")}`;
+        if (k.kind === "compact") return `<span class="n-tag">压缩</span>${esc(k.sub || "")}`;
         if (k.kind === "part") return `<b>${esc(k.label)}</b>`;
-        const v = k.label.match(VER)[0];
-        // 去掉「需求：」「需求对齐：」这类前缀，留下做了什么
-        const rest = k.label.replace(VER, "").replace(/^[\s:：、-]+/, "").replace(/^[^\s:：]{1,6}[:：]\s*/, "");
-        return `<b class="ver">${esc(v.replace(/^v/, ""))}</b> ${esc(rest)}`;
+        const v = k.label.match(VERB);
+        if (!v) return esc(k.label);
+        // 去掉「需求：」这类前缀，留下做了什么
+        const rest = k.label.replace(VERB, "").replace(/\s{2,}/g, " ").replace(/^[\s:：、-]+/, "").replace(/^[^\s:：]{1,6}[:：]\s*/, "");
+        return `<b class="ver">${esc(v[0].replace(/^v/, ""))}</b> ${esc(rest)}`;
       };
-      let gutter = 0;
-      function layoutNotes() {
-        gutter = ((root.clientWidth || document.documentElement.clientWidth) - 840) / 2;   // 按对话区的宽度算，设计稿里对话区比窗口窄
-        const notes = $("notes");
-        notes.innerHTML = "";
+      $("rail").innerHTML = `<div class="r-scroll" id="rscroll"><div class="r-list">${keys.map((k) =>
+        `<div class="k-row t-${k.kind}" role="button" data-k="${k.id}"><i></i><div class="note">${noteText(k)}</div></div>`).join("")}</div></div><div class="tip" id="tip"></div>`;
+      const byId = Object.fromEntries(keys.map((k) => [k.id, k]));
+      const rows = [...$("rail").querySelectorAll(".k-row")];
+      const scroller = $("rscroll");
+      let gutter = 0, overRail = false, pinned = 0, current = null;
+
+      // 左边空白：按对话区的宽度算（设计稿里对话区比窗口窄）
+      const layout = () => {
+        gutter = ((root.clientWidth || document.documentElement.clientWidth) - 840) / 2;
         root.classList.toggle("rail-wide", gutter >= 180);
-        if (gutter < 180) return;
-        notes.style.width = gutter - 52 + "px";
-        const taken = [];
-        const free = (y) => taken.every((t) => Math.abs(t - y) >= 40);   // 两行字高 34，再留点空
-        keys.filter((k) => rank(k) < 9).sort((a, b) => rank(a) - rank(b)).forEach((k) => {
-          const t = ticks.find((x) => x.dataset.k === k.id);
-          const y = t.offsetTop + t.offsetHeight / 2;
-          if (!free(y)) return;
-          taken.push(y);
-          // 用 div：WKWebView 里按钮不认两行截断，字会铺开叠在一起
-          notes.insertAdjacentHTML("beforeend", `<div class="note n-${k.kind}" role="button" data-k="${k.id}" style="top:${y}px">${noteText(k)}</div>`);
-          t.classList.add("noted");
-        });
-        mark(($("rail").querySelector(".tick.on") || {}).dataset?.k);
-      }
-      layoutNotes();
-      window.addEventListener("resize", layoutNotes);
-      let pinned = 0;
+        $("rail").style.width = gutter >= 180 ? Math.min(gutter - 8, 300) + "px" : "";
+      };
+      layout();
+      window.addEventListener("resize", layout);
+
+      // 把一行滚到定位条中间；鼠标在定位条上时不动，免得和用户自己滚冲突
+      const center = (row, smooth) => {
+        if (overRail || !row) return;
+        scroller.scrollTo({ top: row.offsetTop - scroller.clientHeight / 2 + row.offsetHeight / 2, behavior: smooth ? "smooth" : "auto" });
+      };
+      // 当前那条变蓝；它不在定位条中间 60% 的范围里时滚到中间（当前那条没变也照样检查，读得远了它会滚出去）
+      const mark = (id) => {
+        if (id !== current) {
+          current = id;
+          rows.forEach((x) => x.classList.toggle("on", x.dataset.k === id));
+          if (!id && !overRail) scroller.scrollTo({ top: 0, behavior: "smooth" });
+        }
+        const row = id && rows.find((x) => x.dataset.k === id);
+        if (!row) return;
+        const y = row.offsetTop - scroller.scrollTop + row.offsetHeight / 2, h = scroller.clientHeight;
+        if (y < h * 0.2 || y > h * 0.8) center(row, true);
+      };
+
+      $("rail").addEventListener("mouseenter", () => (overRail = true));
+      $("rail").addEventListener("mouseleave", () => { overRail = false; $("tip").classList.remove("show"); });
       $("rail").addEventListener("click", (e) => {
         const t = e.target.closest("[data-k]");
         if (!t) return;
@@ -335,19 +354,18 @@
         mark(k.id);
         pinned = Date.now();
       });
-      // 悬停浮层也只在左边空白里，宽度不超过空白；已经写了字的不再弹
+      // 只画横线时悬停浮出说明，浮层宽度不超过左边空白
       $("rail").addEventListener("mouseover", (e) => {
-        const t = e.target.closest(".tick");
-        if (!t || t.classList.contains("noted")) { $("tip").classList.remove("show"); return; }
-        $("tip").style.maxWidth = Math.max(150, Math.min(280, gutter - 52)) + "px";
+        const t = e.target.closest(".k-row");
+        if (!t || root.classList.contains("rail-wide")) { $("tip").classList.remove("show"); return; }
         const k = byId[t.dataset.k];
         const d = k.ts ? new Date(k.ts) : null;
-        const label = esc(k.label).replace(/(v?\d+\.\d+\.\d+)/, '<b class="ver">$1</b>');
-        $("tip").innerHTML = `<div class="tip-label">${label}</div>${k.sub ? `<div class="tip-sub">${esc(k.sub)}</div>` : ""}<div class="tip-time">${d ? md0(d) + " " + hm(d) : ""}</div>`;
-        $("tip").style.top = t.offsetTop + t.offsetHeight / 2 + "px";
+        $("tip").style.maxWidth = Math.max(150, Math.min(280, gutter - 52)) + "px";
+        $("tip").innerHTML = `<div class="tip-label">${noteText(k)}</div><div class="tip-time">${d ? md0(d) + " " + hm(d) : ""}</div>`;
+        $("tip").style.top = t.offsetTop - scroller.scrollTop + scroller.offsetTop + t.offsetHeight / 2 + "px";
         $("tip").classList.add("show");
       });
-      $("rail").addEventListener("mouseleave", () => $("tip").classList.remove("show"));
+
       // 当前位置：标题栏下面那条线以上的最后一个关键点（全部看一遍，不提前停）
       const spot = () => {
         if (Date.now() - pinned < 600) return;   // 刚点过，跳转引起的滚动不改高亮
@@ -478,7 +496,7 @@
   }
 
   // 回归测试（tests/timeline_test.js）在 node 里加载本文件，取时间轴的规则
-  if (typeof module !== "undefined") { module.exports = { commitMessage, summaryLine, keyPoints }; return; }
+  if (typeof module !== "undefined") { module.exports = { commitMessage, summaryLine, keyPoints, versionKey }; return; }
   if (window.SESSION) start(window.SESSION);
   else fetch("session.json" + location.search).then((r) => r.json()).then(start);
 })();

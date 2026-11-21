@@ -196,44 +196,43 @@
 .conv pre code { padding: 0; background: none; font-size: inherit; }
 .step pre { margin: 0; }
 
-/* 时间轴：对话左边一列短横线，一个关键点一条，线长分种类：会话开头最长、阶段总结次之、提交最短。
-   左边空白够宽时，重点（会话开头、阶段总结、带版本号的提交）在横线右边写一行字；其余悬停浮出说明。
-   字和浮层都只在对话左边的空白里，不压正文。对话区照旧居中 */
+/* 定位条：对话左边一列短横线，一个关键点一行，间距固定，排不下时自己上下滚动（滚动条隐藏）。
+   线长分种类：会话开头最长、手动压缩次之、版本提交最短；当前那条变蓝。
+   左边空白够宽（rail-wide）时每行在横线右边写两行说明，行高 40；不够宽时只画横线，行高 10，悬停浮出说明。
+   说明和浮层都只在左边空白里，不压正文。对话区照旧居中 */
 .c-rail { display: none; }
 @media (min-width: 760px) {
   .has-rail .c-rail { display: block; position: fixed; left: 0; top: 90px; bottom: 24px; width: 44px; z-index: 4; }
-  .has-rail .c-rail .ticks { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: center; }
 }
-.notes { position: absolute; left: 40px; top: 0; }
-.note {
-  position: absolute; left: 0; transform: translateY(-50%); max-width: 100%; padding: 2px 8px; border: 0; border-radius: 6px;
-  background: none; color: var(--fg-muted); font-size: 12px; line-height: 17px; text-align: left; cursor: pointer;
-  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; width: 100%;
+.r-scroll { position: absolute; inset: 0; display: flex; flex-direction: column; overflow-y: auto; scrollbar-width: none; }
+.r-scroll::-webkit-scrollbar { display: none; }
+.r-list { margin: auto 0; padding: 8px 0; }   /* 内容少时上下居中，多了从顶上开始滚 */
+.k-row { display: flex; align-items: center; gap: 10px; height: 10px; padding-left: 14px; cursor: pointer; }
+.rail-wide .k-row { height: 40px; padding-right: 8px; border-radius: 0 8px 8px 0; }
+.k-row i { flex: none; display: block; height: 2px; width: 8px; border-radius: 1px; background: var(--line-strong); transition: width .12s, background .12s; }
+.k-row.t-compact i { width: 14px; }
+.k-row.t-part i { width: 20px; height: 3px; }
+.k-row:hover i { background: var(--fg-muted); }
+.k-row.on i { background: var(--accent); }
+.note { display: none; }
+.rail-wide .note {
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; min-width: 0;
+  font-size: 12px; line-height: 17px; color: var(--fg-muted);
 }
-.note:hover { background: var(--bg-hover); color: var(--fg); }
-.note.on { color: var(--fg); background: var(--accent-soft); }
+.rail-wide .k-row:hover { background: var(--bg-hover); }
+.rail-wide .k-row:hover .note { color: var(--fg); }
+.rail-wide .k-row.on { background: var(--accent-soft); }
+.rail-wide .k-row.on .note { color: var(--fg); }
 .note b { font-weight: 600; color: var(--fg); }
-.note .ver { color: var(--accent); }
+.note .ver, .tip .ver { color: var(--accent); }
 .n-tag { margin-right: 4px; padding: 0 4px; border-radius: 4px; background: var(--bg-subtle); color: var(--fg-faint); font-size: 11px; }
-.tick.noted i { background: var(--fg-faint); }
-.tick {
-  position: relative; display: flex; align-items: center; flex: 0 1 12px; min-height: 3px; width: 100%;
-  padding: 0 0 0 14px; border: 0; background: none; cursor: pointer;
-}
-.tick i { display: block; height: 2px; width: 8px; border-radius: 1px; background: var(--line-strong); transition: width .12s, background .12s; }
-.tick.t-compact i { width: 14px; }
-.tick.t-part i { width: 20px; height: 3px; }
-.tick:hover i { background: var(--fg-muted); width: 18px; }
-.tick.t-part:hover i { width: 24px; }
-.tick.on i { background: var(--accent); width: 20px; }
-.tick.t-part.on i { width: 26px; }
 .tip {
   position: absolute; left: 44px; z-index: 6; width: max-content; max-width: 280px; padding: 8px 12px;
   border-radius: 10px; background: var(--bg); box-shadow: var(--shadow); transform: translateY(-50%);
   opacity: 0; pointer-events: none; transition: opacity .12s;
 }
 .tip.show { opacity: 1; }
-.tip-label { font-size: 13px; line-height: 1.5; color: var(--fg); }
+.tip-label { font-size: 12px; line-height: 1.5; color: var(--fg); }
 .tip-sub { margin-top: 2px; font-size: 12px; line-height: 1.5; color: var(--fg-muted); }
 .tip-time { margin-top: 2px; font-size: 11px; color: var(--fg-faint); font-variant-numeric: tabular-nums; }
 .ver { font-weight: 600; color: var(--accent); }

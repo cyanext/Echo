@@ -55,6 +55,7 @@ def export(path, computer):
     turns = []          # 显示用的消息列表
     tools = {}          # tool_use_id -> 工具块，用来挂工具结果
     seen = set()        # 已处理的 uuid，去重
+    trigger = ""        # 上一条压缩记录的触发方式（auto 自动、manual 手动 /compact），记到紧跟着的阶段总结上
 
     for line in open(path, encoding="utf-8"):
         try:
@@ -66,6 +67,9 @@ def export(path, computer):
             meta["title"] = d.get("customTitle", "")
         elif t == "ai-title":
             meta["aiTitle"] = d.get("aiTitle", "")
+        if t == "system" and d.get("subtype") == "compact_boundary":
+            trigger = (d.get("compactMetadata") or {}).get("trigger", "")
+            continue
         if t not in ("user", "assistant"):
             continue
         uid = d.get("uuid")
@@ -112,7 +116,8 @@ def export(path, computer):
         if not text:
             continue
         if d.get("isCompactSummary"):
-            turns.append({"role": "summary", "ts": ts, "text": text})
+            turns.append({"role": "summary", "ts": ts, "text": text, "trigger": trigger})
+            trigger = ""
             continue
         cmd = command_label(text)
         if cmd:

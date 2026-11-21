@@ -10,7 +10,7 @@ enum EchoExport {
         "[Image:", "Caveat:", "[Request interrupted",
     ]
 
-    private static let needles = ["\"type\":\"user\"", "\"type\":\"assistant\"", "\"type\":\"custom-title\"", "\"type\":\"ai-title\""].map { Array($0.utf8) }
+    private static let needles = ["\"type\":\"user\"", "\"type\":\"assistant\"", "\"type\":\"custom-title\"", "\"type\":\"ai-title\"", "\"compact_boundary\""].map { Array($0.utf8) }
 
     /// 逐条回调可能相关的记录（user、assistant、标题），其余 20 多种类型连解析都省掉
     static func records(_ url: URL, _ body: ([String: Any]) -> Void) throws {
@@ -72,10 +72,12 @@ enum EchoExport {
 
     private final class Turn {
         let role: String, ts: String
-        var text = "", msgId: String?, blocks: [Block] = []
+        var text = "", msgId: String?, blocks: [Block] = [], trigger: String?
         init(role: String, ts: String) { self.role = role; self.ts = ts }
         var dict: [String: Any] {
-            role == "assistant" ? ["role": role, "ts": ts, "blocks": blocks.map(\.dict)] : ["role": role, "ts": ts, "text": text]
+            if role == "assistant" { return ["role": role, "ts": ts, "blocks": blocks.map(\.dict)] }
+            if let trigger { return ["role": role, "ts": ts, "text": text, "trigger": trigger] }
+            return ["role": role, "ts": ts, "text": text]
         }
     }
 
@@ -85,9 +87,14 @@ enum EchoExport {
         var turns: [Turn] = []
         var tools: [String: Block] = [:]
         var seen = Set<String>(), seenNil = false   // 已处理的 uuid，去重（和原型一样，没有 uuid 的只留第一条）
+        var trigger = ""                            // 上一条压缩记录的触发方式（auto、manual），记到紧跟着的阶段总结上
 
         try records(url) { d in
             let t = d["type"] as? String
+            if t == "system", d["subtype"] as? String == "compact_boundary" {
+                trigger = (d["compactMetadata"] as? [String: Any])?["trigger"] as? String ?? ""
+                return
+            }
             if t == "custom-title" { meta["title"] = d["customTitle"] as? String ?? "" }
             else if t == "ai-title" { meta["aiTitle"] = d["aiTitle"] as? String ?? "" }
             guard t == "user" || t == "assistant" else { return }
@@ -146,6 +153,7 @@ enum EchoExport {
             guard let (role, text) = userRole(d) else { return }
             let turn = Turn(role: role, ts: ts)
             turn.text = text
+            if role == "summary" { turn.trigger = trigger; trigger = "" }
             turns.append(turn)
         }
 
