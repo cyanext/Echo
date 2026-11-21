@@ -162,6 +162,8 @@
 .event.system { align-items: flex-start; font-family: var(--mono); font-size: 12px; white-space: pre-wrap; word-break: break-all; }
 .divider { display: flex; align-items: center; gap: 12px; margin: 36px 0 20px; font-size: 12px; color: var(--fg-faint); }
 .divider::before, .divider::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+.divider.part { margin-top: 48px; font-size: 13px; color: var(--fg-muted); }
+.divider.part b { font-weight: 600; color: var(--fg); }
 .compact { margin: 36px 0; }
 .compact > summary { list-style: none; cursor: pointer; }
 .compact > summary::-webkit-details-marker { display: none; }

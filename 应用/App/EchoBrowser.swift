@@ -34,6 +34,11 @@ struct EchoBrowserView: View {
     @AppStorage("filterComputer") private var computer = ""           // 空表示全部电脑
     @AppStorage("collapsedProjects") private var collapsedRaw = ""     // 折叠的项目路径，换行分隔
     @State private var sessionID: String?
+    @State private var collectionID: String?
+    @State private var picked: Set<String> = []                        // ⌘ 点选的会话，用来连起来看
+    @State private var renaming: EchoTarget?
+    @State private var newTitle = ""
+    @State private var editError: String?
     @State private var projects: [EchoProject] = []                    // 会话列表变了才重新分组，不在每次刷新时算
     @State private var dupNames: Set<String> = []
     @State private var showAll: Set<String> = []                       // 点过「再显示」的项目
@@ -44,6 +49,12 @@ struct EchoBrowserView: View {
     private var session: EchoSession? {
         projects.lazy.flatMap(\.sessions).first { $0.id == sessionID } ?? projects.first?.sessions.first
     }
+    private var target: EchoTarget? {
+        if let id = collectionID, let c = state.collections.first(where: { $0.id == id }) {
+            return .collection(c, EchoCollections.sessions(c, in: state.sessions, root: EchoPrefs.backupRoot))
+        }
+        return session.map { .session($0) }
+    }
 
     var body: some View {
         HStack(spacing: 0) {
@@ -52,7 +63,7 @@ struct EchoBrowserView: View {
                 .background(EchoColor.side)
                 .overlay(alignment: .trailing) { Rectangle().fill(EchoColor.sideLine).frame(width: 1) }
             ZStack {
-                if let s = session { EchoConversation(session: s) }
+                if let t = target { EchoConversation(target: t) }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
@@ -63,6 +74,104 @@ struct EchoBrowserView: View {
         .onAppear(perform: regroup)
         .onChange(of: state.sessions) { _, _ in regroup() }
         .onChange(of: computer) { _, _ in regroup() }
+        .alert("改名", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
+            TextField("名字", text: $newTitle)
+            Button("取消", role: .cancel) {}
+            Button("改名", action: commitRename)
+        } message: {
+            if case .session(let s) = renaming, let u = EchoRename.originalURL(for: s), EchoRename.isActive(u) {
+                Text("会话正在进行，Claude Code 可能把名字改回去，在会话里用 /rename 更稳")
+            }
+        }
+        .alert("没改成", isPresented: Binding(get: { editError != nil }, set: { if !$0 { editError = nil } })) {
+            Button("好", role: .cancel) {}
+        } message: {
+            Text(editError ?? "")
+        }
+    }
+
+    private func startRename(_ t: EchoTarget) {
+        newTitle = t.title
+        renaming = t
+    }
+
+    private func commitRename() {
+        guard let t = renaming else { return }
+        renaming = nil
+        do {
+            switch t {
+            case .session(let s): try state.rename(s, to: newTitle)
+            case .collection(let c, _):
+                guard !newTitle.trimmed.isEmpty else { return }
+                try state.saveCollections(state.collections.map { $0.id == c.id ? EchoCollection(id: c.id, title: newTitle.trimmed, members: c.members, created: c.created) : $0 })
+            }
+        } catch { editError = error.localizedDescription }
+    }
+
+    private func link(_ list: [EchoSession]) {
+        do {
+            let c = try state.addCollection(list)
+            picked = []
+            collectionID = c.id
+        } catch { editError = error.localizedDescription }
+    }
+
+    private func unlink(_ c: EchoCollection) {
+        do {
+            try state.saveCollections(state.collections.filter { $0.id != c.id })
+            if collectionID == c.id { collectionID = nil }
+        } catch { editError = error.localizedDescription }
+    }
+
+    /// 右键菜单：选了几个时连起来看，单个时改名
+    @ViewBuilder
+    private func sessionMenu(_ s: EchoSession) -> some View {
+        let group = picked.contains(s.id) && picked.count > 1
+            ? state.sessions.filter { picked.contains($0.id) } : []
+        if group.count > 1 {
+            Button("把 \(group.count) 个会话连起来看") { link(group) }
+        }
+        Button(EchoRename.originalURL(for: s) == nil ? "改名…（会话在 \(s.computer) 上）" : "改名…") { startRename(.session(s)) }
+            .disabled(EchoRename.originalURL(for: s) == nil)
+        if group.count < 2 {
+            Text("⌘ 点选几个会话，可以连起来看")
+        }
+    }
+
+    // MARK: 合集
+
+    @ViewBuilder
+    private var collectionSection: some View {
+        let list = state.collections.sorted { $0.created > $1.created }
+        if !list.isEmpty {
+            Text("合集").font(.system(size: 12, weight: .semibold)).foregroundStyle(EchoColor.sideFg)
+                .padding(.horizontal, 10).frame(height: 28).padding(.top, 8)
+            ForEach(list) { c in
+                let members = EchoCollections.sessions(c, in: state.sessions, root: EchoPrefs.backupRoot)
+                let on = c.id == collectionID
+                EchoRow(fill: on ? EchoColor.sideOn : nil, shadow: on) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(c.title).font(.system(size: 13, weight: on ? .medium : .regular)).lineLimit(1)
+                            .foregroundStyle(on ? EchoColor.fg : EchoColor.sideFg)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        HStack(spacing: 6) {
+                            Text("\(members.count) 个会话")
+                            Spacer(minLength: 4)
+                            Text(EchoTime.short(members.compactMap(\.endDate).max()))
+                        }
+                        .font(.system(size: 11)).foregroundStyle(EchoColor.fg3).monospacedDigit()
+                    }
+                    .padding(.leading, 18).padding(.vertical, 6)
+                } action: {
+                    collectionID = c.id
+                    picked = []
+                }
+                .contextMenu {
+                    Button("改名…") { startRename(.collection(c, members)) }
+                    Button("拆开") { unlink(c) }
+                }
+            }
+        }
     }
 
     private func regroup() {
@@ -105,6 +214,7 @@ struct EchoBrowserView: View {
             } else {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 1) {
+                        collectionSection
                         ForEach(projects) { p in projectSection(p) }
                     }
                     .padding(.horizontal, 10).padding(.bottom, 12)
@@ -154,10 +264,10 @@ struct EchoBrowserView: View {
     }
 
     private func sessionRow(_ s: EchoSession) -> some View {
-        let on = s.id == session?.id
+        let on = picked.contains(s.id) || (picked.isEmpty && collectionID == nil && s.id == session?.id)
         return EchoRow(fill: on ? EchoColor.sideOn : nil, shadow: on) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(s.meta.title).font(.system(size: 13, weight: on ? .medium : .regular)).lineLimit(1)
+                Text(s.meta.title == s.sessionId ? "未命名会话" : s.meta.title).font(.system(size: 13, weight: on ? .medium : .regular)).lineLimit(1)
                     .foregroundStyle(on ? EchoColor.fg : EchoColor.sideFg)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 HStack(spacing: 6) {
@@ -170,8 +280,17 @@ struct EchoBrowserView: View {
             }
             .padding(.leading, 18).padding(.vertical, 6)
         } action: {
-            sessionID = s.id
+            // ⌘ 点选：挑几个会话连起来看；普通点击打开
+            if NSEvent.modifierFlags.contains(.command) {
+                if picked.isEmpty, collectionID == nil, let cur = session { picked.insert(cur.id) }
+                if picked.contains(s.id) { picked.remove(s.id) } else { picked.insert(s.id) }
+            } else {
+                picked = []
+                collectionID = nil
+                sessionID = s.id
+            }
         }
+        .contextMenu { sessionMenu(s) }
     }
 
     private var empty: some View {
@@ -269,14 +388,48 @@ struct EchoWindowDrag: NSViewRepresentable {
 
 // MARK: - 右栏：对话
 
+/// 右栏显示的东西：一个会话，或一个合集（几个会话连起来）
+enum EchoTarget: Hashable {
+    case session(EchoSession)
+    case collection(EchoCollection, [EchoSession])
+
+    var title: String {
+        switch self {
+        case .session(let s): return s.meta.title
+        case .collection(let c, _): return c.title
+        }
+    }
+
+    /// 内容变了（会话又写了、合集成员变了、改了名）才重新整理
+    var key: String {
+        switch self {
+        case .session(let s): return "\(s.id)|\(s.size)"
+        case .collection(let c, let m): return "\(c.id)|\(c.title)|" + m.map { "\($0.id):\($0.size)" }.joined(separator: ",")
+        }
+    }
+
+    func load() throws -> [String: Any] {
+        switch self {
+        case .session(let s):
+            var d = try EchoExport.export(s.url, computer: s.computer)
+            var meta = d["meta"] as! [String: Any]
+            meta["local"] = s.computer == EchoPrefs.computerName
+            d["meta"] = meta
+            return d
+        case .collection(let c, let m):
+            return try EchoExport.exportCollection(m.map { ($0.url, $0.computer) }, id: c.id, title: c.title)
+        }
+    }
+}
+
 struct EchoConversation: View {
-    let session: EchoSession
+    let target: EchoTarget
     @State private var loading = false
     @State private var failed: String?
 
     var body: some View {
         ZStack {
-            EchoWebView(session: session, loading: $loading, failed: $failed)
+            EchoWebView(target: target, loading: $loading, failed: $failed)
             if loading { ProgressView().controlSize(.small) }
             if let f = failed {
                 VStack(spacing: 6) {
@@ -289,7 +442,7 @@ struct EchoConversation: View {
 }
 
 struct EchoWebView: NSViewRepresentable {
-    let session: EchoSession
+    let target: EchoTarget
     @Binding var loading: Bool
     @Binding var failed: String?
 
@@ -306,7 +459,7 @@ struct EchoWebView: NSViewRepresentable {
     }
 
     func updateNSView(_ w: WKWebView, context: Context) {
-        context.coordinator.show(session, loading: $loading, failed: $failed)
+        context.coordinator.show(target, loading: $loading, failed: $failed)
     }
 
     @MainActor
@@ -315,21 +468,14 @@ struct EchoWebView: NSViewRepresentable {
         weak var web: WKWebView?
         private var current: String?
 
-        func show(_ s: EchoSession, loading: Binding<Bool>, failed: Binding<String?>) {
-            let key = "\(s.id)|\(s.size)"
+        func show(_ t: EchoTarget, loading: Binding<Bool>, failed: Binding<String?>) {
+            let key = t.key
             guard key != current else { return }
             current = key
             loading.wrappedValue = true
             failed.wrappedValue = nil
-            let local = s.computer == EchoPrefs.computerName
             Task.detached(priority: .userInitiated) {
-                let r = Result { () -> Data in
-                    var d = try EchoExport.export(s.url, computer: s.computer)
-                    var meta = d["meta"] as! [String: Any]
-                    meta["local"] = local
-                    d["meta"] = meta
-                    return try JSONSerialization.data(withJSONObject: d)
-                }
+                let r = Result { () -> Data in try JSONSerialization.data(withJSONObject: t.load()) }
                 await MainActor.run {
                     guard self.current == key else { return }   // 整理期间又点了别的会话
                     loading.wrappedValue = false

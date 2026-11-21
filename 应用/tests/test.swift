@@ -1,5 +1,5 @@
 // 回归测试：瘦身、消息显示和原型（原型/slim.py、export.py）的结果一致，备份挑文件的规则。
-// 由 tests/run.sh 编译运行：test <会话.jsonl> <原型瘦身结果> <原型 data.js>；test --rules
+// 由 tests/run.sh 编译运行：test <会话.jsonl> <原型瘦身结果> <原型 data.js>；test --rules <假会话>
 // 手动验收全量备份：test --backup <临时目录>（把本机会话备份到临时目录，跑两遍看耗时）
 import Foundation
 
@@ -13,7 +13,7 @@ enum EchoTests {
 
     static func main() throws {
         let a = CommandLine.arguments
-        if a.count == 2, a[1] == "--rules" { rules() }
+        if a.count == 3, a[1] == "--rules" { rules(); try renameTest(fixture: URL(fileURLWithPath: a[2])) }
         else if a.count == 3, a[1] == "--backup" { try backup(URL(fileURLWithPath: a[2])) }
         else if a.count == 3, a[1] == "--time" { try timeExport(URL(fileURLWithPath: a[2])) }
         else if a.count == 4 { try compare(URL(fileURLWithPath: a[1]), slimmed: URL(fileURLWithPath: a[2]), dataJS: URL(fileURLWithPath: a[3])) }
@@ -96,5 +96,44 @@ enum EchoTests {
         ]
         for (rel, want) in cases { check(EchoBackupRule.action(for: rel) == want, "备份规则 \(rel) 应为 \(want)") }
         print("  备份规则 \(cases.count) 条")
+    }
+
+    /// 改名：只在末尾追加一行，已有内容逐字节不变；custom-title.json 有才改；写到一半时不写
+    static func renameTest(fixture: URL) throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("echo-rename-\(getpid())")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try FileManager.default.createDirectory(at: dir.appendingPathComponent("s1"), withIntermediateDirectories: true)
+        let f = dir.appendingPathComponent("s1.jsonl")
+        let body = Data("{\"type\":\"user\",\"uuid\":\"u1\",\"timestamp\":\"2026-11-20T01:00:00.000Z\",\"origin\":{\"kind\":\"human\"},\"message\":{\"content\":\"你好\"}}\n".utf8)
+        try body.write(to: f)
+        try Data("{\"customTitle\":\"旧名\"}".utf8).write(to: dir.appendingPathComponent("s1/custom-title.json"))
+        try EchoRename.appendTitle(to: f, sessionId: "s1", title: " 新名 \"引号\" / 斜杠 ")
+        let after = try Data(contentsOf: f)
+        check(after.prefix(body.count) == body, "改名后原有内容变了")
+        let last = String(decoding: after.dropFirst(body.count), as: UTF8.self)
+        let obj = try? JSONSerialization.jsonObject(with: Data(last.utf8)) as? [String: String]
+        check(obj == ["type": "custom-title", "customTitle": "新名 \"引号\" / 斜杠", "sessionId": "s1"] && last.hasSuffix("\n"), "改名追加的行不对：\(last)")
+        check(try EchoSessionScan.read(f).title == "新名 \"引号\" / 斜杠", "改名后列表标题没变")
+        check((try EchoExport.export(f, computer: "x")["meta"] as! [String: Any])["title"] as? String == "新名 \"引号\" / 斜杠", "改名后对话标题没变")
+        let side = try String(contentsOf: dir.appendingPathComponent("s1/custom-title.json"), encoding: .utf8)
+        check(side.contains("新名"), "custom-title.json 没改")
+        // 最后一行写到一半：不写，报错
+        let fh = try FileHandle(forWritingTo: f); try fh.seekToEnd(); try fh.write(contentsOf: Data("{\"type\":\"assi".utf8)); try fh.close()
+        let before = try Data(contentsOf: f)
+        check((try? EchoRename.appendTitle(to: f, sessionId: "s1", title: "再改")) == nil, "写到一半时应该报错")
+        check(try Data(contentsOf: f) == before, "写到一半时不应该动文件")
+        print("  改名 5 项")
+
+        // 合集：按开始时间排，每个会话前一条分隔，消息数相加
+        let g = dir.appendingPathComponent("s2.jsonl")
+        try Data(String(decoding: body, as: UTF8.self).replacingOccurrences(of: "2026-11-20", with: "2026-11-21").utf8).write(to: g)
+        let a = try EchoExport.export(fixture, computer: "甲"), b = try EchoExport.export(g, computer: "乙")
+        let c = try EchoExport.exportCollection([(fixture, "甲"), (g, "乙")], id: "c1", title: "合集")
+        let turns = c["turns"] as! [[String: Any]]
+        let parts = turns.filter { $0["role"] as? String == "session" }
+        check(turns.count == (a["turns"] as! [Any]).count + (b["turns"] as! [Any]).count + 2, "合集消息数不对")
+        check(parts.map { $0["computer"] as! String } == ["甲", "乙"], "合集没按开始时间排")
+        check((c["meta"] as! [String: Any])["kind"] as? String == "collection", "合集 meta 不对")
+        print("  合集 3 项")
     }
 }

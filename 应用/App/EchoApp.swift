@@ -48,6 +48,7 @@ final class EchoState: ObservableObject {
     @Published var cleanupDays: Int?
     @Published var sessions: [EchoSession] = []
     @Published var scanning = false
+    @Published var collections: [EchoCollection] = []
     /// 上次跑备份的时间（成功失败都算），打开窗口时 5 分钟内跑过就不再跑
     var lastBackupRun: Date?
 
@@ -115,11 +116,39 @@ final class EchoState: ObservableObject {
         let root = EchoPrefs.backupRoot
         Task.detached(priority: .userInitiated) {
             let list = EchoLibrary.scan(backupRoot: root)
+            let cols = EchoCollections.load(root)
             await MainActor.run {
                 EchoState.shared.sessions = list
+                EchoState.shared.collections = cols
                 EchoState.shared.scanning = false
             }
         }
+    }
+
+    // MARK: 改名、合集
+
+    /// 写回原会话后立刻增量备份，列表里马上看到新名字
+    func rename(_ s: EchoSession, to title: String) throws {
+        guard let u = EchoRename.originalURL(for: s) else {
+            throw CocoaError(.fileWriteNoPermission, userInfo: [NSLocalizedDescriptionKey: "这个会话在 \(s.computer) 上，到那台电脑上改"])
+        }
+        try EchoRename.appendTitle(to: u, sessionId: s.sessionId, title: title)
+        lastSuccess = nil
+        backupNow()
+    }
+
+    func saveCollections(_ list: [EchoCollection]) throws {
+        try EchoCollections.save(list, EchoPrefs.backupRoot)
+        collections = list
+    }
+
+    func addCollection(_ members: [EchoSession]) throws -> EchoCollection {
+        let root = EchoPrefs.backupRoot
+        let sorted = members.sorted { $0.meta.start < $1.meta.start }
+        let c = EchoCollection(title: "\(sorted.first?.meta.title ?? "合集") 等 \(sorted.count) 个会话",
+                               members: sorted.map { EchoCollections.key($0, root: root) })
+        try saveCollections(EchoCollections.load(root) + [c])
+        return c
     }
 
     /// 超过 3 天没成功备份

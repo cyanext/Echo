@@ -149,6 +149,9 @@
       } else if (t.role === "user") {
         const long = t.text.length > 1200 || t.text.split("\n").length > 16;
         out.push(`<div class="msg user${long ? " long" : ""}"><div class="bubble">${esc(t.text)}</div>${long ? '<button class="more" type="button">展开全部</button>' : ""}<div class="stamp">${d ? hm(d) : ""}</div></div>`);
+      } else if (t.role === "session") {
+        // 合集里每个会话的开头
+        out.push(`<div class="divider part"><span><b>${esc(t.text)}</b>${t.computer ? "　" + esc(t.computer) : ""}</span></div>`);
       } else if (t.role === "command") {
         out.push(`<div class="event">${ICON.cmd}<code>${esc(t.text)}</code></div>`);
       } else if (t.role === "summary") {
@@ -166,7 +169,7 @@
     let span = "";
     if (s0 && s1) span = `${md0(s0)} ${hm(s0)} 至 ${dayKey(s0) === dayKey(s1) ? "" : md0(s1) + " "}${hm(s1)}`;
     const asks = S.turns.filter((t) => t.role === "user").length;
-    const meta = [span, m.computer, m.gitBranch && m.gitBranch !== "HEAD" ? m.gitBranch : "", `${asks} 次提问`].filter(Boolean);
+    const meta = [span, m.kind === "collection" ? `${m.count} 个会话连起来` : "", m.computer, m.gitBranch && m.gitBranch !== "HEAD" ? m.gitBranch : "", `${asks} 次提问`].filter(Boolean);
 
     root.innerHTML = `
       <header class="c-head"><div class="c-head-in">
@@ -182,7 +185,7 @@
               <hr><button type="button" id="expand-all">全部展开</button>
             </div>
           </div>
-          <button class="c-btn outline" id="copy-resume" type="button">${ICON.copy}<span class="lbl">复制恢复命令</span></button>
+          <button class="c-btn outline${m.kind === "collection" ? " hidden" : ""}" id="copy-resume" type="button">${ICON.copy}<span class="lbl">复制恢复命令</span></button>
         </div>
       </div></header>
       <main class="c-main" id="turns"></main>
