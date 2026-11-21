@@ -1,5 +1,5 @@
 // 浏览窗口：左栏按目录二级分类的会话（大目录 > 项目 > 会话），右栏对话（WKWebView 加载 Web/ 里的页面）。
-// 照设计稿 设计/浏览窗口/：外框照伙伴云NAS应用（图标栏灰底、白色内容区、靛蓝强调色），列表不用系统 List。
+// 照设计稿 设计/浏览窗口/：外框照伙伴云NAS应用（图标栏灰底、白色内容区、青绿强调色），列表不用系统 List。
 import AppKit
 import SwiftUI
 import WebKit
@@ -13,17 +13,17 @@ enum EchoColor {
             return NSColor(srgbRed: CGFloat(v >> 16 & 0xff) / 255, green: CGFloat(v >> 8 & 0xff) / 255, blue: CGFloat(v & 0xff) / 255, alpha: isDark ? da : la)
         })
     }
-    static let side = dyn(0xecedf3, 0x232428)
+    static let side = dyn(0xedf0f0, 0x222627)
     static let sideOn = dyn(0xffffff, 0x34353b)
     static let sideFg = dyn(0x4b5468, 0xb4b9c5)
-    static let sideLine = dyn(0xe3e5ec, 0x2f3036)
+    static let sideLine = dyn(0xe1e6e6, 0x2d3233)
     static let surface = dyn(0xffffff, 0x1d1e23)
     static let fg = dyn(0x1f2329, 0xe6e8ec)
     static let fg2 = dyn(0x646a73, 0x9aa0ab)
     static let fg3 = dyn(0x8f959e, 0x6f7581)
     static let line = dyn(0xe3e5ec, 0x2c2e35)
-    static let accent = dyn(0x4e5bd8, 0x7c87f0)
-    static let sel = dyn(0x4e5bd8, 0x7c87f0, 0.10, 0.16)
+    static let accent = dyn(0x008081, 0x3fc0c0)          // 回响主色青绿（11-21 定，和 NAS 的靛蓝分开）
+    static let sel = dyn(0x008081, 0x3fc0c0, 0.10, 0.16)
     static let hover = dyn(0x1f2329, 0xffffff, 0.05, 0.06)
     static let good = dyn(0x12a150, 0x3ccf7e)
     static let warn = dyn(0xe08a00, 0xf0a63a)

@@ -2,11 +2,11 @@
    扁平：页底和正文同色，块用 1px 线框；颜色、字号、间距、圆角都从下面的变量取，正文不写裸数值。浅色深色跟着系统 */
 :root {
   /* 颜色 */
-  --bg: #ffffff; --bg-subtle: #f3f4f7; --bg-hover: rgba(31,35,41,.05); --sel: rgba(78,91,216,.08);
-  --fg: #1f2329; --fg-muted: #646a73; --fg-faint: #8f959e; --line: #e8e9ef;
-  --accent: #4e5bd8;
-  --q0: #eceef3; --q1: #c4cff9; --q2: #95a6f0; --q3: #6273e4; --q4: #3d46ba;   /* 主色由浅到深，2 到 4 档用 dataviz 校验过 */
-  --mute: #d9dce6;
+  --bg: #ffffff; --bg-subtle: #f2f4f4; --bg-hover: rgba(31,35,41,.05); --sel: rgba(0,128,129,.08);
+  --fg: #1f2329; --fg-muted: #646a73; --fg-faint: #8f959e; --line: #e5e9e9;
+  --accent: #008081;
+  --q0: #eaeeee; --q1: #afdfde; --q2: #64c3c3; --q3: #009fa0; --q4: #007677;   /* 主色由浅到深，2 到 4 档用 dataviz 校验过 */
+  --mute: #d3dbdb;
   /* 字号 / 行高 */
   --fs-s: 12px; --lh-s: 18px;     /* 小字：列名、灰字、数字 */
   --fs-m: 13px; --lh-m: 20px;     /* 正文 */
@@ -21,11 +21,11 @@
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #1d1e23; --bg-subtle: #2a2c32; --bg-hover: rgba(255,255,255,.06); --sel: rgba(124,135,240,.14);
-    --fg: #e6e8ec; --fg-muted: #9aa0ab; --fg-faint: #6f7581; --line: #2e3037;
-    --accent: #7c87f0;
-    --q0: #2c2e35; --q1: #2f386c; --q2: #4855a6; --q3: #6b7cdf; --q4: #8796f0;
-    --mute: #3a3d47;
+    --bg: #1d1e23; --bg-subtle: #2a2c32; --bg-hover: rgba(255,255,255,.06); --sel: rgba(63,192,192,.14);
+    --fg: #e6e8ec; --fg-muted: #9aa0ab; --fg-faint: #6f7581; --line: #2c3334;
+    --accent: #3fc0c0;
+    --q0: #2a3031; --q1: #034747; --q2: #006d6d; --q3: #009a9b; --q4: #5ecbcb;
+    --mute: #364042;
   }
 }
 
