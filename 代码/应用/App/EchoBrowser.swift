@@ -44,6 +44,7 @@ struct EchoBrowserView: View {
     @State private var showAll: Set<String> = []                       // 点过「再显示」的项目
     @State private var showOverview = true                             // 打开窗口默认停在总览
     @State private var jumpAt: Double?                                 // 从总览点版本或提交进来：打开后跳到这个时间
+    @AppStorage("sidebarWidth") private var sideW: Double = 272        // 左栏宽，拖右边缘改，220 到 420
 
     private var computers: [String] { Array(Set(state.sessions.map(\.computer))).sorted() }
     private var dirState: [String: Bool] {
@@ -65,16 +66,19 @@ struct EchoBrowserView: View {
     var body: some View {
         HStack(spacing: 0) {
             sidebar
-                .frame(width: 272)
-                .background(EchoColor.side)
-                .overlay(alignment: .trailing) { Rectangle().fill(EchoColor.sideLine).frame(width: 1) }
+                .frame(width: sideW)
+                .overlay(alignment: .trailing) { EchoResizeHandle(width: $sideW) }
+            // 右边白区：靠左栏的两个角收圆角 12，左栏的灰底从圆角外露出来（照伙伴云NAS应用）
             ZStack {
                 if showOverview { EchoOverview() }
                 else if let t = target { EchoConversation(target: t, at: jumpAt) }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(EchoColor.surface)
+            .clipShape(UnevenRoundedRectangle(topLeadingRadius: 12, bottomLeadingRadius: 12))
+            .overlay(UnevenRoundedRectangle(topLeadingRadius: 12, bottomLeadingRadius: 12).strokeBorder(EchoColor.sideLine, lineWidth: 1).padding(.trailing, -1))
         }
-        .background(EchoColor.surface)
+        .background(EchoColor.side)
         .foregroundStyle(EchoColor.fg)
         .ignoresSafeArea()
         .frame(minWidth: 860, minHeight: 560)
@@ -278,7 +282,7 @@ struct EchoBrowserView: View {
                 empty
             } else {
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 1) {
+                    LazyVStack(alignment: .leading, spacing: 0) {
                         overviewRow
                         collectionSection
                         ForEach(tree) { d in dirSection(d, level: 0) }
@@ -289,6 +293,17 @@ struct EchoBrowserView: View {
             }
             footer
         }
+    }
+
+    /// 树的竖线：每一级祖先的小三角正下方一条 1px 竖线，从上一级展开处一直连到这一级最后一行
+    private func guides(_ level: Int) -> some View {
+        ZStack(alignment: .topLeading) {
+            ForEach(0..<max(0, level), id: \.self) { k in
+                Rectangle().fill(EchoColor.line).frame(width: 1).offset(x: 10 + CGFloat(k) * indentStep + 5.5)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .allowsHitTesting(false)
     }
 
     /// 每级缩进 18，正好是小三角加间距的宽度。下一级从上一级的文字起点开始：子目录的三角、会话的标题都和上一级目录名字对齐
@@ -317,6 +332,7 @@ struct EchoBrowserView: View {
             } action: {
                 toggle(d, level: level)
             }
+            .background(guides(level))
             .padding(.top, level == 0 ? 10 : 0)
             .help((d.path as NSString).abbreviatingWithTildeInPath)
 
@@ -331,7 +347,7 @@ struct EchoBrowserView: View {
     @ViewBuilder
     private func sessionList(_ list: [EchoSession], key: String, level: Int) -> some View {
         let limit = showAll.contains(key) ? list.count : 5
-        ForEach(list.prefix(limit)) { s in sessionRow(s, indent: CGFloat(level - 1) * indentStep) }
+        ForEach(list.prefix(limit)) { s in sessionRow(s, indent: CGFloat(level - 1) * indentStep).background(guides(level)) }
         if list.count > limit {
             EchoRow(fill: nil) {
                 Text("再显示 \(list.count - limit) 个").font(.system(size: 12)).foregroundStyle(EchoColor.fg3)
@@ -339,6 +355,7 @@ struct EchoBrowserView: View {
             } action: {
                 showAll.insert(key)
             }
+            .background(guides(level))
         }
     }
 
@@ -417,6 +434,25 @@ struct EchoBrowserView: View {
         if let n = state.cleanupDays { return "Claude Code 会删 \(n) 天前的会话" }
         if let d = state.lastSuccess { return "上次备份 \(EchoTime.short(d))" }
         return "还没有备份过"
+    }
+}
+
+/// 左栏右边缘的拖动把手：6 宽，悬停变左右箭头，拖了改左栏宽，220 到 420，记在本机
+struct EchoResizeHandle: View {
+    @Binding var width: Double
+    @State private var start: Double?
+    var body: some View {
+        Color.clear
+            .frame(width: 6)
+            .contentShape(Rectangle())
+            .onHover { $0 ? NSCursor.resizeLeftRight.push() : NSCursor.pop() }
+            .gesture(DragGesture(minimumDistance: 1, coordinateSpace: .global)
+                .onChanged { g in
+                    if start == nil { start = width }
+                    width = min(420, max(220, (start ?? width) + g.translation.width))
+                }
+                .onEnded { _ in start = nil })
+            .offset(x: 3)
     }
 }
 
