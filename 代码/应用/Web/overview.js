@@ -108,7 +108,7 @@
     { l: "Token", f: (w) => w.tot, big: (w) => [fmtM(w.tot), ""], s: (w) => `其中输出 ${fmtM(w.out)} · 折合 ${fmtU(w.usd)}` },
     { l: "我的消息", f: (w) => w.msg, big: (w) => [fmtN(w.msg), "条"], s: (w) => `在 ${w.sids.size} 个会话里` },
     { l: "AI 干活", f: (w) => w.ms / 3.6e6, big: (w) => [(w.ms / 3.6e6).toFixed(1), "小时"], s: (w) => `最长一轮 ${Math.round(w.lg / 6e4)} 分钟` },
-    { l: "Git", f: (w) => w.commits, big: (w) => [fmtN(w.commits), "次提交"], s: (w) => `+${fmtN(w.add)} −${fmtN(w.del)} 行 · ${fmtN(w.files.size)} 个文件` },
+    { l: "Git 提交", f: (w) => w.commits, big: (w) => [fmtN(w.commits), "次"], s: (w) => `+${fmtN(w.add)} −${fmtN(w.del)} 行 · ${fmtN(w.files.size)} 个文件` },
   ];
   const SPAN = 8;
   // 同期：前几周只取周一到「今天是周几」那天
@@ -202,16 +202,17 @@
   // 只看一天：上面一张卡写日期、左右切天、「看整周」和六个数；下面一个会话一张卡，两列瀑布排，按 Token 从多到少。
   // 会话卡：一个会话一张，占满一行。左边标题，下面一行灰字写项目路径和时间段；右边文字标签写 Token、折合、消息、AI 干活、提交次数；
   // 这天发的版本做成主色标签，悬停看提交说明，点了打开会话跳到那次提交。提交不逐条列，要看就点「N 次提交」跳到会话里最近那次
-  // 会话一行两层，像表格：第一层标题，右边四列数字（Token、消息、AI 干活、提交）右对齐，和标题同一基线；
-  // 第二层灰字写项目路径、时间段，有发版的后面接版本号（主色等宽，最多 3 个）。列名每张卡顶上写一次
-  const COLS = `<div class="srow shd"><span>会话</span><span>Token</span><span>消息</span><span>AI 干活</span><span>提交</span></div>`;
+  // 会话一行一个，像表格：会话（标题，后面灰字项目路径，有发版的再接版本号）、时间、Token、我的消息、AI 干活、Git 提交。
+  // 叫法和上面数字卡一致；列名每张卡顶上写一次；Git 提交写「N 次」用主色，点了跳到会话里最近一次提交
+  const COLS = `<div class="srow shd"><span>会话</span><span>时间</span><span>Token</span><span>我的消息</span><span>AI 干活</span><span>Git 提交</span></div>`;
   function sessCard(s) {
     const cs = [...s.commits].sort((a, b) => b.time - a.time), vs = [];
     cs.forEach((c) => { if (c.ver && !vs.some((v) => v.ver === c.ver)) vs.push(c); });
-    const vers = vs.slice(0, 3).map((c) => `<span class="vt" data-sid="${esc(s.id)}" data-at="${c.time}" data-tip="${esc(c.ver)}|${hm(c.time)}|${esc(c.s)}|+${c.a} −${c.r}">${c.ver}</span>`).join("") + (vs.length > 3 ? `<span class="vm">等 ${vs.length} 个版本</span>` : "");
+    const vers = vs.slice(0, 3).map((c) => `<span class="vt" data-sid="${esc(s.id)}" data-at="${c.time}" data-tip="${esc(c.ver)}|${hm(c.time)}|${esc(c.s)}|+${c.a} −${c.r}">${c.ver}</span>`).join("") + (vs.length > 3 ? `<span class="vm">等 ${vs.length} 个</span>` : "");
     return `<article class="scard srow" data-id="${esc(s.id)}">
-      <div class="sm1"><div class="st">${esc(s.t)}</div><div class="sp">${esc(s.dir)}${s.a ? ` · ${hm(s.a)}–${hm(s.b)}` : ""}${vers ? `<span class="vs">${IC.tag}${vers}</span>` : ""}</div></div>
-      <span class="n k">${fmtM(s.tot)}</span><span class="n">${s.msg}</span><span class="n">${s.ms ? dur(s.ms) : ""}</span>
+      <div class="sm1"><span class="st">${esc(s.t)}</span><span class="sp">${esc(s.dir)}</span>${vers ? `<span class="vs">${IC.tag}${vers}</span>` : ""}</div>
+      <span class="n tm3">${s.a ? `${hm(s.a)}–${hm(s.b)}` : ""}</span>
+      <span class="n k">${fmtM(s.tot)}</span><span class="n">${s.msg} 条</span><span class="n">${s.ms ? dur(s.ms) : ""}</span>
       <span class="n">${cs.length ? `<a class="cm" data-sid="${esc(s.id)}" data-at="${cs[0].time}" title="跳到会话里最近一次提交">${cs.length} 次</a>` : ""}</span>
     </article>`;
   }

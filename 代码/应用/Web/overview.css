@@ -217,15 +217,16 @@ h2 .back { cursor: pointer; color: var(--accent); }
 .dhead .sgrid { margin-top: 16px; padding-top: 8px; border-top: 1px solid var(--line); }
 
 /* 会话表：五列，第一列标题和路径，后四列数字右对齐，和标题同一基线 */
-.srow { display: grid; grid-template-columns: minmax(0, 1fr) 80px 56px 80px 64px; column-gap: 16px; align-items: baseline; }
+.srow { display: grid; grid-template-columns: minmax(0, 1fr) 96px 72px 64px 72px 64px; column-gap: 16px; align-items: baseline; }
 .srow.shd { padding: 0 12px; margin: 0 -12px; font-size: 12px; line-height: 18px; color: var(--fg-faint); }
 .srow.shd span:nth-child(n+2) { text-align: right; }
-.scard.srow { padding: 10px 12px; }
-.sm1 { min-width: 0; }
-.sm1 .st { font-size: 13px; line-height: 20px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: none; }
-.sm1 .sp { display: flex; align-items: center; gap: 0; margin-top: 2px; white-space: nowrap; overflow: hidden; }
-.sm1 .vs { display: inline-flex; align-items: center; gap: 8px; margin: 0 0 0 12px; }
-.sm1 .vs svg { width: 12px; height: 12px; color: var(--accent); }
+.scard.srow { padding: 8px 12px; }
+.sm1 { display: flex; align-items: baseline; gap: 8px; min-width: 0; white-space: nowrap; overflow: hidden; }
+.sm1 .st { flex: none; max-width: 60%; font-size: 13px; line-height: 20px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; }
+.sm1 .sp { flex: none; margin: 0; font-size: 12px; color: var(--fg-faint); }
+.sm1 .vs { display: inline-flex; align-items: center; gap: 8px; margin-left: 4px; overflow: hidden; }
+.sm1 .vs svg { width: 12px; height: 12px; color: var(--accent); align-self: center; }
+.srow .tm3 { color: var(--fg-faint); }
 .srow .n { text-align: right; font-size: 12px; line-height: 20px; color: var(--fg-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .srow .n.k { color: var(--fg); font-weight: 600; }
 .srow .cm { color: var(--accent); cursor: pointer; }
