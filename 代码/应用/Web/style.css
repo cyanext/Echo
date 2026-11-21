@@ -269,10 +269,11 @@
 
 /* 段锚点：要点栏点一条时跳到这一段的开头 */
 .pa { display: block; height: 0; }
+/* 要点的全文浮层：贴着要点栏右边，气泡样式，最宽 360，全文换行 */
 .tip {
-  position: absolute; left: 44px; z-index: 6; width: max-content; max-width: 280px; padding: 8px 12px;
-  border-radius: 10px; background: var(--bg); box-shadow: var(--shadow); transform: translateY(-50%);
-  opacity: 0; pointer-events: none; transition: opacity .12s;
+  position: absolute; left: 244px; z-index: 7; width: max-content; max-width: 360px; padding: 8px 12px;
+  border-radius: 12px; background: var(--bg); box-shadow: var(--shadow); transform: translateY(-50%);
+  opacity: 0; pointer-events: none; transition: opacity .12s; white-space: normal; overflow-wrap: anywhere;
 }
 .tip.show { opacity: 1; }
 

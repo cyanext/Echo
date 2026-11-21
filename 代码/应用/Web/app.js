@@ -349,8 +349,8 @@
       const scroller = nav.querySelector(".r-scroll"), tip = nav.querySelector(".tip");
       const rows = [...nav.querySelectorAll(".k-row")];
       const byId = Object.fromEntries(items.map((it) => [it.id, it]));
-      // 栏里写着字的时候不用浮层：要点栏不窄、我的消息展开
-      const showsText = () => (nav.classList.contains("left") ? !nav.classList.contains("slim") : nav.classList.contains("open"));
+      // 悬停浮出全文：要点栏的一行会截断，鼠标移上去在栏右边浮出这一条的全文；我的消息栏的气泡已经写全，不浮
+      const hasTip = () => nav.classList.contains("left");
       let over = false, current;
       // 当前那项变浅蓝；它不在栏中间 60% 的范围里时滚到中间；鼠标在栏上时不滚，免得和用户自己滚冲突
       const mark = (id) => {
@@ -377,11 +377,12 @@
       });
       nav.addEventListener("mouseover", (e) => {
         const t = e.target.closest(".k-row");
-        if (!t || showsText()) { tip.classList.remove("show"); return; }
+        if (!t || !hasTip()) { tip.classList.remove("show"); return; }
         const it = byId[t.dataset.k];
         const d = it.ts ? new Date(it.ts) : null;
         tip.innerHTML = `<div class="tip-label">${it.tip}</div><div class="tip-time">${d ? md0(d) + " " + hm(d) : ""}</div>`;
         tip.style.top = t.offsetTop - scroller.scrollTop + scroller.offsetTop + t.offsetHeight / 2 + "px";
+        tip.style.left = nav.offsetWidth + 4 + "px";   // 贴着栏的右边
         tip.classList.add("show");
       });
       return { nav, mark, cur: o.cur, rows, byId };
