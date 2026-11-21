@@ -258,7 +258,10 @@ struct EchoBrowserView: View {
         }
     }
 
-    /// 一级目录：展开按钮（小三角）、名字、会话数，缩进 16 一级；顶层名字加粗。
+    /// 每级缩进 18，正好是小三角加间距的宽度。下一级从上一级的文字起点开始：子目录的三角、会话的标题都和上一级目录名字对齐
+    private let indentStep: CGFloat = 18
+
+    /// 一级目录：展开按钮（小三角）、名字、会话数，缩进 18 一级；顶层名字加粗。
     /// 展开后先列子目录，再列直接在这一级开的会话
     private func dirSection(_ d: EchoDir, level: Int) -> AnyView {
         let open = isOpen(d, level: level)
@@ -276,7 +279,7 @@ struct EchoBrowserView: View {
                     Spacer(minLength: 4)
                     Text("\(d.count)").font(.system(size: 12)).foregroundStyle(EchoColor.fg3).monospacedDigit()
                 }
-                .padding(.leading, CGFloat(level) * 16)
+                .padding(.leading, CGFloat(level) * indentStep)
                 .frame(height: 30)
             } action: {
                 toggle(d, level: level)
@@ -295,11 +298,11 @@ struct EchoBrowserView: View {
     @ViewBuilder
     private func sessionList(_ list: [EchoSession], key: String, level: Int) -> some View {
         let limit = showAll.contains(key) ? list.count : 5
-        ForEach(list.prefix(limit)) { s in sessionRow(s, indent: CGFloat(level) * 16) }
+        ForEach(list.prefix(limit)) { s in sessionRow(s, indent: CGFloat(level - 1) * indentStep) }
         if list.count > limit {
             EchoRow(fill: nil) {
                 Text("再显示 \(list.count - limit) 个").font(.system(size: 12)).foregroundStyle(EchoColor.fg3)
-                    .padding(.leading, CGFloat(level) * 16 + 18).frame(height: 26)
+                    .padding(.leading, CGFloat(level - 1) * indentStep + 18).frame(height: 26)
             } action: {
                 showAll.insert(key)
             }
@@ -321,7 +324,7 @@ struct EchoBrowserView: View {
                 }
                 .font(.system(size: 12)).foregroundStyle(EchoColor.fg3).monospacedDigit()
             }
-            .padding(.leading, indent + 18).padding(.vertical, 5)   // 和同一级子目录的名字左边对齐：会话和子目录缩进一样
+            .padding(.leading, indent + 18).padding(.vertical, 5)   // 下一级从上一级的文字起点开始：会话标题和上一级目录名字对齐
         } action: {
             // ⌘ 点选：挑几个会话连起来看；普通点击打开
             if NSEvent.modifierFlags.contains(.command) {
