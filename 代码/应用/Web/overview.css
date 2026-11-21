@@ -71,10 +71,10 @@ h2.sec { margin: var(--space-4) var(--space-1) 0; }
 .leg { margin-left: auto; display: flex; align-items: center; gap: var(--space-1); font-size: var(--text-xs); font-weight: 400; color: var(--fg-faint); }
 .leg i { width: 8px; height: 8px; border-radius: 2px; }
 .q0, .c.l0 { background: var(--q0); } .q1, .c.l1 { background: var(--q1); } .q2, .c.l2 { background: var(--q2); } .q3, .c.l3 { background: var(--q3); } .q4, .c.l4 { background: var(--q4); }
-.calwrap { container-type: inline-size; overflow-x: auto; overflow-y: hidden; padding: var(--space-1) 0; margin: calc(-1 * var(--space-1)) 0; }
-/* 格子跟着卡宽缩，最大 22、最小 10 */
-.mcal { --cell: clamp(10px, (100cqw - 32px - 31 * var(--space-1)) / 31, 22px); display: grid; gap: var(--space-1); }
-.mr { position: relative; display: grid; grid-template-columns: 32px repeat(31, var(--cell)); column-gap: var(--space-1); align-items: center; }
+.calwrap { container-type: inline-size; overflow: hidden; padding: var(--space-1); margin: calc(-1 * var(--space-1)); }   /* 不滚动：格子和间隔跟着宽度缩，31 格总放得下；四周留 4 给周框 */
+/* 一格加间隔最宽 26（格 22、间隔 4）；窄了一起缩，间隔最窄 2 */
+.mcal { --pitch: min(26px, (100cqw - 32px) / 31); --gap: clamp(2px, var(--pitch) * .16, 4px); --cell: calc(var(--pitch) - var(--gap)); display: grid; gap: var(--space-1); }
+.mr { position: relative; display: grid; grid-template-columns: calc(32px - var(--gap)) repeat(31, var(--cell)); column-gap: var(--gap); align-items: center; }
 .mr > span { font-size: var(--text-xs); color: var(--fg-faint); }
 .mr.hd b { text-align: center; white-space: nowrap; font-weight: 400; font-size: var(--text-xs); line-height: 16px; color: var(--fg-faint); }
 .mr .c { width: var(--cell); height: var(--cell); border-radius: min(var(--radius-2xs), calc(var(--cell) / 5)); }
@@ -82,7 +82,7 @@ h2.sec { margin: var(--space-4) var(--space-1) 0; }
 .mr .c[data-t] { cursor: pointer; }
 .mr .c[data-t]:hover { box-shadow: 0 0 0 1.5px var(--fg-muted); }
 .mr .c.today { box-shadow: 0 0 0 2px var(--bg-surface), 0 0 0 3.5px var(--accent); }
-.wkbox { position: absolute; top: -3px; bottom: -3px; left: calc(32px + var(--space-1) + var(--a) * (var(--cell) + var(--space-1)) - 3px); width: calc(var(--n) * (var(--cell) + var(--space-1)) + 2px); border: 1.5px solid var(--accent); border-radius: 6px; pointer-events: none; }
+.wkbox { position: absolute; top: -3px; bottom: -3px; left: calc(32px + var(--a) * var(--pitch) - 3px); width: calc(var(--n) * var(--pitch) - var(--gap) + 6px); border: 1.5px solid var(--accent); border-radius: 6px; pointer-events: none; }
 
 /* 本周：一天一张卡。卡头日期（点了展开收起）、今天、当天的量 */
 .day { container-type: inline-size; padding: 20px var(--space-6) var(--space-3); }
