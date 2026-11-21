@@ -147,9 +147,21 @@
   // 给时间轴挑关键点，记在数据上，渲染时带 id
   function keyPoints(turns) {
     const keys = [];
-    let n = 0;
+    let n = 0, lastAsk = "", lastShort = "";
     turns.forEach((t, i) => {
-      if (t.role === "summary") { t._kid = "k" + n++; keys.push({ id: t._kid, turn: i, kind: "compact", ts: t.ts, label: "阶段总结", sub: summaryLine(t.text) }); }
+      // 阶段总结的说明：压缩前你最后一条有内容的消息（原话，最好认；「做吧」「发布」这种短确认往前找）。
+      // 摘要的第一节每次都差不多，不用它
+      if (t.role === "user" && !/^\//.test(t.text.trim())) {
+        const x = t.text.replace(/\s+/g, " ").trim();
+        if (x.length >= 10) lastAsk = x;
+        else if (!lastAsk) lastShort = x;
+      }
+      else if (t.role === "summary") {
+        t._kid = "k" + n++;
+        const sub = (lastAsk || lastShort || summaryLine(t.text)).slice(0, 80);
+        keys.push({ id: t._kid, turn: i, kind: "compact", ts: t.ts, label: "阶段总结", sub });
+        lastAsk = lastShort = "";
+      }
       else if (t.role === "session") { t._kid = "k" + n++; keys.push({ id: t._kid, turn: i, kind: "part", ts: t.ts, label: t.text }); }
       else if (t.role === "assistant") {
         t.blocks.forEach((b) => {
@@ -161,16 +173,14 @@
     return keys;
   }
 
-  // 阶段总结的一句话：去掉系统标签，有「Latest request」（压缩前最后提的要求）就用它，没有就取意图下面第一句
+  // 阶段总结没有压缩前的用户消息可用时，从摘要里取第一句像样的话（跳过开场白、系统标签、半截标题）
   function summaryLine(text) {
     let t = text.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, "").replace(/<[^>]+>/g, "");
     const at = t.search(/Summary:/);
     if (at >= 0) t = t.slice(at + 8);
-    const latest = t.match(/Latest request[^:：]*[:：]\**\s*["“「]?([^\n"”」]+)/i);
-    if (latest) return latest[1].trim().slice(0, 80);
-    const lines = t.split("\n").map((x) => x.replace(/^[#>*\-\d.\s]+/, "").replace(/\*\*/g, "").trim()).filter(Boolean);
-    const pick = lines.find((x) => !/^(Primary Request and Intent|主要请求|Summary|Analysis|This session is being continued)/i.test(x) && x.length > 6) || "";
-    return pick.slice(0, 80);
+    const clean = (x) => x.replace(/^[\s#>*\-•\d.、)）]+/, "").replace(/\*\*/g, "").trim();
+    const good = (x) => x.length >= 10 && !/[:：]$/.test(x) && !/This session is being continued|^(Primary Request and Intent|主要需求和意图|Analysis)$/i.test(x);
+    return (t.split("\n").map(clean).find(good) || "").slice(0, 80);
   }
 
   function renderAI(blocks) {
@@ -267,13 +277,52 @@
     // 时间轴：对话左边一列短横线，一个关键点一条；鼠标放上去浮出说明，点了跳过去；滚动时当前那条变蓝
     if (keys.length) {
       root.classList.add("has-rail");
-      $("rail").innerHTML = keys.map((k) => `<button class="tick t-${k.kind}" type="button" data-k="${k.id}"><i></i></button>`).join("") + '<div class="tip" id="tip"></div>';
+      $("rail").innerHTML = `<div class="ticks">${keys.map((k) => `<button class="tick t-${k.kind}" type="button" data-k="${k.id}"><i></i></button>`).join("")}</div><div class="notes" id="notes"></div><div class="tip" id="tip"></div>`;
       const byId = Object.fromEntries(keys.map((k) => [k.id, k]));
       const ticks = [...$("rail").querySelectorAll(".tick")];
-      const mark = (id) => ticks.forEach((x) => x.classList.toggle("on", x.dataset.k === id));
+      const mark = (id) => $("rail").querySelectorAll("[data-k]").forEach((x) => x.classList.toggle("on", x.dataset.k === id));
+
+      // 重点写字：会话开头 > 阶段总结 > 带版本号的提交，按这个顺序摆，和已摆的挨太近就只留横线。
+      // 字只放在对话左边的空白里，空白不够（窗口窄）时不写字
+      const VER = /v?\d+\.\d+\.\d+/;
+      // 同一个版本号只在第一次出现的提交上写字
+      const firstOfVer = new Set();
+      const seenVer = new Set();
+      keys.forEach((k) => { const v = k.kind === "commit" && k.label.match(VER); if (v && !seenVer.has(v[0].replace(/^v/, ""))) { seenVer.add(v[0].replace(/^v/, "")); firstOfVer.add(k.id); } });
+      const rank = (k) => (k.kind === "part" ? 0 : k.kind === "compact" ? 1 : firstOfVer.has(k.id) ? 2 : 9);
+      const noteText = (k) => {
+        if (k.kind === "compact") return `<span class="n-tag">总结</span>${esc(k.sub || "阶段总结")}`;
+        if (k.kind === "part") return `<b>${esc(k.label)}</b>`;
+        const v = k.label.match(VER)[0];
+        // 去掉「需求：」「需求对齐：」这类前缀，留下做了什么
+        const rest = k.label.replace(VER, "").replace(/^[\s:：、-]+/, "").replace(/^[^\s:：]{1,6}[:：]\s*/, "");
+        return `<b class="ver">${esc(v.replace(/^v/, ""))}</b> ${esc(rest)}`;
+      };
+      let gutter = 0;
+      function layoutNotes() {
+        gutter = ((root.clientWidth || document.documentElement.clientWidth) - 840) / 2;   // 按对话区的宽度算，设计稿里对话区比窗口窄
+        const notes = $("notes");
+        notes.innerHTML = "";
+        root.classList.toggle("rail-wide", gutter >= 180);
+        if (gutter < 180) return;
+        notes.style.width = gutter - 52 + "px";
+        const taken = [];
+        const free = (y) => taken.every((t) => Math.abs(t - y) >= 40);   // 两行字高 34，再留点空
+        keys.filter((k) => rank(k) < 9).sort((a, b) => rank(a) - rank(b)).forEach((k) => {
+          const t = ticks.find((x) => x.dataset.k === k.id);
+          const y = t.offsetTop + t.offsetHeight / 2;
+          if (!free(y)) return;
+          taken.push(y);
+          notes.insertAdjacentHTML("beforeend", `<button class="note n-${k.kind}" type="button" data-k="${k.id}" style="top:${y}px">${noteText(k)}</button>`);
+          t.classList.add("noted");
+        });
+        mark(($("rail").querySelector(".tick.on") || {}).dataset?.k);
+      }
+      layoutNotes();
+      window.addEventListener("resize", layoutNotes);
       let pinned = 0;
       $("rail").addEventListener("click", (e) => {
-        const t = e.target.closest(".tick");
+        const t = e.target.closest("[data-k]");
         if (!t) return;
         const k = byId[t.dataset.k];
         if (partOf[k.turn] >= drawn) draw(partOf[k.turn] - drawn + 1);
@@ -285,9 +334,11 @@
         mark(k.id);
         pinned = Date.now();
       });
+      // 悬停浮层也只在左边空白里，宽度不超过空白；已经写了字的不再弹
       $("rail").addEventListener("mouseover", (e) => {
         const t = e.target.closest(".tick");
-        if (!t) return;
+        if (!t || t.classList.contains("noted")) { $("tip").classList.remove("show"); return; }
+        $("tip").style.maxWidth = Math.max(150, Math.min(280, gutter - 52)) + "px";
         const k = byId[t.dataset.k];
         const d = k.ts ? new Date(k.ts) : null;
         const label = esc(k.label).replace(/(v?\d+\.\d+\.\d+)/, '<b class="ver">$1</b>');
