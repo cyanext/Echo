@@ -5,7 +5,7 @@
 ```text
 需求文档/     版本需求/（一类事一篇，开工时叫「待定-<主题>」，发版时改成「v<号>-<主题>」）、设计规范/、归档/（立项方案）、.pm-doc/
 设计/         设计稿，一个主题一个文件夹，每个文件夹一份说明
-代码/应用/    Mac 应用：App/ 源码（Echo*.swift）、Web/ 对话页面和总览页面（overview.*，单价表 prices.json）、tests/、tools/、build.sh
+代码/应用/    Mac 应用：App/ 源码（Echo*.swift）、Web/ 对话页面和总览页面（overview.*，单价表 prices.json，两页共用的 base.*、缺省插画 blank-*.svg）、icon/ 应用图标（改图标跑 make_icon.py）、tests/、tools/、build.sh
 代码/原型/    Python 和网页原型，瘦身和消息显示以它为准，测试拿它比对
 样例/         一个会话的瘦身结果和浏览页面（会话内容不进 git）
 备份/         应用生成的备份，iCloud 同步，不进 git
