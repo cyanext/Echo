@@ -204,7 +204,7 @@
   // 这天发的版本做成主色标签，悬停看提交说明，点了打开会话跳到那次提交。提交不逐条列，要看就点「N 次提交」跳到会话里最近那次
   // 会话一行两层，像表格：第一层标题，右边四列数字（Token、消息、AI 干活、提交）右对齐，和标题同一基线；
   // 第二层灰字写项目路径、时间段，有发版的后面接版本号（主色等宽，最多 3 个）。列名每张卡顶上写一次
-  const COLS = `<div class="srow shd"><span></span><span>Token</span><span>消息</span><span>AI 干活</span><span>提交</span></div>`;
+  const COLS = `<div class="srow shd"><span>会话</span><span>Token</span><span>消息</span><span>AI 干活</span><span>提交</span></div>`;
   function sessCard(s) {
     const cs = [...s.commits].sort((a, b) => b.time - a.time), vs = [];
     cs.forEach((c) => { if (c.ver && !vs.some((v) => v.ver === c.ver)) vs.push(c); });
