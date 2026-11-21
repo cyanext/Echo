@@ -11,7 +11,7 @@
   const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
   const fmtN = (n) => Math.round(n).toLocaleString("en-US");
   // Token 一律用 M：和 API 每百万 Token 计价对得上
-  const fmtM = (n) => { const m = n / 1e6; return (m >= 100 ? fmtN(m) : m >= 1 ? m.toFixed(1) : m.toFixed(2)) + "M"; };
+  const fmtM = (n) => { const m = n / 1e6; return n > 0 && m < .01 ? "<0.01M" : (m >= 100 ? fmtN(m) : m >= 1 ? m.toFixed(1) : m.toFixed(2)) + "M"; };
   const fmtU = (n) => n >= 10 ? "$" + fmtN(n) : n >= 1 ? "$" + n.toFixed(1) : "$" + n.toFixed(2);
   const md = (d) => `${d.getMonth() + 1}月${d.getDate()}日`;
   const key = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -27,7 +27,7 @@
     return m ? m[1][0].toUpperCase() + m[1].slice(1) + " " + m[2] + (m[3] && m[3].length < 3 ? "." + m[3] : "") : id;
   };
 
-  let prices = {}, TODAY, weeks = [], cur = 0, open = new Set();
+  let prices = {}, TODAY, weeks = [], cur = 0, open = new Set(), dayView = null;   // dayView：只看某一天时是那天的时间戳
 
   function price(model) {
     let best = null;
@@ -62,12 +62,20 @@
           d.models[name] = (d.models[name] || 0) + u;
         }
         d.tot += tot; d.usd += usd; d.msg += v.m; d.ms += v.ms; d.lg = Math.max(d.lg, v.lg);
-        if (tot || v.m) d.sess.push({ id: s.id, t: s.t, p: s.p, tot, usd, msg: v.m });
+        if (tot || v.m) d.sess.push({ id: s.id, t: s.t, p: s.p, tot, usd, msg: v.m, ms: v.ms, a: (v.a || 0) * 1000, b: (v.b || 0) * 1000, commits: [] });
       }
     }
     for (const c of data.commits) {
       const dt = new Date(c.d), m = VER.exec(c.s);
       day(key(dt)).commits.push({ p: c.p, s: m ? c.s.slice(m[0].length) || c.s : c.s, ver: m ? m[1] : "", a: c.a, r: c.r, f: c.f, time: +dt });
+    }
+    // 提交归到会话：同一项目、提交时间落在会话这天的起止之间（前后各放宽 10 分钟），几个都对得上取 Token 多的；对不上的算「其他提交」
+    for (const d of days.values()) {
+      d.other = [];
+      for (const c of d.commits) {
+        const hit = d.sess.filter((s) => s.p === c.p && c.time >= s.a - 6e5 && c.time <= s.b + 6e5).sort((a, b) => b.tot - a.tot)[0];
+        (hit ? hit.commits : d.other).push(c);
+      }
     }
     // 从第一个有会话的周起，到这周
     const keys = [...days.keys()].filter((k) => days.get(k).sess.length).sort();
@@ -77,7 +85,7 @@
     for (let st = mon(first), wi = 0; st <= TODAY; st = addDays(st, 7), wi++) {
       const w = { wi, start: st, days: [], tot: 0, out: 0, usd: 0, msg: 0, ms: 0, lg: 0, commits: 0, add: 0, del: 0, files: new Set(), sids: new Set(), projs: new Set(), parts: [0, 0, 0, 0], models: {} };
       for (let i = 0; i < 7; i++) {
-        const date = addDays(st, i), k = key(date), d = days.get(k) || { tot: 0, out: 0, usd: 0, msg: 0, ms: 0, lg: 0, sess: [], parts: [0, 0, 0, 0], models: {}, commits: [] };
+        const date = addDays(st, i), k = key(date), d = days.get(k) || { tot: 0, out: 0, usd: 0, msg: 0, ms: 0, lg: 0, sess: [], parts: [0, 0, 0, 0], models: {}, commits: [], other: [] };
         const x = { ...d, date, fut: date > TODAY };
         x.sess = [...d.sess].sort((a, b) => b.tot - a.tot);
         w.days.push(x);
@@ -136,7 +144,7 @@
         if (d >= nd) return `<i class="c no"></i>`;
         const x = days.find((z) => z.date.getFullYear() === y && z.date.getMonth() === m && z.date.getDate() === d + 1);
         if (!x) return `<i class="c ${new Date(y, m, d + 1) > TODAY ? "no" : "l0"}"></i>`;
-        return `<i class="c l${lv(x.tot)}${+x.date === +TODAY ? " today" : ""}" data-t="${+x.date}" title="${md(x.date)} ${x.tot ? fmtM(x.tot) : "没有会话"}"></i>`;
+        return `<i class="c l${lv(x.tot)}${+x.date === +TODAY ? " today" : ""}${+x.date === dayView ? " pick" : ""}" data-t="${+x.date}" title="${md(x.date)} ${x.tot ? fmtM(x.tot) : "没有会话"}"></i>`;
       }).join("") + (() => {
         const ds = wk.filter((x) => x.date.getFullYear() === y && x.date.getMonth() === m).map((x) => x.date.getDate() - 1);
         return ds.length ? `<span class="wkbox" style="left:${36 + Math.min(...ds) * 26 - 3}px;width:${(Math.max(...ds) - Math.min(...ds) + 1) * 26 + 2}px"></span>` : "";
@@ -145,8 +153,19 @@
     $("cal").innerHTML = h + `</div></div>`;
   }
 
-  // 本周：按天的竖线时间线，从今天往前排；一天先列提交（一个项目一行），再把会话排成一行（最多 4 个）
+  // 一组提交并成一行：有版本写版本号（最多 3 个），说明取发版那条或最近一条，后面写几次提交
+  function commitLine(list, label) {
+    const cs = [...list].sort((a, b) => b.time - a.time), ver = [];
+    let msg = "";
+    cs.forEach((c) => { if (c.ver && !ver.includes(c.ver)) { ver.push(c.ver); if (ver.length === 1) msg = c.s; } });
+    if (!msg) msg = cs[0].s;
+    return `<div class="ci">${IC.commit}<span class="t">${ver.length ? `<b title="${ver.join("、")}">${ver.slice(0, 3).join(" · ")}${ver.length > 3 ? ` 等 ${ver.length} 个版本` : ""}</b>` : ""}${esc(msg)}</span><span class="x">${label ? esc(label) + " · " : ""}${cs.length} 次提交</span></div>`;
+  }
+
+  // 本周：按天的竖线时间线，从今天往前排；一天里一个会话一行（标题、项目、Token、消息），会话下面缩进列它的提交；
+  // 有提交的会话都列，其余按 Token 取前几个凑满 4 个，多了点「还有 N 个会话」；对不上会话的提交按项目列在最后
   function week() {
+    if (dayView) return dayCard();
     const w = weeks[cur], el = $("week");
     if (!w.sids.size) { el.innerHTML = `<h2>本周</h2><div class="empty">这周没有会话</div>`; return; }
     const lv = levels(w.days.map((x) => x.tot));
@@ -154,26 +173,50 @@
     w.days.map((x, i) => [x, i]).reverse().forEach(([x, i]) => {
       if (x.fut) return;
       const isToday = +x.date === +TODAY;
-      const head = `<div class="th"><i class="nd l${lv(x.tot)}${isToday ? " today" : ""}"></i><b>周${WD[x.date.getDay()]} ${x.date.getDate()}</b>${isToday ? `<span class="tdy">今天</span>` : ""}<span class="tm">${x.tot || x.msg ? `${fmtM(x.tot)} · ${fmtU(x.usd)} · ${x.msg} 条消息` : "没有会话"}</span></div>`;
-      if (!x.sess.length && !x.commits.length) { h += `<div class="td empty-day" data-t="${+x.date}">${head}</div>`; return; }
-      // 提交按项目并成一行：有版本写版本号，说明取发版那条或最近一条
-      const by = new Map();
-      [...x.commits].sort((a, b) => b.time - a.time).forEach((c) => {
-        const g = by.get(c.p) || { p: c.p, n: 0, ver: [], s: "" };
-        g.n++;
-        if (c.ver && !g.ver.includes(c.ver)) { g.ver.push(c.ver); if (g.ver.length === 1) g.s = c.s; }
-        if (!g.s) g.s = c.s;
-        by.set(c.p, g);
-      });
-      const cs = [...by.values()].sort((a, b) => b.ver.length - a.ver.length || b.n - a.n);
-      const all = open.has(i), ss = all ? x.sess : x.sess.slice(0, 4);
-      h += `<div class="td" data-t="${+x.date}">${head}` +
-        (cs.length ? `<div class="cm">${cs.map((c) => `<div class="ci">${IC.commit}<span class="t">${c.ver.length ? `<b title="${c.ver.join("、")}">${c.ver.slice(0, 3).join(" · ")}${c.ver.length > 3 ? ` 等 ${c.ver.length} 个版本` : ""}</b>` : ""}${esc(c.s)}<em>${esc(c.p)} · ${c.n} 次提交</em></span></div>`).join("")}</div>` : "") +
-        (ss.length ? `<div class="ss"><div class="sl">${ss.map((s) => `<span class="si" data-id="${esc(s.id)}" title="${esc(s.p)}">${IC.msg}${esc(s.t)}<em>${fmtM(s.tot)}</em></span>`).join("")}` +
-          (x.sess.length > 4 ? `<span class="sm" data-d="${i}">${all ? "收起" : `还有 ${x.sess.length - 4} 个`}</span>` : "") + `</div></div>` : "") + `</div>`;
+      const head = `<div class="th"><i class="nd l${lv(x.tot)}${isToday ? " today" : ""}"></i><b class="dl" data-t="${+x.date}">周${WD[x.date.getDay()]} ${x.date.getDate()}</b>${isToday ? `<span class="tdy">今天</span>` : ""}<span class="tm">${x.tot || x.msg ? `${fmtM(x.tot)} · ${fmtU(x.usd)} · ${x.msg} 条消息` : "没有会话"}</span></div>`;
+      const other = x.other || [];
+      if (!x.sess.length && !other.length) { h += `<div class="td empty-day" data-t="${+x.date}">${head}</div>`; return; }
+      const all = open.has(i), withC = x.sess.filter((s) => s.commits.length);
+      const rest = x.sess.filter((s) => !s.commits.length).slice(0, Math.max(0, 4 - withC.length));
+      const shown = all ? x.sess : x.sess.filter((s) => withC.includes(s) || rest.includes(s));
+      const hidden = x.sess.length - shown.length;
+      const byP = new Map();
+      other.forEach((c) => byP.set(c.p, [...(byP.get(c.p) || []), c]));
+      h += `<div class="td" data-t="${+x.date}">${head}<div class="sv">` +
+        shown.map((s) => `<div class="sr" data-id="${esc(s.id)}">${IC.msg}<span class="t">${esc(s.t)}<em>${esc(s.p)}</em></span><span class="v">${fmtM(s.tot)}</span><span class="v">${s.msg} 条</span></div>` +
+          (s.commits.length ? `<div class="sc">${commitLine(s.commits)}</div>` : "")).join("") +
+        (hidden > 0 || all ? `<div class="sm" data-d="${i}">${all ? "收起" : `还有 ${hidden} 个会话`}</div>` : "") +
+        (byP.size ? `<div class="oc">${[...byP.entries()].map(([p, cs]) => commitLine(cs, p)).join("")}</div>` : "") +
+        `</div></div>`;
     });
     el.innerHTML = h + `</div>`;
   }
+
+  // 只看一天：顶上左右切天、「看整周」回去；一行几个数；会话全列（时间段、标题、项目、Token、折合、消息、AI 干活），
+  // 会话下面一条条列它的提交（时间、版本号、说明、增删行）；对不上会话的提交列在最后
+  const hm = (t) => { const d = new Date(t); return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`; };
+  const dur = (ms) => ms >= 3.6e6 ? (ms / 3.6e6).toFixed(1) + " 小时" : Math.max(1, Math.round(ms / 6e4)) + " 分钟";
+  function commitRow(c, label) {
+    return `<div class="cr2">${IC.commit}<span class="tm2">${hm(c.time)}</span><span class="t">${c.ver ? `<b>${c.ver}</b>` : ""}${esc(c.s)}${label ? `<em>${esc(label)}</em>` : ""}</span><span class="x">+${fmtN(c.a)} −${fmtN(c.r)}</span></div>`;
+  }
+  function dayCard() {
+    const el = $("week"), all = weeks.flatMap((w) => w.days).filter((x) => !x.fut);
+    const i = all.findIndex((x) => +x.date === dayView), x = all[i];
+    const isToday = +x.date === +TODAY;
+    const nav = `<span class="dn"><span class="ib${i <= 0 ? " off" : ""}" data-go="${i > 0 ? +all[i - 1].date : ""}"><svg viewBox="0 0 24 24"><path d="m15 6-6 6 6 6"/></svg></span><span class="ib${i >= all.length - 1 ? " off" : ""}" data-go="${i < all.length - 1 ? +all[i + 1].date : ""}"><svg viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></svg></span></span>`;
+    let h = `<h2>${md(x.date)} 周${WD[x.date.getDay()]}${isToday ? `<span class="tdy">今天</span>` : ""}${nav}<span class="note back" data-back="1">看整周</span></h2>`;
+    const nc = x.commits.length;
+    h += `<div class="dsum">${[["Token", fmtM(x.tot)], ["折合", fmtU(x.usd)], ["我的消息", x.msg + " 条"], ["AI 干活", dur(x.ms)], ["会话", x.sess.length + " 个"], ["提交", nc + " 次"]]
+      .map(([l, v]) => `<div><span>${l}</span><b>${v}</b></div>`).join("")}</div>`;
+    if (!x.sess.length && !nc) { el.innerHTML = h + `<div class="empty">这天没有会话</div>`; return; }
+    h += `<div class="dh2"><span></span><span>会话</span><span>Token</span><span>折合</span><span>消息</span><span>AI 干活</span></div>`;
+    h += x.sess.map((s) => `<div class="sr2" data-id="${esc(s.id)}">${IC.msg}<span class="t"><i>${s.a ? hm(s.a) + "–" + hm(s.b) : ""}</i>${esc(s.t)}<em>${esc(s.p)}</em></span><span class="v">${fmtM(s.tot)}</span><span class="v">${fmtU(s.usd)}</span><span class="v">${s.msg} 条</span><span class="v">${s.ms ? dur(s.ms) : ""}</span></div>` +
+      (s.commits.length ? `<div class="sc2">${[...s.commits].sort((a, b) => b.time - a.time).slice(0, open.has(s.id) ? 999 : 5).map((c) => commitRow(c)).join("")}` +
+        (s.commits.length > 5 ? `<div class="sm" data-cm="${esc(s.id)}">${open.has(s.id) ? "收起" : `还有 ${s.commits.length - 5} 次提交`}</div>` : "") + `</div>` : "")).join("");
+    if ((x.other || []).length) h += `<div class="oc2"><div class="oh">没对上会话的提交</div>${[...x.other].sort((a, b) => b.time - a.time).map((c) => commitRow(c, c.p)).join("")}</div>`;
+    el.innerHTML = h;
+  }
+  function showDay(t) { dayView = t; cur = weeks.findIndex((w) => w.days.some((x) => +x.date === t)); open.clear(); draw(); $("week").scrollIntoView({ block: "start", behavior: "smooth" }); }
 
   // 用量：按用途（金额多的深）、按模型（主色深浅，不到 2% 的并成其他用灰）
   function money() {
@@ -208,23 +251,22 @@
   window.echoReload = () => load(true);
 
   const post = (m) => window.webkit && window.webkit.messageHandlers.echo.postMessage(m);
-  $("prev").onclick = () => { if (cur > 0) { cur--; open.clear(); draw(); } };
-  $("next").onclick = () => { if (cur < weeks.length - 1) { cur++; open.clear(); draw(); } };
-  $("kpis").onclick = (e) => { const b = e.target.closest(".spark i"); if (b) { cur = +b.dataset.i; open.clear(); draw(); } };
+  $("prev").onclick = () => { if (cur > 0) { cur--; open.clear(); dayView = null; draw(); } };
+  $("next").onclick = () => { if (cur < weeks.length - 1) { cur++; open.clear(); dayView = null; draw(); } };
+  $("kpis").onclick = (e) => { const b = e.target.closest(".spark i"); if (b) { cur = +b.dataset.i; open.clear(); dayView = null; draw(); } };
   $("week").onclick = (e) => {
-    const s = e.target.closest(".si");
+    const g = e.target.closest("[data-go]");
+    if (g) { if (g.dataset.go) showDay(+g.dataset.go); return; }
+    if (e.target.closest("[data-back]")) { dayView = null; draw(); return; }
+    const cm = e.target.closest("[data-cm]");
+    if (cm) { const k = cm.dataset.cm; open.has(k) ? open.delete(k) : open.add(k); week(); return; }
+    const dl = e.target.closest(".dl[data-t]");
+    if (dl) { showDay(+dl.dataset.t); return; }
+    const s = e.target.closest(".sr, .sr2");
     if (s) { post({ open: s.dataset.id }); return; }
     const m = e.target.closest(".sm");
     if (m) { const i = +m.dataset.d; open.has(i) ? open.delete(i) : open.add(i); week(); }
   };
-  $("cal").onclick = (e) => {
-    const c = e.target.closest(".c[data-t]");
-    if (!c) return;
-    const t = +c.dataset.t;
-    cur = weeks.findIndex((w) => w.days.some((x) => +x.date === t));
-    open.clear(); draw();
-    const d = document.querySelector(`.td[data-t="${t}"]`);
-    if (d) { d.scrollIntoView({ block: "center" }); d.classList.add("flash"); setTimeout(() => d.classList.remove("flash"), 1200); }
-  };
+  $("cal").onclick = (e) => { const c = e.target.closest(".c[data-t]"); if (c) showDay(+c.dataset.t); };
   load(false);
 })();

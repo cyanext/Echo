@@ -22,7 +22,7 @@
 html, body { margin: 0; background: var(--page); color: var(--fg); font: 13px/20px -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif; -webkit-font-smoothing: antialiased; }
 svg { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .empty { font-size: 12px; color: var(--fg-faint); }
-.si, .sm, .c[data-t], .spark i { cursor: pointer; }
+.sm, .c[data-t], .spark i { cursor: pointer; }
 .calwrap { overflow-x: auto; overflow-y: hidden; padding: 4px 0; margin: -4px 0; }
 /* 窗口窄时数字卡两列 */
 @media (max-width: 900px) { .kpis { grid-template-columns: repeat(2, 1fr) !important; } }
@@ -73,19 +73,22 @@ h2 .note { margin-left: auto; font-size: 12px; font-weight: 400; color: var(--fg
 .nd { position: absolute; left: -24px; top: 4px; width: 11px; height: 11px; border-radius: 50%; background: var(--q0); box-shadow: 0 0 0 3px var(--card); }
 .nd.l1 { background: var(--q1); } .nd.l2 { background: var(--q2); } .nd.l3 { background: var(--q3); } .nd.l4 { background: var(--q4); }
 .nd.today { box-shadow: 0 0 0 2px var(--card), 0 0 0 3.5px var(--accent); }
-.cm { margin-top: 4px; }
-.ci { display: flex; align-items: center; gap: 8px; height: 26px; }
-.ci svg { width: 14px; height: 14px; color: var(--fg-muted); flex: none; }
+/* 一天里一个会话一行：会话图标、标题（后面灰字项目）、Token、消息条数；会话下面缩进 22 列它的提交；对不上会话的提交列在最后 */
+.sv { margin-top: 4px; }
+.sr { display: grid; grid-template-columns: 14px minmax(0, 1fr) 72px 64px; gap: 8px; align-items: center; height: 28px; padding: 0 8px; margin: 0 -8px; border-radius: 8px; cursor: pointer; }
+.sr:hover { background: var(--bg-hover); }
+.sr svg { width: 13px; height: 13px; color: var(--fg-faint); }
+.sr .t { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sr .t em { font-style: normal; font-size: 12px; color: var(--fg-faint); margin-left: 8px; }
+.sr .v { text-align: right; font-size: 12px; color: var(--fg-muted); font-variant-numeric: tabular-nums; }
+.sc { padding-left: 22px; }
+.ci { display: grid; grid-template-columns: 14px minmax(0, 1fr) auto; gap: 8px; align-items: center; height: 24px; }
+.ci svg { width: 13px; height: 13px; color: var(--fg-muted); }
+.ci .t { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--fg-muted); }
 .ci b { font: 600 12px/20px var(--mono); color: var(--accent); margin-right: 8px; }
-.ci .t { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.ci em, .si em { font-style: normal; font-size: 12px; color: var(--fg-faint); margin-left: 8px; font-variant-numeric: tabular-nums; }
-.ss { margin-top: 2px; }
-.sl { display: flex; flex-wrap: wrap; gap: 0 24px; min-width: 0; }
-.si { display: inline-flex; align-items: center; gap: 6px; line-height: 26px; color: var(--fg-muted); white-space: nowrap; cursor: default; }
-.si svg { width: 13px; height: 13px; color: var(--fg-faint); flex: none; }
-.si em { margin-left: 2px; }
-.si:hover { color: var(--accent); }
-.sm { line-height: 26px; font-size: 12px; color: var(--accent); cursor: default; }
+.ci .x { font-size: 12px; color: var(--fg-faint); font-variant-numeric: tabular-nums; }
+.oc { margin-top: 4px; }
+.sm { padding-left: 22px; line-height: 24px; font-size: 12px; color: var(--accent); cursor: pointer; }
 
 /* 日历：一行一个月、一格一天 22，间隔 4；选中的周用主色框框成一段（跨月的周两行各框一段），今天加主色框 */
 .leg { margin-left: auto; display: flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 400; color: var(--fg-faint); }
@@ -115,3 +118,34 @@ h2 .note { margin-left: auto; font-size: 12px; font-weight: 400; color: var(--fg
 .ulg b { font-weight: 400; color: var(--fg); }
 .ulg em { font-style: normal; color: var(--fg-faint); }
 .s4 { background: var(--q4); } .s3 { background: var(--q3); } .s2 { background: var(--q2); } .s1 { background: var(--q1); } .s0 { background: var(--mute); }
+
+/* 只看一天 */
+.th .dl { cursor: pointer; } .th .dl:hover { color: var(--accent); }
+h2 .tdy { font-size: 12px; font-weight: 400; color: var(--accent); }
+h2 .dn { display: inline-flex; gap: 4px; align-self: center; }
+h2 .back { cursor: pointer; color: var(--accent); }
+.mr .c.pick { box-shadow: 0 0 0 2px var(--card), 0 0 0 3.5px var(--fg); }
+.dsum { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 16px; padding-bottom: 16px; margin-bottom: 8px; border-bottom: 1px solid var(--line); }
+.dsum span { display: block; font-size: 12px; line-height: 18px; color: var(--fg-muted); }
+.dsum b { display: block; margin-top: 4px; font-size: 15px; line-height: 22px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.dh2, .sr2 { display: grid; grid-template-columns: 14px minmax(0, 1fr) 72px 64px 56px 72px; gap: 8px; align-items: center; }
+.dh2 { height: 28px; font-size: 12px; color: var(--fg-faint); }
+.dh2 span:nth-child(n+3), .sr2 .v { text-align: right; }
+.sr2 { height: 32px; padding: 0 8px; margin: 0 -8px; border-radius: 8px; cursor: pointer; }
+.sr2:hover { background: var(--bg-hover); }
+.sr2 svg { width: 13px; height: 13px; color: var(--fg-faint); }
+.sr2 .t { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sr2 .t i { font-style: normal; font-size: 12px; color: var(--fg-faint); margin-right: 8px; font-variant-numeric: tabular-nums; }
+.sr2 .t em { font-style: normal; font-size: 12px; color: var(--fg-faint); margin-left: 8px; }
+.sr2 .v { font-size: 12px; color: var(--fg-muted); font-variant-numeric: tabular-nums; }
+.sc2 { padding-left: 22px; margin-bottom: 4px; }
+.cr2 { display: grid; grid-template-columns: 13px 40px minmax(0, 1fr) auto; gap: 8px; align-items: center; height: 24px; }
+.cr2 svg { width: 13px; height: 13px; color: var(--fg-muted); }
+.cr2 .tm2 { font-size: 12px; color: var(--fg-faint); font-variant-numeric: tabular-nums; }
+.cr2 .t { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--fg-muted); }
+.cr2 b { font: 600 12px/20px var(--mono); color: var(--accent); margin-right: 8px; }
+.cr2 em { font-style: normal; font-size: 12px; color: var(--fg-faint); margin-left: 8px; }
+.cr2 .x { font-size: 12px; color: var(--fg-faint); font-variant-numeric: tabular-nums; }
+.oc2 { margin-top: 12px; }
+.oh { font-size: 12px; line-height: 24px; color: var(--fg-faint); }
+.sc2 .sm { padding-left: 21px; }

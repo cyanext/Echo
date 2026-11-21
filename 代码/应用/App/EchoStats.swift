@@ -9,6 +9,8 @@ struct EchoDayStat: Codable, Equatable {
     var ms = 0.0                      // AI 干活毫秒数（turn_duration 相加）
     var lg = 0.0                      // 最长一轮毫秒数
     var k: [String: [Double]] = [:]   // 模型 → [输入, 输出, 读缓存, 写缓存 5 分钟, 写缓存 1 小时]
+    var a = 0.0                       // 这天第一条、最后一条记录的时间（秒），用来把提交归到会话
+    var b = 0.0
 }
 
 private struct EchoStatsCache: Codable {
@@ -39,7 +41,11 @@ enum EchoStats {
             let isTurn = !isUser && !isUsage && EchoLines.has(b, needleTurn)
             guard isUser || isUsage || isTurn,
                   let d = try? JSONSerialization.jsonObject(with: Data(buffer: b)) as? [String: Any],
-                  let ts = d["timestamp"] as? String, let day = dayKey(ts) else { return }
+                  let ts = d["timestamp"] as? String, let day = dayKey(ts), let t = EchoTime.parse(ts)?.timeIntervalSince1970 else { return }
+            var span = days[day, default: .init()]
+            span.a = span.a == 0 ? t : min(span.a, t)
+            span.b = max(span.b, t)
+            days[day] = span
             if isUser {
                 guard d["type"] as? String == "user", EchoExport.userRole(d)?.role == "user" else { return }
                 days[day, default: .init()].m += 1
@@ -133,7 +139,7 @@ enum EchoStats {
 
     /// 整理成 overview.js 要的 JSON。同步执行，放在后台线程调用
     static func build(_ sessions: [EchoSession]) -> Data {
-        let cacheURL = EchoLibrary.supportDir.appendingPathComponent("总览缓存.json")
+        let cacheURL = EchoLibrary.supportDir.appendingPathComponent("总览缓存2.json")   // 2：加了每天的起止时间
         let cache = (try? Data(contentsOf: cacheURL)).flatMap { try? JSONDecoder().decode(EchoStatsCache.self, from: $0) } ?? EchoStatsCache()
         var fresh = EchoStatsCache()
         var list: [[String: Any]] = []
@@ -147,7 +153,7 @@ enum EchoStats {
             else { continue }
             fresh.entries[s.url.path] = .init(stamp: stamp, days: days)
             guard !days.isEmpty else { continue }
-            let dict = days.mapValues { d -> [String: Any] in ["m": d.m, "ms": d.ms, "lg": d.lg, "k": d.k] }
+            let dict = days.mapValues { d -> [String: Any] in ["m": d.m, "ms": d.ms, "lg": d.lg, "k": d.k, "a": d.a, "b": d.b] }
             list.append(["id": s.id, "t": s.meta.title == s.sessionId ? "未命名会话" : s.meta.title,
                          "p": project(s.projectPath), "c": s.computer, "days": dict])
         }
