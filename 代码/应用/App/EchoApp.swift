@@ -49,6 +49,12 @@ final class EchoState: ObservableObject {
     @Published var sessions: [EchoSession] = []
     @Published var scanning = false
     @Published var collections: [EchoCollection] = []
+    /// 总览的数据（EchoStats 整理好的 JSON），会话列表变了重新整理
+    @Published var overview: Data?
+    /// 总览里点了某个会话：浏览窗口打开它
+    @Published var openSessionID: String?
+    private var buildingOverview = false
+    private var overviewAgain = false
     /// 上次跑备份的时间（成功失败都算），打开窗口时 5 分钟内跑过就不再跑
     var lastBackupRun: Date?
 
@@ -121,6 +127,23 @@ final class EchoState: ObservableObject {
                 EchoState.shared.sessions = list
                 EchoState.shared.collections = cols
                 EchoState.shared.scanning = false
+                EchoState.shared.rebuildOverview()
+            }
+        }
+    }
+
+    /// 后台整理总览；正在整理时又来一次，整理完再跑一遍
+    func rebuildOverview() {
+        guard !buildingOverview else { overviewAgain = true; return }
+        buildingOverview = true
+        let list = sessions
+        Task.detached(priority: .utility) {
+            let data = EchoStats.build(list)
+            await MainActor.run {
+                let s = EchoState.shared
+                s.overview = data
+                s.buildingOverview = false
+                if s.overviewAgain { s.overviewAgain = false; s.rebuildOverview() }
             }
         }
     }

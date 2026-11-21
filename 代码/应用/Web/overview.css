@@ -1,0 +1,117 @@
+/* 总览（设计稿 设计/总览/，规范 需求文档/设计规范/设计规范.md）。浅灰页底上放白卡，卡不加灰边；
+   间距只用 4、8、12、16、24、32；字号 12、13、15、17，数字卡大数 28。浅色深色跟着系统 */
+:root {
+  --page: #f4f5f8; --card: #ffffff; --bg-subtle: #f3f4f7; --sel: rgba(78,91,216,.06); --bg-hover: rgba(31,35,41,.05);
+  --fg: #1f2329; --fg-muted: #646a73; --fg-faint: #8f959e; --line: #e8e9ef;
+  --accent: #4e5bd8;
+  /* 主色同一色相由浅到深，0 是没会话；2 到 4 档用 dataviz validate_palette --ordinal 校验过 */
+  --q0: #eceef3; --q1: #c4cff9; --q2: #95a6f0; --q3: #6273e4; --q4: #3d46ba;
+  --mute: #d9dce6;
+  --mono: ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --page: #18191d; --card: #212227; --bg-subtle: #2a2c32; --sel: rgba(124,135,240,.10); --bg-hover: rgba(255,255,255,.06);
+    --fg: #e6e8ec; --fg-muted: #9aa0ab; --fg-faint: #6f7581; --line: #2e3037;
+    --accent: #7c87f0;
+    --q0: #2c2e35; --q1: #2f386c; --q2: #4855a6; --q3: #6b7cdf; --q4: #8796f0;
+    --mute: #3a3d47;
+  }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--page); color: var(--fg); font: 13px/20px -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif; -webkit-font-smoothing: antialiased; }
+svg { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.empty { font-size: 12px; color: var(--fg-faint); }
+.si, .sm, .c[data-t], .spark i { cursor: pointer; }
+.calwrap { overflow-x: auto; overflow-y: hidden; padding: 4px 0; margin: -4px 0; }
+/* 窗口窄时数字卡两列 */
+@media (max-width: 900px) { .kpis { grid-template-columns: repeat(2, 1fr) !important; } }
+/* 标题栏那一行按住能拖窗口：交给 Swift，网页这里只留出高度 */
+
+/* 主区 */
+.main { position: relative; padding-bottom: 32px; }
+.head { display: flex; align-items: center; gap: 16px; height: 64px; max-width: 1200px; margin: 0 auto; padding: 0 32px; }
+.head h1 { margin: 0; font-size: 17px; line-height: 24px; font-weight: 600; }
+.wk { display: flex; align-items: center; gap: 4px; color: var(--fg-muted); }
+.wk .now { margin-left: 8px; font-size: 12px; line-height: 18px; padding: 0 6px; border-radius: 4px; background: var(--card); }
+.ib { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 4px; color: var(--fg-muted); cursor: pointer; }
+.ib:hover { background: var(--bg-subtle); }
+.ib.off { opacity: .35; pointer-events: none; }
+.page { max-width: 1200px; margin: 0 auto; padding: 0 32px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
+
+/* 卡片：白底、圆角 12、内边距 24，不加边 */
+.card { background: var(--card); border-radius: 12px; padding: 24px; }
+h2 { display: flex; align-items: baseline; gap: 12px; margin: 0 0 16px; font-size: 15px; line-height: 22px; font-weight: 600; }
+h2 .note { margin-left: auto; font-size: 12px; font-weight: 400; color: var(--fg-faint); font-variant-numeric: tabular-nums; }
+.num { font-variant-numeric: tabular-nums; }
+
+/* 数字卡 */
+.kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
+.kpi .l { display: flex; justify-content: space-between; font-size: 12px; line-height: 18px; color: var(--fg-muted); }
+.kpi .l .dl { color: var(--fg-faint); font-variant-numeric: tabular-nums; }
+.kpi .v { height: 36px; margin-top: 8px; font-size: 28px; line-height: 36px; font-weight: 600; letter-spacing: -.3px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.kpi .v small { line-height: 1; font-size: 13px; font-weight: 400; letter-spacing: 0; margin-left: 4px; color: var(--fg-muted); }
+.kpi .s { font-size: 12px; line-height: 18px; color: var(--fg-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.spark { display: flex; align-items: flex-end; gap: 4px; height: 24px; margin-top: 16px; }
+.spark i { flex: 1; max-width: 14px; border-radius: 2px 2px 0 0; background: var(--mute); min-height: 2px; cursor: pointer; }
+.spark i.on { background: var(--accent); }
+
+/* 本周：按天的竖线时间线，从今天往前排，和对话页的分段时间线是一家的。
+   竖线 1px 在左边 5 的位置；一天一个节点 11，颜色按当天 Token 分 4 档，今天加主色圈；
+   节点右边 24 起是内容：日期加粗、当天的量灰字；下面版本和提交一行一个，再下面会话一行一个，最多 3 个 */
+.tl { position: relative; }
+.tl::before { content: ""; position: absolute; left: 5px; top: 10px; bottom: 10px; width: 1px; background: var(--line); }
+.td { position: relative; padding-left: 24px; }
+.td + .td { margin-top: 16px; }
+.td.empty-day + .td.empty-day { margin-top: 8px; }
+.th { position: relative; display: flex; align-items: baseline; gap: 12px; height: 20px; }
+.th b { font-weight: 600; }
+.th .tdy { font-size: 12px; color: var(--accent); }
+.th .tm { margin-left: auto; font-size: 12px; color: var(--fg-muted); font-variant-numeric: tabular-nums; }
+.empty-day .th b { font-weight: 400; color: var(--fg-muted); }
+.empty-day .th .tm { color: var(--fg-faint); }
+.nd { position: absolute; left: -24px; top: 4px; width: 11px; height: 11px; border-radius: 50%; background: var(--q0); box-shadow: 0 0 0 3px var(--card); }
+.nd.l1 { background: var(--q1); } .nd.l2 { background: var(--q2); } .nd.l3 { background: var(--q3); } .nd.l4 { background: var(--q4); }
+.nd.today { box-shadow: 0 0 0 2px var(--card), 0 0 0 3.5px var(--accent); }
+.cm { margin-top: 4px; }
+.ci { display: flex; align-items: center; gap: 8px; height: 26px; }
+.ci svg { width: 14px; height: 14px; color: var(--fg-muted); flex: none; }
+.ci b { font: 600 12px/20px var(--mono); color: var(--accent); margin-right: 8px; }
+.ci .t { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ci em, .si em { font-style: normal; font-size: 12px; color: var(--fg-faint); margin-left: 8px; font-variant-numeric: tabular-nums; }
+.ss { margin-top: 2px; }
+.sl { display: flex; flex-wrap: wrap; gap: 0 24px; min-width: 0; }
+.si { display: inline-flex; align-items: center; gap: 6px; line-height: 26px; color: var(--fg-muted); white-space: nowrap; cursor: default; }
+.si svg { width: 13px; height: 13px; color: var(--fg-faint); flex: none; }
+.si em { margin-left: 2px; }
+.si:hover { color: var(--accent); }
+.sm { line-height: 26px; font-size: 12px; color: var(--accent); cursor: default; }
+
+/* 日历：一行一个月、一格一天 22，间隔 4；选中的周用主色框框成一段（跨月的周两行各框一段），今天加主色框 */
+.leg { margin-left: auto; display: flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 400; color: var(--fg-faint); }
+.leg i { width: 8px; height: 8px; border-radius: 2px; }
+.q0, .c.l0 { background: var(--q0); } .q1, .c.l1 { background: var(--q1); } .q2, .c.l2 { background: var(--q2); } .q3, .c.l3 { background: var(--q3); } .q4, .c.l4 { background: var(--q4); }
+.mcal { display: grid; gap: 4px; }
+.mr { display: grid; grid-template-columns: 32px repeat(31, 22px); column-gap: 4px; align-items: center; }
+.mr > span { font-size: 12px; color: var(--fg-faint); }
+.mr.hd b { text-align: center; white-space: nowrap; font-weight: 400; font-size: 12px; line-height: 16px; color: var(--fg-faint); }
+.mr .c { position: relative; width: 22px; height: 22px; border-radius: 4px; cursor: default; }
+.mr .c.no { background: none; }
+.mr .c[data-t]:hover { box-shadow: 0 0 0 1.5px var(--fg-muted); }
+.mr { position: relative; }
+.wkbox { position: absolute; top: -3px; bottom: -3px; border: 1.5px solid var(--accent); border-radius: 6px; pointer-events: none; }
+.mr .c.today { box-shadow: 0 0 0 2px var(--card), 0 0 0 3.5px var(--accent); }
+.td.flash { background: var(--sel); border-radius: 8px; transition: background .3s; }
+
+/* 用量：两根条拉满整宽，图例在条下面一行；颜色只用主色深浅和灰 */
+.up + .up { margin-top: 16px; }
+.uh { display: flex; justify-content: space-between; font-size: 12px; line-height: 18px; color: var(--fg-muted); margin-bottom: 8px; }
+.sbar { display: flex; gap: 2px; height: 8px; }
+.sbar i:first-child { border-radius: 4px 0 0 4px; } .sbar i:last-child { border-radius: 0 4px 4px 0; } .sbar i:only-child { border-radius: 4px; }
+.sbar i { min-width: 3px; }
+.ulg { display: flex; flex-wrap: wrap; gap: 4px 24px; margin-top: 8px; font-size: 12px; line-height: 18px; color: var(--fg-muted); }
+.ulg span { display: inline-flex; align-items: center; gap: 6px; font-variant-numeric: tabular-nums; }
+.ulg i { width: 8px; height: 8px; border-radius: 2px; }
+.ulg b { font-weight: 400; color: var(--fg); }
+.ulg em { font-style: normal; color: var(--fg-faint); }
+.s4 { background: var(--q4); } .s3 { background: var(--q3); } .s2 { background: var(--q2); } .s1 { background: var(--q1); } .s0 { background: var(--mute); }
