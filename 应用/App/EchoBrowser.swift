@@ -39,6 +39,7 @@ struct EchoBrowserView: View {
     @State private var renaming: EchoTarget?
     @State private var newTitle = ""
     @State private var editError: String?
+    @State private var deleting: [EchoSession] = []
     @State private var projects: [EchoProject] = []                    // 会话列表变了才重新分组，不在每次刷新时算
     @State private var dupNames: Set<String> = []
     @State private var showAll: Set<String> = []                       // 点过「再显示」的项目
@@ -83,6 +84,13 @@ struct EchoBrowserView: View {
                 Text("会话正在进行，Claude Code 可能把名字改回去，在会话里用 /rename 更稳")
             }
         }
+        .alert(deleting.count > 1 ? "把 \(deleting.count) 个会话移到废纸篓？" : "把这个会话移到废纸篓？",
+               isPresented: Binding(get: { !deleting.isEmpty }, set: { if !$0 { deleting = [] } })) {
+            Button("取消", role: .cancel) {}
+            Button("移到废纸篓", role: .destructive, action: commitDelete)
+        } message: {
+            Text("Claude Code 里的原会话和回响的备份一起移走")
+        }
         .alert("没改成", isPresented: Binding(get: { editError != nil }, set: { if !$0 { editError = nil } })) {
             Button("好", role: .cancel) {}
         } message: {
@@ -106,6 +114,14 @@ struct EchoBrowserView: View {
                 try state.saveCollections(state.collections.map { $0.id == c.id ? EchoCollection(id: c.id, title: newTitle.trimmed, members: c.members, created: c.created) : $0 })
             }
         } catch { editError = error.localizedDescription }
+    }
+
+    private func commitDelete() {
+        let list = deleting
+        deleting = []
+        picked = []
+        if list.contains(where: { $0.id == sessionID }) { sessionID = nil }
+        do { try state.delete(list) } catch { editError = error.localizedDescription }
     }
 
     private func link(_ list: [EchoSession]) {
@@ -133,8 +149,16 @@ struct EchoBrowserView: View {
         }
         Button(EchoRename.originalURL(for: s) == nil ? "改名…（会话在 \(s.computer) 上）" : "改名…") { startRename(.session(s)) }
             .disabled(EchoRename.originalURL(for: s) == nil)
+        Divider()
+        if group.count > 1 {
+            Button("把 \(group.count) 个会话移到废纸篓…") { deleting = group }
+        } else {
+            Button(EchoDelete.paths(for: s) == nil ? "移到废纸篓…（会话在 \(s.computer) 上）" : "移到废纸篓…") { deleting = [s] }
+                .disabled(EchoDelete.paths(for: s) == nil)
+        }
         if group.count < 2 {
-            Text("⌘ 点选几个会话，可以连起来看")
+            Divider()
+            Text("⌘ 点选几个会话，可以连起来看或一起删")
         }
     }
 

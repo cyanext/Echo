@@ -1,5 +1,5 @@
 #!/bin/zsh
-# 回归测试：瘦身、消息显示（和原型现场生成的结果比对）、备份挑文件的规则、改名、合集。改了 EchoSlim、EchoExport、EchoBackup、EchoEdit 必跑。
+# 回归测试：瘦身、消息显示（和原型现场生成的结果比对）、备份挑文件的规则、改名、合集、删除。改了 EchoSlim、EchoExport、EchoBackup、EchoEdit 必跑。
 # 用法：zsh 应用/tests/run.sh [另外要比对的会话.jsonl…]。样例/ 下有真实会话（不进 git）时一并比对。
 set -e
 D="${0:A:h:h}"; P="${D:h}/原型"; T=$(mktemp -d); trap 'rm -rf "$T"' EXIT

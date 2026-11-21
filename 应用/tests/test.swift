@@ -135,5 +135,31 @@ enum EchoTests {
         check(parts.map { $0["computer"] as! String } == ["甲", "乙"], "合集没按开始时间排")
         check((c["meta"] as! [String: Any])["kind"] as? String == "collection", "合集 meta 不对")
         print("  合集 3 项")
+
+        // 删除：原会话和备份连同目录移走，备份记录去掉；还在写的不删
+        let home = dir.appendingPathComponent("claude/-p"), bak = dir.appendingPathComponent("备份/机/projects/-p"), bin = dir.appendingPathComponent("废纸篓")
+        for d in [home.appendingPathComponent("x1/subagents"), bak.appendingPathComponent("x1/subagents"), bin] { try FileManager.default.createDirectory(at: d, withIntermediateDirectories: true) }
+        for d in [home, bak] {
+            try body.write(to: d.appendingPathComponent("x1.jsonl"))
+            try body.write(to: d.appendingPathComponent("x1/subagents/a.jsonl"))
+            try body.write(to: d.appendingPathComponent("x2.jsonl"))
+        }
+        let old = Date(timeIntervalSinceNow: -3600)
+        try FileManager.default.setAttributes([.modificationDate: old], ofItemAtPath: home.appendingPathComponent("x1.jsonl").path)
+        let rec = dir.appendingPathComponent("备份/机/备份记录.json")
+        let stamp = EchoFileStamp(size: 1, mtime: 1)
+        try EchoBackupRecord(lastSuccess: nil, files: ["-p/x1.jsonl": stamp, "-p/x1/subagents/a.jsonl": stamp, "-p/x2.jsonl": stamp]).save(rec)
+        var n = 0
+        let mv: (URL) throws -> Void = { u in n += 1; try FileManager.default.moveItem(at: u, to: bin.appendingPathComponent("\(n)-\(u.lastPathComponent)")) }
+        try EchoDelete.trash(.init(original: home.appendingPathComponent("x1.jsonl"), backup: bak.appendingPathComponent("x1.jsonl"), record: rec, rel: "-p/x1.jsonl"), remove: mv)
+        let fm = FileManager.default
+        check(!fm.fileExists(atPath: home.appendingPathComponent("x1.jsonl").path) && !fm.fileExists(atPath: home.appendingPathComponent("x1").path), "原会话和目录没移走")
+        check(!fm.fileExists(atPath: bak.appendingPathComponent("x1.jsonl").path) && !fm.fileExists(atPath: bak.appendingPathComponent("x1").path), "备份和目录没移走")
+        check(fm.fileExists(atPath: home.appendingPathComponent("x2.jsonl").path) && fm.fileExists(atPath: bak.appendingPathComponent("x2.jsonl").path), "别的会话被误删")
+        check(n == 4, "移走的项数 \(n)，应为 4")
+        check(EchoBackupRecord.load(rec).files.keys.sorted() == ["-p/x2.jsonl"], "备份记录没去掉")
+        check((try? EchoDelete.trash(.init(original: home.appendingPathComponent("x2.jsonl"), backup: bak.appendingPathComponent("x2.jsonl"), record: rec, rel: "-p/x2.jsonl"), remove: mv)) == nil
+              && fm.fileExists(atPath: home.appendingPathComponent("x2.jsonl").path), "还在写的会话不应该删")
+        print("  删除 6 项")
     }
 }

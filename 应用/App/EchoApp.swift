@@ -137,6 +137,21 @@ final class EchoState: ObservableObject {
         backupNow()
     }
 
+    /// 一个个删，出错的跳过，最后报第一个错
+    func delete(_ list: [EchoSession]) throws {
+        var firstError: Error?
+        for s in list {
+            do {
+                guard let p = EchoDelete.paths(for: s) else {
+                    throw CocoaError(.fileWriteNoPermission, userInfo: [NSLocalizedDescriptionKey: "「\(s.meta.title)」在 \(s.computer) 上，到那台电脑上删"])
+                }
+                try EchoDelete.trash(p)
+            } catch { firstError = firstError ?? error }
+        }
+        reloadSessions()
+        if let e = firstError { throw e }
+    }
+
     func saveCollections(_ list: [EchoCollection]) throws {
         try EchoCollections.save(list, EchoPrefs.backupRoot)
         collections = list

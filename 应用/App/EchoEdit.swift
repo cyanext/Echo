@@ -1,6 +1,7 @@
 // 改名和合集。
 // 改名写回原会话：在 ~/.claude 里的会话文件末尾追加一行 custom-title（和 Claude Code 自己 /rename 一样），已有的行一行不动；
 // 会话目录里有 custom-title.json 时一并改。只能改本机的会话。
+// 删除见文件末尾 EchoDelete。
 // 合集：几个会话按时间连起来看，存在备份目录的 合集.json（iCloud 同步，两台电脑都能看到），原文件不动。
 import Foundation
 
@@ -106,5 +107,39 @@ extension EchoExport {
             "computer": computers.joined(separator: "、"),
         ]
         return ["meta": meta, "turns": turns]
+    }
+}
+
+/// 删除：原会话和备份一起移到废纸篓（能放回）。会话文件和同名目录（子代理、长工具输出）一起移，备份记录里去掉。
+/// 只删本机的会话；2 分钟内还在写的不删。
+enum EchoDelete {
+    struct Paths {
+        var original: URL          // ~/.claude/projects/<项目目录>/<会话ID>.jsonl
+        var backup: URL            // 备份/<电脑名>/projects/<项目目录>/<会话ID>.jsonl
+        var record: URL            // 备份/<电脑名>/备份记录.json
+        var rel: String            // <项目目录>/<会话ID>.jsonl
+    }
+
+    static func paths(for s: EchoSession) -> Paths? {
+        guard let orig = EchoRename.originalURL(for: s) else { return nil }
+        let rel = s.url.deletingLastPathComponent().lastPathComponent + "/" + s.url.lastPathComponent
+        return Paths(original: orig, backup: s.url, record: EchoPrefs.computerDir.appendingPathComponent("备份记录.json"), rel: rel)
+    }
+
+    /// remove 默认移到废纸篓，测试时换成移到临时目录
+    static func trash(_ p: Paths, remove: (URL) throws -> Void = { try FileManager.default.trashItem(at: $0, resultingItemURL: nil) }) throws {
+        let fm = FileManager.default
+        if EchoRename.isActive(p.original) {
+            throw CocoaError(.fileWriteUnknown, userInfo: [NSLocalizedDescriptionKey: "会话正在进行，结束后再删"])
+        }
+        for f in [p.original, p.backup] {
+            let dir = f.deletingPathExtension()
+            if fm.fileExists(atPath: f.path) { try remove(f) }
+            if fm.fileExists(atPath: dir.path) { try remove(dir) }
+        }
+        var r = EchoBackupRecord.load(p.record)
+        let prefix = String(p.rel.dropLast(6)) + "/"
+        r.files = r.files.filter { $0.key != p.rel && !$0.key.hasPrefix(prefix) }
+        try? r.save(p.record)
     }
 }
