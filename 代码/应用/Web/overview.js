@@ -205,13 +205,13 @@
   function sessCard(s) {
     const cs = [...s.commits].sort((a, b) => b.time - a.time), vs = [];
     cs.forEach((c) => { if (c.ver && !vs.some((v) => v.ver === c.ver)) vs.push(c); });
-    // 右边一排「图标 + 名称 + 值」，五列固定宽，上下行对齐；没有的项留空占位。提交用主色，点了跳到最近一次提交
-    const cell = (ic, name, val, cls = "", attr = "") => `<span class="${cls}"${attr}>${ic}<i>${name}</i><b>${val}</b></span>`;
-    const tags = [cell(IC.tok, "Token", fmtM(s.tot), "k"), cell(IC.usd, "折合", fmtU(s.usd)), cell(IC.msg, "消息", s.msg + " 条"),
-      s.ms ? cell(IC.time, "AI 干活", dur(s.ms)) : "<span></span>",
-      cs.length ? cell(IC.commit, "提交", cs.length + " 次", "cm", ` data-sid="${esc(s.id)}" data-at="${cs[0].time}" title="跳到会话里最近一次提交"`) : "<span></span>"].join("");
+    // 标题右侧紧跟一排「图标 + 值」：Token、消息、AI 干活、提交（主色，点了跳到最近一次提交）；悬停提示是什么
+    const cell = (ic, tip, val, cls = "", attr = "") => `<span class="${cls}" title="${tip}"${attr}>${ic}<b>${val}</b></span>`;
+    const tags = [cell(IC.tok, "Token", fmtM(s.tot), "k"), cell(IC.msg, "我的消息", s.msg + " 条"),
+      s.ms ? cell(IC.time, "AI 干活", dur(s.ms)) : "",
+      cs.length ? cell(IC.commit, "跳到会话里最近一次提交", cs.length + " 次提交", "cm", ` data-sid="${esc(s.id)}" data-at="${cs[0].time}"`) : ""].join("");
     return `<article class="scard" data-id="${esc(s.id)}">
-      <div class="sh"><div class="sl"><div class="st">${esc(s.t)}</div><div class="sp">${esc(s.dir)}${s.a ? ` · ${hm(s.a)}–${hm(s.b)}` : ""}</div></div><div class="tg2">${tags}</div></div>
+      <div class="sh"><div class="st">${esc(s.t)}</div><div class="tg2">${tags}</div></div><div class="sp">${esc(s.dir)}${s.a ? ` · ${hm(s.a)}–${hm(s.b)}` : ""}</div>
       ${vs.length ? `<div class="vs">${vs.slice(0, 8).map((c) => `<span class="vt" data-sid="${esc(s.id)}" data-at="${c.time}" data-tip="${esc(c.ver)}|${hm(c.time)}|${esc(c.s)}|+${c.a} −${c.r}">${IC.tag}${c.ver}</span>`).join("")}${vs.length > 8 ? `<span class="vm">等 ${vs.length} 个版本</span>` : ""}</div>` : ""}
     </article>`;
   }

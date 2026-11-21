@@ -148,12 +148,11 @@ h2 .back { cursor: pointer; color: var(--accent); }
 .scard header { margin-bottom: 12px; }
 .scard .st { font-size: 15px; line-height: 22px; font-weight: 600; }
 .scard .sp { display: flex; align-items: center; gap: 8px; margin-top: 4px; font-size: 12px; line-height: 18px; color: var(--fg-faint); font-variant-numeric: tabular-nums; }
-.tg2 { display: grid; grid-template-columns: 116px 92px 84px 112px 84px; column-gap: 16px; }
-.tg2 span { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; line-height: 20px; white-space: nowrap; }
-.tg2 svg { width: 13px; height: 13px; color: var(--fg-faint); }
-.tg2 i { font-style: normal; color: var(--fg-faint); }
-.tg2 b { font-weight: 400; color: var(--fg); font-variant-numeric: tabular-nums; }
-.tg2 .k b { font-weight: 600; }
+.tg2 { display: flex; align-items: baseline; gap: 16px; min-width: 0; }
+.tg2 span { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; line-height: 20px; white-space: nowrap; }
+.tg2 svg { width: 12px; height: 12px; color: var(--fg-faint); align-self: center; }
+.tg2 b { font-weight: 400; color: var(--fg-muted); font-variant-numeric: tabular-nums; }
+.tg2 .k b { color: var(--fg); font-weight: 600; }
 .vs { display: flex; flex-wrap: wrap; gap: 4px 16px; margin-top: 12px; }
 .vt { cursor: pointer; display: inline-flex; align-items: center; gap: 4px; height: 20px; color: var(--accent); font: 600 12px/20px var(--mono); }
 .vt svg { width: 12px; height: 12px; }
@@ -192,18 +191,18 @@ h2 .back { cursor: pointer; color: var(--accent); }
 .wother { margin: 16px 0; padding: 12px 24px; }
 
 /* 会话卡占满一行：左标题和路径，右标签 */
-.scard .sh { display: flex; align-items: baseline; gap: 24px; }
+.scard .sh { display: flex; align-items: baseline; gap: 16px; min-width: 0; }
 .scard .sl { flex: 1; min-width: 0; }
 .scard .st { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .scard .sp { margin-top: 2px; }
-.scard .tg2 { flex: none; }
+.scard .st { flex: none; max-width: 60%; }
 .tg2 .cm { cursor: pointer; }
 .tg2 .cm svg, .tg2 .cm i, .tg2 .cm b { color: var(--accent); }
 .tg2 .cm:hover { text-decoration: underline; }
 .scard .vs { margin-top: 12px; }
 .wother { margin: 12px 0 0; }
 .wmore { margin: 12px 4px 0; }
-@media (max-width: 900px) { .scard .sh { flex-direction: column; align-items: flex-start; gap: 8px; } .scard .tg2 { justify-content: flex-start; } }
+@media (max-width: 760px) { .scard .sh { flex-wrap: wrap; row-gap: 0; } }
 
 /* 一天一张卡：日期在卡里，会话一行一个，行与行之间留白不画线，悬停浅底 */
 .wday { margin-top: 0; padding: 20px 24px 12px; }
