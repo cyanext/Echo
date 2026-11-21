@@ -198,72 +198,74 @@
 .step pre { margin: 0; }
 
 /* 要点栏（左，常驻）和我的消息（右，可收起），规范 需求文档/设计规范/设计规范.md「布局」「组件」。
-   两栏都是固定在窗口两边的整高栏，正文栏用左右留白让开（JS 的 layout 设 #conv 的左右内边距）。
-   窗口窄时要点栏只剩一列短横线（slim）；我的消息收起时只剩一列小点，展开后从顶到底，正文放不下就浮在正文上（float） */
+   要点栏是细线：每条前面一根短横线（会话开头最长、手动压缩次之、版本最短），后面一行 12 号字；不画栏名、底色和边线。
+   窗口窄时只剩横线（slim）。我的消息收起时什么都不显示，展开后从顶到底，正文放不下就浮在正文上（float）。
+   两栏固定在窗口两边，正文栏用左右留白让开（JS 的 layout 设 #conv 的左右内边距） */
 .c-rail { display: none; }
-.has-rail .c-rail.left { display: block; position: fixed; left: 0; top: 0; bottom: 0; width: 240px; z-index: 6; background: var(--bg); border-right: 1px solid var(--line); }
-.has-rail .c-rail.left.slim { top: var(--head-h, 56px); bottom: 16px; width: 44px; border-right: 0; background: none; }
-.has-urail .c-rail.right { display: block; position: fixed; right: 0; top: var(--head-h, 56px); bottom: 16px; width: 16px; z-index: 6; }
-.has-urail .c-rail.right.open { top: 0; bottom: 0; width: 260px; background: var(--bg); border-left: 1px solid var(--line); }
+.has-rail .c-rail.left { display: block; position: fixed; left: 0; top: var(--head-h, 56px); bottom: 16px; width: 240px; z-index: 4; }
+.has-rail .c-rail.left.slim { width: 44px; }
+.has-urail .c-rail.right.open { display: block; position: fixed; right: 0; top: 0; bottom: 0; width: 260px; z-index: 6; background: var(--bg); border-left: 1px solid var(--line); }
 .has-urail .c-rail.right.open.float { border-left: 0; box-shadow: var(--shadow); }
 
-/* 栏名：图标、名字、条数，和标题栏同一行 */
-.r-hd { display: flex; align-items: center; gap: 8px; height: 56px; padding: 0 10px 0 16px; font-size: 15px; line-height: 22px; font-weight: 600; color: var(--fg); }
+/* 我的消息栏顶上：名字、条数、收起；下面搜索框 */
+.r-hd { display: flex; align-items: center; gap: 8px; height: 56px; padding: 0 10px 0 16px; font-size: 13px; line-height: 20px; font-weight: 600; color: var(--fg); }
 .r-hd .c { flex: 1; font-size: 12px; font-weight: 400; color: var(--fg-faint); }
-.r-hd > svg { color: var(--fg-muted); }
-.r-findw { display: flex; align-items: center; gap: 6px; margin: 0 12px 4px; height: 30px; padding: 0 10px; border-radius: 8px; background: var(--bg-subtle); color: var(--fg-faint); }
+.r-findw { display: flex; align-items: center; gap: 6px; margin: 0 12px 4px; height: 28px; padding: 0 10px; border-radius: 8px; background: var(--bg-subtle); color: var(--fg-faint); }
 .r-findw:focus-within { box-shadow: 0 0 0 1px var(--accent); }
-.r-findw svg { width: 14px; height: 14px; }
-.r-find { flex: 1; min-width: 0; border: 0; outline: 0; background: none; color: var(--fg); font: 13px/20px inherit; font-family: inherit; }
+.r-findw svg { width: 13px; height: 13px; }
+.r-find { flex: 1; min-width: 0; border: 0; outline: 0; background: none; color: var(--fg); font: 12px/18px inherit; font-family: inherit; }
 .r-find::placeholder { color: var(--fg-faint); }
 .r-count { flex: none; font-size: 12px; color: var(--fg-faint); }
 .r-count:empty { display: none; }
-.c-rail.left.slim .r-hd, .c-rail.right:not(.open) .r-hd, .c-rail.right:not(.open) .r-findw { display: none; }
 
-.r-scroll { position: absolute; left: 0; right: 0; top: 56px; bottom: 0; overflow-y: auto; scrollbar-width: none; padding: 4px 10px 24px; }
+.r-scroll { position: absolute; left: 0; right: 0; top: 0; bottom: 0; overflow-y: auto; scrollbar-width: none; }
 .r-scroll::-webkit-scrollbar { display: none; }
-.c-rail.right.open .r-scroll { top: 94px; }
-.c-rail.left.slim .r-scroll, .c-rail.right:not(.open) .r-scroll { top: 0; padding: 0; display: flex; flex-direction: column; }
-.c-rail.left.slim .r-list, .c-rail.right:not(.open) .r-list { margin: auto 0; padding: 8px 0; }   /* 只剩横线或小点时上下居中 */
+.c-rail.left .r-scroll { display: flex; flex-direction: column; padding: 0 10px 24px 0; }
+.c-rail.left .r-list { margin: auto 0; padding: 8px 0; }   /* 条数少时上下居中，多了从顶上开始滚 */
+.c-rail.right .r-scroll { top: 90px; padding: 4px 10px 24px; }
 
-/* 分组名：要点按模块（前面方块图标），我的消息按天 */
-.r-group { display: flex; align-items: center; gap: 6px; margin: 16px 8px 4px; font-size: 12px; line-height: 18px; color: var(--fg-faint); }
-.r-group:first-child { margin-top: 4px; }
+/* 分组名：要点按模块，我的消息按天；12 号灰字 */
+.r-group { margin: 14px 8px 2px 34px; font-size: 12px; line-height: 18px; color: var(--fg-faint); }
+.r-group:first-child { margin-top: 0; }
 .r-group:empty { height: 0; margin: 8px 0 0; }
-.r-group svg { width: 12px; height: 12px; }
+.c-rail.right .r-group { margin: 14px 8px 2px; }
+.c-rail.right .r-group:first-child { margin-top: 4px; }
+.c-rail.left.slim .r-group { display: none; }
 
-/* 一行：要点是「种类图标 + 版本号或『压缩』+ 一句话」，我的消息是「时间 + 原文最多三行」 */
-.k-row { display: flex; align-items: center; gap: 8px; min-height: 32px; padding: 6px 8px; border-radius: 8px; cursor: pointer; font-size: 13px; line-height: 20px; color: var(--fg); }
-.k-row:hover { background: var(--bg-hover); }
-.k-row.on { background: var(--accent-soft); }
-.k-row > i { display: none; }
-.k-row .ic { display: flex; flex: none; color: var(--fg-faint); }
-.k-row .ic svg { width: 14px; height: 14px; }
-.k-row.on .ic { color: var(--accent); }
-.note { display: flex; align-items: baseline; gap: 8px; min-width: 0; flex: 1; }
-.n-ver { flex: none; font: 600 12px/20px var(--mono); color: var(--accent); }
-.n-tag { flex: none; font-size: 12px; color: var(--fg-faint); }
+/* 要点：短横线 + 版本号或「压缩」+ 一句做了什么，12 号字一行 */
+.k-row { display: flex; align-items: center; gap: 10px; cursor: pointer; }
+.c-rail.left .k-row { height: 28px; padding: 0 8px 0 14px; border-radius: 0 8px 8px 0; font-size: 12px; line-height: 18px; color: var(--fg-muted); }
+.c-rail.left .k-row > i { flex: none; display: block; width: 8px; height: 2px; border-radius: 1px; background: var(--line-strong); }
+.c-rail.left .k-row.t-compact > i { width: 12px; }
+.c-rail.left .k-row.t-part > i { width: 16px; }
+.c-rail.left .k-row:hover { background: var(--bg-hover); color: var(--fg); }
+.c-rail.left .k-row:hover > i { background: var(--fg-muted); }
+.c-rail.left .k-row.on { background: var(--accent-soft); color: var(--fg); }
+.c-rail.left .k-row.on > i { background: var(--accent); }
+.c-rail.left.slim .k-row { height: 8px; background: none; }
+.c-rail.left.slim .note { display: none; }
+.note { display: flex; align-items: baseline; gap: 6px; min-width: 0; flex: 1; }
+.n-ver { flex: none; font: 600 11.5px/18px var(--mono); color: var(--accent); }
+.n-tag { flex: none; color: var(--fg-faint); }
 .n-text { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .n-text b { font-weight: 600; }
-.k-row.t-ask { align-items: flex-start; }
-.k-row.t-ask .note { flex-direction: column; gap: 0; }
-.n-time { font-size: 12px; line-height: 18px; color: var(--fg-faint); font-variant-numeric: tabular-nums; }
-.k-row.t-ask .n-text { white-space: normal; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow-wrap: anywhere; }
-.k-row.t-ask.short .n-text { color: var(--fg-muted); }
+
+/* 我的消息：一条一个靠右的灰色气泡，内容写全、保留换行，时间在气泡下面；当前那条描蓝边 */
+.c-rail.right .k-row { justify-content: flex-end; padding: 4px 4px 4px 16px; }
+.c-rail.right .k-row > i { display: none; }
+.c-rail.right .note { flex-direction: column; align-items: flex-end; gap: 2px; }
+.c-rail.right .n-text {
+  max-width: 100%; padding: 6px 12px; border-radius: 14px; background: var(--bg-subtle);
+  white-space: pre-wrap; overflow: visible; overflow-wrap: anywhere; text-overflow: clip;
+  font-size: 13px; line-height: 20px; color: var(--fg); transition: box-shadow .12s, background .12s;
+}
+.c-rail.right .k-row:hover .n-text { background: var(--bg-hover); }
+.c-rail.right .k-row.on .n-text { box-shadow: 0 0 0 1.5px var(--accent); }
+.c-rail.right .k-row.short .n-text { color: var(--fg-muted); }
+.n-time { font-size: 12px; line-height: 16px; color: var(--fg-faint); font-variant-numeric: tabular-nums; }
+.n-more { margin-left: 4px; color: var(--fg-faint); font-size: 12px; }
 .k-row.miss, .r-group.miss { display: none !important; }
 .note mark { background: var(--hit); color: inherit; border-radius: 2px; }
-
-/* 只剩横线（要点栏窄）或小点（我的消息收起）：一项一格 8，当前那条蓝色；悬停浮出说明 */
-.c-rail.left.slim .k-row, .c-rail.right:not(.open) .k-row { min-height: 0; height: 8px; padding: 0; background: none !important; }
-.c-rail.left.slim .k-row > :not(i), .c-rail.right:not(.open) .k-row > :not(i) { display: none; }
-.c-rail.left.slim .k-row > i { display: block; margin-left: 14px; width: 8px; height: 2px; border-radius: 1px; background: var(--line-strong); }
-.c-rail.left.slim .k-row.t-compact > i { width: 12px; }
-.c-rail.left.slim .k-row.t-part > i { width: 16px; }
-.c-rail.right:not(.open) .k-row { justify-content: center; }
-.c-rail.right:not(.open) .k-row > i { display: block; width: 4px; height: 4px; border-radius: 50%; background: var(--fg-faint); opacity: .7; }
-.c-rail .k-row:hover > i { background: var(--fg-muted); opacity: 1; }
-.c-rail .k-row.on > i { background: var(--accent); opacity: 1; }
-.c-rail.left.slim .r-group, .c-rail.right:not(.open) .r-group { display: none; }
 
 /* 段锚点：要点栏点一条时跳到这一段的开头 */
 .pa { display: block; height: 0; }
@@ -273,7 +275,7 @@
   opacity: 0; pointer-events: none; transition: opacity .12s;
 }
 .tip.show { opacity: 1; }
-.c-rail.right .tip { left: auto; right: 20px; }
+
 .tip-label { font-size: 12px; line-height: 1.5; color: var(--fg); }
 .tip-sub { margin-top: 2px; font-size: 12px; line-height: 1.5; color: var(--fg-muted); }
 .tip-time { margin-top: 2px; font-size: 12px; color: var(--fg-faint); font-variant-numeric: tabular-nums; }

@@ -13,12 +13,7 @@
     sys: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 11v5M12 8h.01"/></svg>',
     panel: '<svg viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/><path d="M14.5 4.5v15"/></svg>',
     close: '<svg viewBox="0 0 24 24"><path d="m7 7 10 10M17 7 7 17"/></svg>',
-    pin: '<svg viewBox="0 0 24 24"><path d="M12 21s-6.5-6.2-6.5-11a6.5 6.5 0 0 1 13 0c0 4.8-6.5 11-6.5 11z"/><circle cx="12" cy="10" r="2.3"/></svg>',
     msgs: '<svg viewBox="0 0 24 24"><path d="M4.5 16V6.5A2 2 0 0 1 6.5 4.5h8A2 2 0 0 1 16.5 6.5v5a2 2 0 0 1-2 2H8z"/><path d="M19.5 9.5v10l-3-2.5h-6.5a2 2 0 0 1-2-2"/></svg>',
-    commit: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.5"/><path d="M3 12h5.5M15.5 12H21"/></svg>',
-    squeeze: '<svg viewBox="0 0 24 24"><path d="M12 3v6m0 0-3-3m3 3 3-3M12 21v-6m0 0-3 3m3-3 3 3M4 12h16"/></svg>',
-    flag: '<svg viewBox="0 0 24 24"><path d="M5 21V4.5M5 4.5h11l-2 4 2 4H5"/></svg>',
-    box: '<svg viewBox="0 0 24 24"><path d="M4.5 8.5 12 4.5l7.5 4v7L12 19.5l-7.5-4z"/><path d="M4.5 8.5 12 12.5l7.5-4M12 12.5v7"/></svg>',
   };
 
   const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
@@ -304,7 +299,7 @@
     new IntersectionObserver((es) => { if (es.some((e) => e.isIntersecting)) draw(80); }, { rootMargin: "1200px" }).observe(sentinel);
     // 要点栏（左，常驻）和我的消息（右，可收起），规范 需求文档/设计规范/设计规范.md「布局」「组件」。两栏共用 makeRail：
     // 栏名一行，下面一行一项；点了跳过去；滚动对话时当前那项变浅蓝，栏跟着把它滚到中间。
-    // 窗口窄时要点栏只剩一列短横线，我的消息收起时只剩一列小点，这两种悬停浮出说明
+    // 窗口窄时要点栏只剩一列短横线，悬停浮出说明；我的消息收起时什么都不显示
     let LINE = 120;   // 标题栏下面那条线，判断读到哪用它；标题换行变高时跟着改（measureHead）
     const posOf = (id) => {
       const el = document.getElementById(id);
@@ -319,7 +314,7 @@
     };
     let pinned = null;   // 刚点过的那一栏和当时的滚动位置，页面没动时保持点中的那项
     // 两栏固定在窗口两边，正文栏用左右内边距让开：要点栏 240（窗口窄于 1000 时只剩 44 宽的横线）；
-    // 我的消息展开 260，正文剩下不到 560 时浮在正文上，收起时 16 宽的小点
+    // 我的消息展开 260，正文剩下不到 560 时浮在正文上，收起时什么都不显示
     const layout = () => {
       const W = document.documentElement.clientWidth, L = $("rail"), R = $("urail");
       let lw = 0, rw = 0;
@@ -327,7 +322,7 @@
       if (myMsgs.length) {
         const open = R.classList.contains("open"), dock = open && W - lw - 260 >= 560;
         R.classList.toggle("float", open && !dock);
-        rw = dock ? 260 : 16;
+        rw = dock ? 260 : 0;
       }
       root.style.paddingLeft = lw + "px";
       root.style.paddingRight = rw + "px";
@@ -399,7 +394,14 @@
     if (keys.length) {
       root.classList.add("has-rail");
       const verOf = (k) => (k.ver || "").split(" ").pop();
-      const moduleOf = (k) => (k.kind === "commit" && k.ver ? k.ver.split(" ").slice(0, -1).join(" ") : "");
+      // 分组名：版本提交是模块名；没有版本号的提交是冒号前的短前缀（「方案：…」的「方案」），写一次在上面，每行不再重复
+      const PREFIX = /^([^\s:：]{1,6})[:：]\s*/;
+      const moduleOf = (k) => {
+        if (k.kind !== "commit") return "";
+        if (k.ver) return k.ver.split(" ").slice(0, -1).join(" ");
+        const p = k.label.match(PREFIX);
+        return p ? p[1] : "";
+      };
       // 一句做了什么：去掉模块和版本号、「需求：」这类前缀，到第一个括号或分号截住
       const brief = (k) => {
         const mod = moduleOf(k), ver = verOf(k);
@@ -412,10 +414,9 @@
       const noteText = (k) => {
         if (k.kind === "compact") return `<span class="n-tag">压缩</span><span class="n-text">${esc(k.sub || "")}</span>`;
         if (k.kind === "part") return `<span class="n-text"><b>${esc(k.label)}</b></span>`;
-        if (!k.ver) return `<span class="n-text">${esc(k.label)}</span>`;
+        if (!k.ver) return `<span class="n-text">${esc(k.label.replace(PREFIX, ""))}</span>`;
         return `<span class="n-ver">${esc(verOf(k))}</span><span class="n-text">${esc(brief(k))}</span>`;
       };
-      const kindIcon = { commit: ICON.commit, compact: ICON.squeeze, part: ICON.flag };
       const full = (k) => (k.kind === "compact" ? `手动压缩：${esc(k.sub || "")}` : k.kind === "part" ? esc(k.label) : esc(k.label).replace(/(v?\d+\.\d+\.\d+)/, '<b class="ver">$1</b>'));
 
       // 标题跟着当前段换：标题写这一段的要点，小字写会话标题和时间；后面没有要点时恢复会话标题
@@ -429,10 +430,9 @@
       };
 
       rails.push(makeRail($("rail"), keys.map((k) => ({
-        id: k.id, ts: k.ts, cls: "t-" + k.kind, icon: kindIcon[k.kind], group: moduleOf(k), row: noteText(k), tip: full(k),
+        id: k.id, ts: k.ts, cls: "t-" + k.kind, group: moduleOf(k), row: noteText(k), tip: full(k),
       })), {
-        head: `<div class="r-hd">${ICON.pin}要点<span class="c">${keys.length}</span></div>`,
-        groupIcon: ICON.box,
+        head: "",
         onChange: (it) => setHead(it && keys.find((k) => k.id === it.id)),
         // 点一项跳到这一段的开头：上一个要点之后；会话开头就跳到它自己
         jump: (it) => {
@@ -452,24 +452,25 @@
       }));
     }
 
-    // 我的消息（右，可收起）：顶上搜索框，按天列你的消息，时间在上、原文最多三行；打字只留下命中的。
+    // 我的消息（右，可收起）：顶上搜索框，按天列你的消息，一条一个气泡、内容写全；打字只留下命中的。
     // 消息是一段对话的起点，读到哪就看读过的最后一条；展开收起记在本机，下次照旧
     if (myMsgs.length) {
       root.classList.add("has-urail");
       const dayOf = (ts) => (ts ? day(new Date(ts)) : "");
       const oneLine = (x) => x.replace(/\s+/g, " ").trim();
-      // 原文只显示前 400 字（三行之外的看不到），搜索命中的字高亮
+      // 气泡里写全文；超过 1000 字的截断并写总字数，免得一条占满整栏；搜索命中的字高亮
+      const CAP = 1000;
       const msgText = (t, q) => {
-        let h = esc(t.slice(0, 400));
+        let h = esc(t.length > CAP ? t.slice(0, CAP) : t);
         if (q) h = h.replace(new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/[&<>"]/g, (c) => esc(c)), "gi"), (x) => `<mark>${x}</mark>`);
-        return h;
+        return h + (t.length > CAP ? `<span class="n-more">…共 ${t.length} 字</span>` : "");
       };
       const r = makeRail($("urail"), myMsgs.map((a) => ({
         id: a.id, ts: a.ts, cls: "t-ask" + (a.text.trim().length <= 6 ? " short" : ""), group: dayOf(a.ts),   // 「发布」「继续」这种短确认淡一些
-        row: `<span class="n-time">${a.ts ? hm(new Date(a.ts)) : ""}</span><span class="n-text">${msgText(oneLine(a.text), "")}</span>`,
+        row: `<span class="n-text">${msgText(a.text.trim(), "")}</span><span class="n-time">${a.ts ? hm(new Date(a.ts)) : ""}</span>`,
         tip: esc(oneLine(a.text).slice(0, 200)),
       })), {
-        head: `<div class="r-hd">${ICON.msgs}我的消息<span class="c">${myMsgs.length}</span><button class="c-btn icon" id="uclose" type="button" title="收起">${ICON.close}</button></div>
+        head: `<div class="r-hd">我的消息<span class="c">${myMsgs.length}</span><button class="c-btn icon" id="uclose" type="button" title="收起">${ICON.close}</button></div>
           <label class="r-findw">${ICON.find}<input class="r-find" id="ufind" type="search" placeholder="搜我的消息" autocomplete="off"><span class="r-count" id="ucount"></span></label>`,
         jump: (it) => goTo(partOf[myMsgs.find((a) => a.id === it.id).turn], it.id),
         cur: () => {
@@ -498,7 +499,7 @@
       $("uclose").addEventListener("click", () => setOpen(false));
       document.addEventListener("keydown", (e) => { if (e.metaKey && e.shiftKey && (e.key === "f" || e.key === "F")) { e.preventDefault(); setOpen(true); } });
       // 检索：只留下包含关键词的消息，命中的字高亮；没有命中的日期组一起藏起来
-      const texts = Object.fromEntries(myMsgs.map((a) => [a.id, oneLine(a.text)]));
+      const texts = Object.fromEntries(myMsgs.map((a) => [a.id, a.text.trim()]));
       $("ufind").addEventListener("input", (e) => {
         const raw = e.target.value.trim(), q = raw.toLowerCase();
         let n = 0;
@@ -506,10 +507,7 @@
           const t = texts[row.dataset.k], hit = !q || t.toLowerCase().includes(q);
           row.classList.toggle("miss", !hit);
           if (hit && q) n++;
-          // 命中在三行之外时，截命中前面一点开始显示
-          const at = q ? t.toLowerCase().indexOf(q) : -1;
-          const shown = at > 60 ? "…" + t.slice(at - 20) : t;
-          row.querySelector(".n-text").innerHTML = msgText(shown, hit ? raw : "");
+          row.querySelector(".n-text").innerHTML = msgText(t, hit ? raw : "");
         });
         nav.querySelectorAll(".r-group").forEach((g) => {
           let x = g.nextElementSibling, any = false;

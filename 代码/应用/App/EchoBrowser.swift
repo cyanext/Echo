@@ -258,16 +258,18 @@ struct EchoBrowserView: View {
         }
     }
 
-    /// 一级目录：文件夹图标（收起合上、展开打开）、名字、会话数，缩进 16 一级；顶层名字加粗。
+    /// 一级目录：展开按钮（小三角）、名字、会话数，缩进 16 一级；顶层名字加粗。
     /// 展开后先列子目录，再列直接在这一级开的会话
     private func dirSection(_ d: EchoDir, level: Int) -> AnyView {
         let open = isOpen(d, level: level)
         let parts = d.name.components(separatedBy: " / ")
         return AnyView(Group {
             EchoRow(fill: nil) {
-                HStack(spacing: 8) {
-                    EchoIcon(kind: open ? .folderOpen : .folder)
-                        .foregroundStyle(open ? EchoColor.accent : EchoColor.fg2)
+                HStack(spacing: 6) {
+                    // 展开按钮：灰色小三角，收起朝右、展开朝下；不用文件夹图标，树里除了会话都是目录，画了也不多说什么
+                    Image(systemName: "chevron.right").font(.system(size: 9, weight: .semibold))
+                        .rotationEffect(.degrees(open ? 90 : 0)).frame(width: 12)
+                        .foregroundStyle(EchoColor.fg3)
                     (Text(parts[0]).foregroundColor(EchoColor.fg)
                         + Text(parts.count > 1 ? " / " + parts.dropFirst().joined(separator: " / ") : "").foregroundColor(EchoColor.fg3))
                         .font(.system(size: 13, weight: level == 0 ? .semibold : .regular)).lineLimit(1)
@@ -297,7 +299,7 @@ struct EchoBrowserView: View {
         if list.count > limit {
             EchoRow(fill: nil) {
                 Text("再显示 \(list.count - limit) 个").font(.system(size: 12)).foregroundStyle(EchoColor.fg3)
-                    .padding(.leading, CGFloat(level) * 16 + 24).frame(height: 26)
+                    .padding(.leading, CGFloat(level) * 16 + 18).frame(height: 26)
             } action: {
                 showAll.insert(key)
             }
@@ -307,8 +309,6 @@ struct EchoBrowserView: View {
     private func sessionRow(_ s: EchoSession, indent: CGFloat) -> some View {
         let on = picked.contains(s.id) || (picked.isEmpty && collectionID == nil && s.id == session?.id)
         return EchoRow(fill: on ? EchoColor.sideOn : nil, shadow: on) {
-          HStack(alignment: .top, spacing: 8) {
-            EchoIcon(kind: .chat, size: 14).foregroundStyle(on ? EchoColor.accent : EchoColor.fg3).padding(.top, 3)
             VStack(alignment: .leading, spacing: 1) {
                 Text(s.meta.title == s.sessionId ? "未命名会话" : s.meta.title).font(.system(size: 13, weight: on ? .semibold : .regular)).lineLimit(1)
                     .foregroundStyle(EchoColor.fg)
@@ -321,8 +321,7 @@ struct EchoBrowserView: View {
                 }
                 .font(.system(size: 12)).foregroundStyle(EchoColor.fg3).monospacedDigit()
             }
-          }
-          .padding(.leading, indent).padding(.vertical, 5)
+            .padding(.leading, indent + 18).padding(.vertical, 5)   // 和同一级子目录的名字左边对齐：会话和子目录缩进一样
         } action: {
             // ⌘ 点选：挑几个会话连起来看；普通点击打开
             if NSEvent.modifierFlags.contains(.command) {
