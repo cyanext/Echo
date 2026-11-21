@@ -61,6 +61,10 @@
 }
 .c-head-in { display: flex; align-items: center; gap: 16px; max-width: 840px; margin: 0 auto; padding: 14px 32px 12px; }
 .c-titles { flex: 1; min-width: 0; }
+/* 切到关键点时标题换成它的内容，淡入一下 */
+@keyframes swap { from { opacity: .35; } to { opacity: 1; } }
+.c-titles.swap { animation: swap .25s ease-out; }
+.c-titles h1 .ver { font-weight: 600; }
 .c-titles h1 { margin: 0; font-size: 16px; font-weight: 600; line-height: 1.4; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .c-meta { margin-top: 2px; font-size: 12px; line-height: 1.5; color: var(--fg-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .c-meta span + span::before { content: "·"; margin: 0 6px; color: var(--fg-faint); }
@@ -208,24 +212,28 @@
 .r-scroll::-webkit-scrollbar { display: none; }
 .r-list { margin: auto 0; padding: 8px 0; }   /* 内容少时上下居中，多了从顶上开始滚 */
 .k-row { display: flex; align-items: center; gap: 10px; height: 10px; padding-left: 14px; cursor: pointer; }
-.rail-wide .k-row { height: 40px; padding-right: 8px; border-radius: 0 8px 8px 0; }
-.k-row i { flex: none; display: block; height: 2px; width: 8px; border-radius: 1px; background: var(--line-strong); transition: width .12s, background .12s; }
+.rail-wide .k-row { height: 30px; padding-right: 10px; border-radius: 0 8px 8px 0; }
+.k-row i { flex: none; display: block; height: 2px; width: 8px; border-radius: 1px; background: var(--line-strong); transition: background .12s; }
 .k-row.t-compact i { width: 14px; }
 .k-row.t-part i { width: 20px; height: 3px; }
 .k-row:hover i { background: var(--fg-muted); }
 .k-row.on i { background: var(--accent); }
+/* 模块名：一组上面写一次，组间留白；只画横线时不显示 */
+.r-group { display: none; }
+.rail-wide .r-group { display: block; margin: 14px 0 2px 40px; font-size: 11px; line-height: 16px; color: var(--fg-faint); }
+.rail-wide .r-group:empty { margin-top: 8px; height: 0; }
+.rail-wide .r-group:first-child { margin-top: 0; }
 .note { display: none; }
-.rail-wide .note {
-  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; min-width: 0;
-  font-size: 12px; line-height: 17px; color: var(--fg-muted);
-}
+.rail-wide .note { display: flex; align-items: baseline; gap: 8px; min-width: 0; font-size: 12px; line-height: 18px; color: var(--fg-muted); }
+.n-ver { flex: none; min-width: 34px; font: 600 11.5px/18px var(--mono); color: var(--accent); }
+.n-text { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.n-text b { font-weight: 600; color: var(--fg); }
+.n-tag { flex: none; padding: 0 5px; border-radius: 4px; background: var(--bg-subtle); color: var(--fg-faint); font-size: 11px; line-height: 16px; }
 .rail-wide .k-row:hover { background: var(--bg-hover); }
 .rail-wide .k-row:hover .note { color: var(--fg); }
 .rail-wide .k-row.on { background: var(--accent-soft); }
 .rail-wide .k-row.on .note { color: var(--fg); }
-.note b { font-weight: 600; color: var(--fg); }
-.note .ver, .tip .ver { color: var(--accent); }
-.n-tag { margin-right: 4px; padding: 0 4px; border-radius: 4px; background: var(--bg-subtle); color: var(--fg-faint); font-size: 11px; }
+.tip .ver { color: var(--accent); }
 .tip {
   position: absolute; left: 44px; z-index: 6; width: max-content; max-width: 280px; padding: 8px 12px;
   border-radius: 10px; background: var(--bg); box-shadow: var(--shadow); transform: translateY(-50%);

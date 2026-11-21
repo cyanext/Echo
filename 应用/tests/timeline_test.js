@@ -1,5 +1,5 @@
 // 定位条取点的回归测试：git 提交怎么认、说明怎么取，阶段总结的说明取哪句（压缩前最后一条有内容的消息，没有时从摘要取）。由 tests/run.sh 用 node 运行
-const { commitMessage, summaryLine, keyPoints } = require(process.argv[2]);
+const { commitMessage, summaryLine, keyPoints, versionKey } = require(process.argv[2]);
 let failed = 0, count = 0;
 const eq = (got, want, what) => { count++; if (got !== want) { failed++; console.log(`  ✗ ${what}：得到 ${JSON.stringify(got)}，应为 ${JSON.stringify(want)}`); } };
 const bash = (command, result = "", isError = false) => ({ kind: "tool", name: "Bash", input: { command }, result, isError });
@@ -38,6 +38,16 @@ eq(keys[4].sub, "The user wants a timeline.", "两次压缩之间没有消息时
 eq(keys.map((k) => k.id).join(","), "k0,k1,k2,k3,k4,k5", "关键点编号连续");
 eq(keyPoints([{ role: "assistant", ts: "2026-11-20T01:00:00Z", blocks: [bash('git commit -m "Merge origin/main into lib-v0.8.0"'), bash('git commit -m "0.8.0：公共层"')] }]).map((k) => k.label).join(" | "),
    "0.8.0：公共层", "解决冲突后的合并提交不标");
+// 模块：只认说明开头的「模块 v版本号」；冒号、括号、句子中间的都不算
+eq(versionKey("后台接口 v0.14.2：认人"), "后台接口 0.14.2", "开头的模块加版本号");
+eq(versionKey("0.1.0：备份和浏览会话"), "0.1.0", "开头只有版本号时没有模块");
+eq(versionKey("需求：v0.2.2 右键给同事授权"), "0.2.2", "冒号前面的不算模块");
+eq(versionKey("合并会议列表接口（）和我的新消息（v0.7.0）的后台"), "0.7.0", "括号里的版本号没有模块");
+eq(versionKey("改注释"), null, "没有版本号");
+eq(versionKey("v0.3.1 回收站改为最近删除"), "0.3.1", "开头的 v 不算模块");
+eq(versionKey("NAS 网站 v0.3.1：回收站"), "NAS 网站 0.3.1", "模块里可以有空格");
+eq(versionKey("site-v0.3.0 合并"), "site 0.3.0", "模块末尾的连字符去掉");
+eq(versionKey("统一文件查看页拆到文件管理 v0.4.0"), "0.4.0", "句子中间的版本号没有模块");
 const plain = keyPoints([{ role: "assistant", ts: "2026-11-20T01:00:00Z", blocks: [bash('git commit -m "改 A"'), bash('git commit -m "改 B"')] }]);
 eq(plain.map((k) => k.label).join(" | "), "改 A | 改 B", "会话里一次版本提交都没有时，每次提交都标");
 

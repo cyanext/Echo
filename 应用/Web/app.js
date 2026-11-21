@@ -144,12 +144,13 @@
     return line || "提交";
   }
 
-  // 版本号和它前面的模块名：「后台接口 v0.14.2」→ 模块「后台接口」、版本「0.14.2」
-  const VER_RE = /(\S{0,8}?)\s?v?(\d+\.\d+\.\d+)/;
+  // 版本号和它前面的模块名：「后台接口 v0.14.2」→ 模块「后台接口」、版本「0.14.2」。
+  // 只认说明开头的「模块 v版本号」（模块里可以有空格，如「NAS 网站」）；版本号在句子中间时没有模块，中文分不出词，往前取会取到半句话
   function versionKey(label) {
-    const m = label.match(VER_RE);
-    if (!m) return null;
-    return m[1].replace(/^[\s:：，,「（(]+|[\s:：，,「（(]+$/g, "") + " " + m[2];
+    const head = label.match(/^\s*([\p{L}\p{N}_ -]{0,12}?)\s*v?(\d+\.\d+\.\d+)/u);
+    if (head) return (head[1].replace(/[\s_-]*v?$/i, "").trim() + " " + head[2]).trim();
+    const any = label.match(/(\d+\.\d+\.\d+)/);
+    return any ? any[1] : null;
   }
 
   // 定位条的关键点（方案 docs/versions/v0.3.0-会话定位条.html）：只标三类
@@ -252,7 +253,7 @@
 
     root.innerHTML = `
       <header class="c-head"><div class="c-head-in">
-        <div class="c-titles"><h1>${esc(m.title)}</h1><div class="c-meta" title="${esc(m.cwd + "\n" + m.id)}">${meta.map((x) => `<span>${esc(x)}</span>`).join("")}</div></div>
+        <div class="c-titles" id="titles"><h1 id="h-title">${esc(m.title)}</h1><div class="c-meta" id="h-meta" title="${esc(m.cwd + "\n" + m.id)}">${meta.map((x) => `<span>${esc(x)}</span>`).join("")}</div></div>
         <div class="c-actions">
           <label class="c-find">${ICON.find}<input id="search" type="search" placeholder="查找" autocomplete="off"><span class="hits" id="hits"></span></label>
           <div class="c-menu-wrap">
@@ -295,22 +296,47 @@
     // 点了跳过去；滚动对话时当前那条变蓝，定位条跟着把它滚到中间
     if (keys.length) {
       root.classList.add("has-rail");
-      const VERB = /v?\d+\.\d+\.\d+/;
-      const noteText = (k) => {
-        if (k.kind === "compact") return `<span class="n-tag">压缩</span>${esc(k.sub || "")}`;
-        if (k.kind === "part") return `<b>${esc(k.label)}</b>`;
-        const v = k.label.match(VERB);
-        if (!v) return esc(k.label);
-        // 去掉「需求：」这类前缀，留下做了什么
-        const rest = k.label.replace(VERB, "").replace(/\s{2,}/g, " ").replace(/^[\s:：、-]+/, "").replace(/^[^\s:：]{1,6}[:：]\s*/, "");
-        return `<b class="ver">${esc(v[0].replace(/^v/, ""))}</b> ${esc(rest)}`;
+      const verOf = (k) => (k.ver || "").split(" ").pop();
+      const moduleOf = (k) => (k.kind === "commit" && k.ver ? k.ver.split(" ").slice(0, -1).join(" ") : "");
+      // 一句做了什么：去掉模块和版本号、「需求：」这类前缀，到第一个括号或分号截住
+      const brief = (k) => {
+        const mod = moduleOf(k), ver = verOf(k);
+        let t = k.label.replace(new RegExp((mod ? mod.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\s*" : "") + "v?" + ver.replace(/\./g, "\\.")), "");
+        t = t.replace(/\s{2,}/g, " ").replace(/^[\s:：、,，-]+/, "").replace(/^[^\s:：]{1,6}[:：]\s*/, "");
+        const cut = t.search(/[（(；;]/);
+        if (cut >= 6) t = t.slice(0, cut);
+        return t.trim();
       };
-      $("rail").innerHTML = `<div class="r-scroll" id="rscroll"><div class="r-list">${keys.map((k) =>
-        `<div class="k-row t-${k.kind}" role="button" data-k="${k.id}"><i></i><div class="note">${noteText(k)}</div></div>`).join("")}</div></div><div class="tip" id="tip"></div>`;
+      const noteText = (k) => {
+        if (k.kind === "compact") return `<span class="n-tag">压缩</span><span class="n-text">${esc(k.sub || "")}</span>`;
+        if (k.kind === "part") return `<span class="n-text"><b>${esc(k.label)}</b></span>`;
+        if (!k.ver) return `<span class="n-text">${esc(k.label)}</span>`;
+        return `<span class="n-ver">${esc(verOf(k))}</span><span class="n-text">${esc(brief(k))}</span>`;
+      };
+      // 连续几条属于同一个模块时，上面写一次模块名；换模块的地方留白
+      let lastMod = null;
+      const rowsHtml = keys.map((k) => {
+        const mod = moduleOf(k);
+        const head = mod !== lastMod ? `<div class="r-group">${esc(mod)}</div>` : "";
+        lastMod = mod;
+        return `${head}<div class="k-row t-${k.kind}" role="button" data-k="${k.id}"><i></i><div class="note">${noteText(k)}</div></div>`;
+      }).join("");
+      $("rail").innerHTML = `<div class="r-scroll" id="rscroll"><div class="r-list">${rowsHtml}</div></div><div class="tip" id="tip"></div>`;
       const byId = Object.fromEntries(keys.map((k) => [k.id, k]));
       const rows = [...$("rail").querySelectorAll(".k-row")];
       const scroller = $("rscroll");
-      let gutter = 0, overRail = false, pinned = 0, current = null;
+      let gutter = 0, overRail = false, pinnedY = null, current = null;
+
+      // 左上角的标题跟着当前关键点换：标题写关键点的内容，小字写会话标题和这个关键点的时间；回到开头时恢复
+      const homeTitle = $("h-title").innerHTML, homeMeta = $("h-meta").innerHTML;
+      const headText = (k) => (k.kind === "compact" ? `手动压缩：${esc(k.sub || "")}` : k.kind === "part" ? esc(k.label) : esc(k.label).replace(/(v?\d+\.\d+\.\d+)/, '<b class="ver">$1</b>'));
+      const setHead = (id) => {
+        const k = id && byId[id];
+        const d = k && k.ts ? new Date(k.ts) : null;
+        $("h-title").innerHTML = k ? headText(k) : homeTitle;
+        $("h-meta").innerHTML = k ? `<span>${esc(m.title)}</span>${d ? `<span>${md0(d)} ${hm(d)}</span>` : ""}` : homeMeta;
+        $("titles").classList.remove("swap"); void $("titles").offsetWidth; $("titles").classList.add("swap");
+      };
 
       // 左边空白：按对话区的宽度算（设计稿里对话区比窗口窄）
       const layout = () => {
@@ -331,6 +357,7 @@
         if (id !== current) {
           current = id;
           rows.forEach((x) => x.classList.toggle("on", x.dataset.k === id));
+          setHead(id);
           if (!id && !overRail) scroller.scrollTo({ top: 0, behavior: "smooth" });
         }
         const row = id && rows.find((x) => x.dataset.k === id);
@@ -352,7 +379,7 @@
         el.scrollIntoView({ block: "start" });   // 停在标题栏下面（scroll-margin-top）
         el.classList.remove("flash"); void el.offsetWidth; el.classList.add("flash");
         mark(k.id);
-        pinned = Date.now();
+        pinnedY = window.scrollY;   // 跳转后页面还停在这里时保持点中的那条；一滚离就按实际位置重新判断
       });
       // 只画横线时悬停浮出说明，浮层宽度不超过左边空白
       $("rail").addEventListener("mouseover", (e) => {
@@ -361,14 +388,15 @@
         const k = byId[t.dataset.k];
         const d = k.ts ? new Date(k.ts) : null;
         $("tip").style.maxWidth = Math.max(150, Math.min(280, gutter - 52)) + "px";
-        $("tip").innerHTML = `<div class="tip-label">${noteText(k)}</div><div class="tip-time">${d ? md0(d) + " " + hm(d) : ""}</div>`;
+        $("tip").innerHTML = `<div class="tip-label">${k.kind === "compact" ? "手动压缩：" + esc(k.sub || "") : esc(k.label)}</div><div class="tip-time">${d ? md0(d) + " " + hm(d) : ""}</div>`;
         $("tip").style.top = t.offsetTop - scroller.scrollTop + scroller.offsetTop + t.offsetHeight / 2 + "px";
         $("tip").classList.add("show");
       });
 
       // 当前位置：标题栏下面那条线以上的最后一个关键点（全部看一遍，不提前停）
       const spot = () => {
-        if (Date.now() - pinned < 600) return;   // 刚点过，跳转引起的滚动不改高亮
+        if (pinnedY !== null && Math.abs(window.scrollY - pinnedY) < 4) return;
+        pinnedY = null;
         let cur = null, best = -Infinity;
         for (const k of keys) {
           const el = document.getElementById(k.id);
@@ -379,7 +407,7 @@
         mark(cur);
       };
       let ticking = false;
-      window.addEventListener("scroll", () => { if (!ticking) { ticking = true; requestAnimationFrame(() => { spot(); ticking = false; }); } }, { passive: true });
+      window.addEventListener("scroll", () => { if (!ticking) { ticking = true; setTimeout(() => { spot(); ticking = false; }, 60); } }, { passive: true });
     }
 
     $("turns").addEventListener("toggle", (e) => { if (e.target.dataset && e.target.dataset.i && e.target.open) fillStep(e.target); }, true);
