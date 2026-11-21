@@ -1,5 +1,5 @@
 // 总览（设计稿 设计/总览/，口径见那里的说明.md「数怎么算」）。
-// 数据来自 echo://app/overview.json（EchoStats.swift 整理）：每个会话每天的我的消息、AI 干活、各模型 Token，和 Git 提交；
+// 数据来自 echo://app/overview.json（EchoStats.swift 整理）：每个会话每天的我的消息、AI 时长、各模型 Token，和 Git 提交；
 // 这里按周汇总、算同期比、按 prices.json 折合美元。点会话交给 Swift 打开。
 (function () {
   const $ = (id) => document.getElementById(id);
@@ -107,7 +107,7 @@
   const KPI = [
     { l: "Token", f: (w) => w.tot, big: (w) => [fmtM(w.tot), ""], s: (w) => `其中输出 ${fmtM(w.out)} · 折合 ${fmtU(w.usd)}` },
     { l: "我的消息", f: (w) => w.msg, big: (w) => [fmtN(w.msg), "条"], s: (w) => `在 ${w.sids.size} 个会话里` },
-    { l: "AI 干活", f: (w) => w.ms / 3.6e6, big: (w) => [(w.ms / 3.6e6).toFixed(1), "小时"], s: (w) => `最长一轮 ${Math.round(w.lg / 6e4)} 分钟` },
+    { l: "AI 时长", f: (w) => w.ms / 3.6e6, big: (w) => [(w.ms / 3.6e6).toFixed(1), "小时"], s: (w) => `最长一轮 ${Math.round(w.lg / 6e4)} 分钟` },
     { l: "Git 提交", f: (w) => w.commits, big: (w) => [fmtN(w.commits), "次"], s: (w) => `+${fmtN(w.add)} −${fmtN(w.del)} 行 · ${fmtN(w.files.size)} 个文件` },
   ];
   const SPAN = 8;
@@ -192,7 +192,7 @@
     el.innerHTML = h;
   }
 
-  // 只看一天：顶上左右切天、「看整周」回去；一行几个数；会话全列（时间段、标题、项目、Token、折合、消息、AI 干活），
+  // 只看一天：顶上左右切天、「看整周」回去；一行几个数；会话全列（时间段、标题、项目、Token、折合、消息、AI 时长），
   // 会话下面一条条列它的提交（时间、版本号、说明、增删行）；对不上会话的提交列在最后
   const hm = (t) => { const d = new Date(t); return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`; };
   const dur = (ms) => ms >= 3.6e6 ? (ms / 3.6e6).toFixed(1) + " 小时" : Math.max(1, Math.round(ms / 6e4)) + " 分钟";
@@ -200,19 +200,19 @@
     return `<div class="cr2"${sid ? ` data-sid="${esc(sid)}" data-at="${c.time}"` : ""}>${IC.commit}<span class="tm2">${hm(c.time)}</span><span class="t">${c.ver ? `<b>${c.ver}</b>` : ""}${esc(c.s)}${label ? `<em>${esc(label)}</em>` : ""}</span><span class="x">+${fmtN(c.a)} −${fmtN(c.r)}</span></div>`;
   }
   // 只看一天：上面一张卡写日期、左右切天、「看整周」和六个数；下面一个会话一张卡，两列瀑布排，按 Token 从多到少。
-  // 会话卡：一个会话一张，占满一行。左边标题，下面一行灰字写项目路径和时间段；右边文字标签写 Token、折合、消息、AI 干活、提交次数；
+  // 会话卡：一个会话一张，占满一行。左边标题，下面一行灰字写项目路径和时间段；右边文字标签写 Token、折合、消息、AI 时长、提交次数；
   // 这天发的版本做成主色标签，悬停看提交说明，点了打开会话跳到那次提交。提交不逐条列，要看就点「N 次提交」跳到会话里最近那次
-  // 会话一行一个，像表格：会话（标题，后面灰字项目路径，有发版的再接版本号）、时间、Token、我的消息、AI 干活、Git 提交。
+  // 会话一行一个，像表格：会话（标题，后面灰字项目路径，有发版的再接版本号）、时间、Token、我的消息、AI 时长、Git 提交。
   // 叫法和上面数字卡一致；列名每张卡顶上写一次；Git 提交写「N 次」用主色，点了跳到会话里最近一次提交
-  const COLS = `<div class="srow shd"><span>会话</span><span>时间</span><span>Token</span><span>我的消息</span><span>AI 干活</span><span>Git 提交</span></div>`;
+  const COLS = `<div class="srow shd"><span>会话</span><span>Token</span><span>我的消息</span><span>AI 时长</span><span>时间</span><span>Git 提交</span></div>`;
   function sessCard(s) {
     const cs = [...s.commits].sort((a, b) => b.time - a.time), vs = [];
     cs.forEach((c) => { if (c.ver && !vs.some((v) => v.ver === c.ver)) vs.push(c); });
-    const vers = vs.slice(0, 3).map((c) => `<span class="vt" data-sid="${esc(s.id)}" data-at="${c.time}" data-tip="${esc(c.ver)}|${hm(c.time)}|${esc(c.s)}|+${c.a} −${c.r}">${c.ver}</span>`).join("") + (vs.length > 3 ? `<span class="vm">等 ${vs.length} 个</span>` : "");
+    const vers = vs.slice(0, 6).map((c) => `<span class="vt" data-sid="${esc(s.id)}" data-at="${c.time}" data-tip="${esc(c.ver)}|${hm(c.time)}|${esc(c.s)}|+${c.a} −${c.r}">${IC.tag}${c.ver}</span>`).join("") + (vs.length > 6 ? `<span class="vm">等 ${vs.length} 个版本</span>` : "");
     return `<article class="scard srow" data-id="${esc(s.id)}">
-      <div class="sm1"><span class="st">${esc(s.t)}</span><span class="sp">${esc(s.dir)}</span>${vers ? `<span class="vs">${IC.tag}${vers}</span>` : ""}</div>
-      <span class="n tm3">${s.a ? `${hm(s.a)}–${hm(s.b)}` : ""}</span>
+      <div class="sm0"><div class="sm1"><span class="st">${esc(s.t)}</span><span class="sp">${esc(s.dir)}</span></div>${vers ? `<div class="vs">${vers}</div>` : ""}</div>
       <span class="n k">${fmtM(s.tot)}</span><span class="n">${s.msg} 条</span><span class="n">${s.ms ? dur(s.ms) : ""}</span>
+      <span class="n tm3">${s.a ? `${hm(s.a)}–${hm(s.b)}` : ""}</span>
       <span class="n">${cs.length ? `<a class="cm" data-sid="${esc(s.id)}" data-at="${cs[0].time}" title="跳到会话里最近一次提交">${cs.length} 次</a>` : ""}</span>
     </article>`;
   }
@@ -224,7 +224,7 @@
     el.classList.add("dayv");
     const nav = `<span class="dn"><span class="ib${i <= 0 ? " off" : ""}" data-go="${i > 0 ? +all[i - 1].date : ""}"><svg viewBox="0 0 24 24"><path d="m15 6-6 6 6 6"/></svg></span><span class="ib${i >= all.length - 1 ? " off" : ""}" data-go="${i < all.length - 1 ? +all[i + 1].date : ""}"><svg viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></svg></span></span>`;
     let h = `<div class="card dhead"><h2>${md(x.date)} 周${WD[x.date.getDay()]}${isToday ? `<span class="tdy">今天</span>` : ""}${nav}<span class="note back" data-back="1">看整周</span></h2>` +
-      `<div class="dsum">${[["Token", fmtM(x.tot)], ["折合", fmtU(x.usd)], ["我的消息", x.msg + " 条"], ["AI 干活", x.ms ? dur(x.ms) : "—"], ["会话", x.sess.length + " 个"], ["提交", nc + " 次"]]
+      `<div class="dsum">${[["Token", fmtM(x.tot)], ["折合", fmtU(x.usd)], ["我的消息", x.msg + " 条"], ["AI 时长", x.ms ? dur(x.ms) : "—"], ["会话", x.sess.length + " 个"], ["提交", nc + " 次"]]
         .map(([l, v]) => `<div><span>${l}</span><b>${v}</b></div>`).join("")}</div></div>`;
     if (!x.sess.length && !nc) { el.innerHTML = h + `<div class="card"><div class="empty">这天没有会话</div></div>`; return; }
     const other = (x.other || []).sort((a, b) => b.time - a.time);
