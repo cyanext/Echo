@@ -176,3 +176,15 @@ h2 .back { cursor: pointer; color: var(--accent); }
 .vtip .h span { color: var(--fg-faint); font-variant-numeric: tabular-nums; }
 .vtip .m { margin-top: 4px; font-size: 13px; line-height: 20px; color: var(--fg); }
 .vtip .f { margin-top: 6px; color: var(--fg-faint); }
+
+/* 本周：一天一段，日期一行在页底上，下面会话卡 */
+.dhead .hint { font-size: 12px; color: var(--fg-faint); margin-top: -8px; }
+.wday { margin-top: 16px; }
+.wdh { display: flex; align-items: baseline; gap: 12px; padding: 0 4px 12px; }
+.wdh b { font-size: 15px; line-height: 22px; font-weight: 600; cursor: pointer; }
+.wdh b:hover { color: var(--accent); }
+.wdh .tdy { font-size: 12px; color: var(--accent); }
+.wdh .tm { margin-left: auto; font-size: 12px; color: var(--fg-muted); font-variant-numeric: tabular-nums; }
+.wtitle { padding: 16px 4px 0; } .wtitle h2 { margin: 0; }
+.wmore { margin: 0 4px;  font-size: 12px; color: var(--accent); cursor: pointer; }
+.wother { margin: 16px 0; padding: 12px 24px; }

@@ -163,35 +163,30 @@
     return `<div class="ci">${IC.commit}<span class="t">${ver.length ? `<b title="${ver.join("、")}">${ver.slice(0, 3).join(" · ")}${ver.length > 3 ? ` 等 ${ver.length} 个版本` : ""}</b>` : ""}${esc(msg)}</span><span class="x">${label ? esc(label) + " · " : ""}${cs.length} 次提交</span></div>`;
   }
 
-  // 本周：按天的竖线时间线，从今天往前排；一天里一个会话一行（标题、项目、Token、消息），会话下面缩进列它的提交；
-  // 有提交的会话都列，其余按 Token 取前几个凑满 4 个，多了点「还有 N 个会话」；对不上会话的提交按项目列在最后
+  // 本周：上面一张卡写「本周」和这周几个项目、会话、提交；下面从今天往前一天一段：
+  // 日期一行（点了只看那天）和当天的量，下面当天的会话卡两列排，按 Token 取前 4 张（每张最多 2 次提交），多了写「还有 N 个会话」点进那天
   function week() {
     if (dayView) return dayCard();
     const w = weeks[cur], el = $("week");
-    el.classList.add("card"); el.classList.remove("dayv");
-    if (!w.sids.size) { el.innerHTML = `<h2>本周</h2><div class="empty">这周没有会话</div>`; return; }
-    const lv = levels(w.days.map((x) => x.tot));
-    let h = `<h2>本周<span class="note">${w.projs.size} 个项目 · ${w.sids.size} 个会话 · ${w.commits} 次提交</span></h2><div class="tl">`;
-    w.days.map((x, i) => [x, i]).reverse().forEach(([x, i]) => {
+    el.classList.remove("card"); el.classList.add("dayv");
+    let h = `<div class="wtitle"><h2>本周<span class="note">${w.projs.size} 个项目 · ${w.sids.size} 个会话 · ${w.commits} 次提交 · 点日期只看那天</span></h2></div>`;
+    if (!w.sids.size) { el.innerHTML = h; return; }
+    w.days.map((x, i) => [x, i]).reverse().forEach(([x]) => {
       if (x.fut) return;
-      const isToday = +x.date === +TODAY;
-      const head = `<div class="th"><i class="nd l${lv(x.tot)}${isToday ? " today" : ""}"></i><b class="dl" data-t="${+x.date}">周${WD[x.date.getDay()]} ${x.date.getDate()}</b>${isToday ? `<span class="tdy">今天</span>` : ""}<span class="tm">${x.tot || x.msg ? `${fmtM(x.tot)} · ${fmtU(x.usd)} · ${x.msg} 条消息` : "没有会话"}</span></div>`;
-      const other = x.other || [];
-      if (!x.sess.length && !other.length) { h += `<div class="td empty-day" data-t="${+x.date}">${head}</div>`; return; }
-      const all = open.has(i), withC = x.sess.filter((s) => s.commits.length);
-      const rest = x.sess.filter((s) => !s.commits.length).slice(0, Math.max(0, 4 - withC.length));
-      const shown = all ? x.sess : x.sess.filter((s) => withC.includes(s) || rest.includes(s));
-      const hidden = x.sess.length - shown.length;
-      const byP = new Map();
-      other.forEach((c) => byP.set(c.p, [...(byP.get(c.p) || []), c]));
-      h += `<div class="td" data-t="${+x.date}">${head}<div class="sv">` +
-        shown.map((s) => `<div class="sr" data-id="${esc(s.id)}">${IC.msg}<span class="t">${esc(s.t)}<em>${esc(s.p)}</em></span><span class="v">${fmtM(s.tot)}</span><span class="v">${s.msg} 条</span></div>` +
-          (s.commits.length ? `<div class="sc">${commitLine(s.commits)}</div>` : "")).join("") +
-        (hidden > 0 || all ? `<div class="sm" data-d="${i}">${all ? "收起" : `还有 ${hidden} 个会话`}</div>` : "") +
-        (byP.size ? `<div class="oc">${[...byP.entries()].map(([p, cs]) => commitLine(cs, p)).join("")}</div>` : "") +
-        `</div></div>`;
+      const isToday = +x.date === +TODAY, other = x.other || [];
+      h += `<section class="wday"><div class="wdh"><b class="dl" data-t="${+x.date}">${md(x.date)} 周${WD[x.date.getDay()]}</b>${isToday ? `<span class="tdy">今天</span>` : ""}<span class="tm">${x.tot || x.msg ? `${fmtM(x.tot)} · ${fmtU(x.usd)} · ${x.msg} 条消息 · ${x.sess.length} 个会话${x.commits.length ? ` · ${x.commits.length} 次提交` : ""}` : "没有会话"}</span></div>`;
+      if (x.sess.length) {
+        const top = x.sess.slice(0, 4), rest = x.sess.length - top.length;
+        h += `<div class="sgrid">${top.map((s) => sessCard(s, 2)).join("")}</div>` + (rest > 0 ? `<div class="wmore dl" data-t="${+x.date}">还有 ${rest} 个会话，看这一天</div>` : "");
+      }
+      if (other.length) {
+        const byP = new Map();
+        other.forEach((c) => byP.set(c.p, [...(byP.get(c.p) || []), c]));
+        h += `<div class="card wother">${[...byP.entries()].map(([p, cs]) => commitLine(cs, p)).join("")}</div>`;
+      }
+      h += `</section>`;
     });
-    el.innerHTML = h + `</div>`;
+    el.innerHTML = h;
   }
 
   // 只看一天：顶上左右切天、「看整周」回去；一行几个数；会话全列（时间段、标题、项目、Token、折合、消息、AI 干活），
@@ -205,16 +200,16 @@
   // 会话卡：标题、项目和时间段；一行四个数；这天发的版本（主色标签）；最近几次提交；对不上会话的提交另放一张卡
   // 会话卡：标题；下面一行灰字写项目路径（项目代码/NAS）和时间段；一行文字标签写 Token、折合、消息、AI 干活；
   // 这天发的版本（主色标签，悬停看提交说明，点了跳到会话里那次提交）；最近 4 次提交（点了同样跳过去）
-  function sessCard(s) {
+  function sessCard(s, lim = 4) {
     const cs = [...s.commits].sort((a, b) => b.time - a.time), vs = [];
     cs.forEach((c) => { if (c.ver && !vs.some((v) => v.ver === c.ver)) vs.push(c); });
-    const more = open.has(s.id), list = more ? cs : cs.slice(0, 4);
+    const more = open.has(s.id), list = more ? cs : cs.slice(0, lim);
     const tags = [fmtM(s.tot) + " Token", fmtU(s.usd), s.msg + " 条消息", s.ms ? "AI " + dur(s.ms) : ""].filter(Boolean);
     return `<article class="scard" data-id="${esc(s.id)}">
       <header><div class="st">${esc(s.t)}</div><div class="sp">${esc(s.dir)}${s.a ? ` · ${hm(s.a)}–${hm(s.b)}` : ""}</div></header>
       <div class="tg2">${tags.map((t) => `<span>${t}</span>`).join("")}</div>
       ${vs.length ? `<div class="vs">${vs.slice(0, 6).map((c) => `<span class="vt" data-sid="${esc(s.id)}" data-at="${c.time}" data-tip="${esc(c.ver)}|${hm(c.time)}|${esc(c.s)}|+${c.a} −${c.r}">${IC.tag}${c.ver}</span>`).join("")}${vs.length > 6 ? `<span class="vm">等 ${vs.length} 个版本</span>` : ""}</div>` : ""}
-      ${cs.length ? `<div class="cl"><div class="ch">${cs.length} 次提交</div>${list.map((c) => commitRow(c, "", s.id)).join("")}${cs.length > 4 ? `<div class="sm" data-cm="${esc(s.id)}">${more ? "收起" : `还有 ${cs.length - 4} 次`}</div>` : ""}</div>` : ""}
+      ${cs.length ? `<div class="cl"><div class="ch">${cs.length} 次提交</div>${list.map((c) => commitRow(c, "", s.id)).join("")}${cs.length > lim ? `<div class="sm" data-cm="${esc(s.id)}">${more ? "收起" : `还有 ${cs.length - lim} 次`}</div>` : ""}</div>` : ""}
     </article>`;
   }
   function dayCard() {
