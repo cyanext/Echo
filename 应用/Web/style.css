@@ -242,7 +242,7 @@
 .c-rail.right.wide .r-group { margin-left: 10px; margin-right: 36px; }
 .c-rail.right .note { flex: 1; }
 .c-rail.right .r-list { margin: 0; }   /* 检索结果从顶上排 */
-.c-rail.right.wide .k-row.short .note { color: var(--fg-faint); }
+
 .c-rail.right .tip { left: auto; right: 44px; }
 /* 右边是对话检索：默认收起，只留横线和顶上的放大镜按钮；展开后顶上是搜索框，下面按天列你的消息。
    右边空白够宽时面板放在空白里；不够宽时浮在正文上，带底色和阴影 */
@@ -266,6 +266,22 @@
 .c-rail.right.float { background: var(--bg); box-shadow: var(--shadow); border-radius: 12px 0 0 12px; }
 .k-row.miss, .r-group.miss { display: none !important; }
 .note mark { background: var(--hit); color: inherit; border-radius: 2px; }
+
+/* 右边展开后：一条消息一个靠右的气泡，内容写全、保留换行，下面是时间；当前那条描蓝边 */
+.c-rail.right.wide .k-row { height: auto; align-items: flex-start; padding: 5px 14px 5px 10px; border-radius: 0; background: none !important; }
+.c-rail.right.wide .k-row i { margin-top: 14px; }
+.c-rail.right.wide .note { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; color: var(--fg); }
+.c-rail.right.wide .n-text {
+  max-width: 100%; padding: 7px 12px; border-radius: 14px; background: var(--bubble);
+  white-space: pre-wrap; overflow: visible; overflow-wrap: anywhere; text-overflow: clip;
+  font-size: 12.5px; line-height: 1.55; color: var(--fg); transition: box-shadow .12s, background .12s;
+}
+.c-rail.right.wide .k-row:hover .n-text { background: color-mix(in srgb, var(--bubble) 80%, var(--fg) 6%); }
+.c-rail.right.wide .k-row.on .n-text { box-shadow: 0 0 0 1.5px var(--accent); }
+.c-rail.right.wide .k-row.short .n-text { padding: 4px 10px; color: var(--fg-muted); background: var(--bg-subtle); }
+.n-time { display: none; }
+.c-rail.right.wide .n-time { display: block; font-size: 11px; line-height: 14px; color: var(--fg-faint); font-variant-numeric: tabular-nums; }
+.n-more { margin-left: 4px; color: var(--fg-faint); font-size: 11px; }
 
 /* 段锚点：左边定位条点一条时跳到这一段的开头 */
 .pa { display: block; height: 0; }

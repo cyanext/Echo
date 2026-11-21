@@ -11,6 +11,7 @@
     chev: '<svg class="chev" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></svg>',
     cmd: '<svg viewBox="0 0 24 24"><path d="m5 8 4 4-4 4M12 17h7"/></svg>',
     sys: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 11v5M12 8h.01"/></svg>',
+    panel: '<svg viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/><path d="M14.5 4.5v15"/></svg>',
   };
 
   const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
@@ -314,11 +315,11 @@
       const left = $("rail"), right = $("urail");
       left.classList.toggle("wide", gutter >= 180);
       left.style.width = gutter >= 180 ? Math.min(gutter - 8, 300) + "px" : "";
-      // 右边：展开时放在空白里，空白不够 260 就浮在正文上
+      // 右边：展开时放在空白里，空白不够 280 就浮在正文上
       const open = right.classList.contains("open");
       right.classList.toggle("wide", open);
-      right.classList.toggle("float", open && gutter - 8 < 260);
-      right.style.width = open ? Math.max(260, Math.min(gutter - 8, 300)) + "px" : "";
+      right.classList.toggle("float", open && gutter - 8 < 280);
+      right.style.width = open ? Math.max(280, Math.min(gutter - 8, 340)) + "px" : "";
     };
     // 画到第 part 段，滚到 id 那里（停在标题栏下），闪一下
     const goTo = (part, id) => {
@@ -442,9 +443,17 @@
       root.classList.add("has-urail");
       const dayOf = (ts) => (ts ? day(new Date(ts)) : "");
       const oneLine = (x) => x.replace(/\s+/g, " ").trim();
+      // 展开后一条消息一个气泡，内容写全、保留换行；超过 1000 字的截断并写总字数，免得一条占满面板
+      const CAP = 1000;
+      const bubbleText = (t, q) => {
+        const body = t.length > CAP ? t.slice(0, CAP) : t;
+        let h = esc(body);
+        if (q) h = h.replace(new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/[&<>"]/g, (c) => esc(c)), "gi"), (x) => `<mark>${x}</mark>`);
+        return h + (t.length > CAP ? `<span class="n-more">…共 ${t.length} 字</span>` : "");
+      };
       const r = makeRail($("urail"), myMsgs.map((a) => ({
         id: a.id, ts: a.ts, cls: "t-ask" + (a.text.trim().length <= 6 ? " short" : ""), group: dayOf(a.ts),   // 「发布」「继续」这种短确认淡一些
-        row: `<span class="n-text">${esc(oneLine(a.text).slice(0, 80))}</span>`,
+        row: `<span class="n-text">${bubbleText(a.text.trim(), "")}</span><span class="n-time">${a.ts ? hm(new Date(a.ts)) : ""}</span>`,
         tip: esc(oneLine(a.text).slice(0, 200)),
       })), {
         jump: (it) => goTo(partOf[myMsgs.find((a) => a.id === it.id).turn], it.id),
@@ -456,9 +465,10 @@
       });
       rails.push(r);
       const nav = r.nav;
-      nav.insertAdjacentHTML("afterbegin", `<div class="r-head"><span class="r-count" id="ucount"></span><input class="r-find" id="ufind" type="search" placeholder="搜你的消息" autocomplete="off"><button class="r-toggle" id="utoggle" type="button" title="你的消息">${ICON.find}</button></div>`);
+      nav.insertAdjacentHTML("afterbegin", `<div class="r-head"><span class="r-count" id="ucount"></span><input class="r-find" id="ufind" type="search" placeholder="搜你的消息" autocomplete="off"><button class="r-toggle" id="utoggle" type="button" title="展开你的消息">${ICON.panel}</button></div>`);
       const setOpen = (open) => {
         nav.classList.toggle("open", open);
+        $("utoggle").title = open ? "收起" : "展开你的消息";
         try { localStorage.setItem("echo.urail.open", open ? "1" : ""); } catch (e) {}
         layout();
         if (open) setTimeout(() => $("ufind").focus(), 0);
@@ -466,21 +476,18 @@
       let saved = "";
       try { saved = localStorage.getItem("echo.urail.open") || ""; } catch (e) {}
       nav.classList.toggle("open", saved === "1");
+      $("utoggle").title = saved === "1" ? "收起" : "展开你的消息";
       $("utoggle").addEventListener("click", (e) => { e.stopPropagation(); setOpen(!nav.classList.contains("open")); });
       // 检索：只留下包含关键词的消息，命中的字高亮；没有命中的日期组一起藏起来
-      const texts = Object.fromEntries(myMsgs.map((a) => [a.id, oneLine(a.text)]));
+      const texts = Object.fromEntries(myMsgs.map((a) => [a.id, a.text.trim()]));
       $("ufind").addEventListener("input", (e) => {
-        const q = e.target.value.trim().toLowerCase();
+        const raw = e.target.value.trim(), q = raw.toLowerCase();
         let n = 0;
         r.rows.forEach((row) => {
           const t = texts[row.dataset.k], hit = !q || t.toLowerCase().includes(q);
           row.classList.toggle("miss", !hit);
           if (hit && q) n++;
-          const hitAt = q ? t.toLowerCase().indexOf(q) : -1;
-          const from = hitAt > 40 ? hitAt - 20 : 0;   // 命中在后半段时截命中前后那一截
-          const shown = (from ? "…" : "") + t.slice(from, from + 80);
-          const at = q ? shown.toLowerCase().indexOf(q) : -1;
-          row.querySelector(".n-text").innerHTML = at < 0 ? esc(shown) : esc(shown.slice(0, at)) + "<mark>" + esc(shown.slice(at, at + q.length)) + "</mark>" + esc(shown.slice(at + q.length));
+          row.querySelector(".n-text").innerHTML = bubbleText(t, hit ? raw : "");
         });
         nav.querySelectorAll(".r-group").forEach((g) => {
           let x = g.nextElementSibling, any = false;
