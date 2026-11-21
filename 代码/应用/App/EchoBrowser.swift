@@ -1,5 +1,5 @@
 // 浏览窗口：左栏按目录二级分类的会话（大目录 > 项目 > 会话），右栏对话（WKWebView 加载 Web/ 里的页面）。
-// 照设计稿 设计/浏览窗口/：外框照伙伴云NAS应用（图标栏灰底、白色内容区、靛蓝强调色），列表不用系统 List。
+// 照设计稿 设计/浏览窗口/：外框照伙伴云NAS应用（图标栏灰底、白色内容区、青绿强调色），列表不用系统 List。
 import AppKit
 import SwiftUI
 import WebKit
@@ -13,17 +13,17 @@ enum EchoColor {
             return NSColor(srgbRed: CGFloat(v >> 16 & 0xff) / 255, green: CGFloat(v >> 8 & 0xff) / 255, blue: CGFloat(v & 0xff) / 255, alpha: isDark ? da : la)
         })
     }
-    static let side = dyn(0xecedf3, 0x232428)
+    static let side = dyn(0xedf0f0, 0x222627)
     static let sideOn = dyn(0xffffff, 0x34353b)
     static let sideFg = dyn(0x4b5468, 0xb4b9c5)
-    static let sideLine = dyn(0xe3e5ec, 0x2f3036)
+    static let sideLine = dyn(0xe1e6e6, 0x2d3233)
     static let surface = dyn(0xffffff, 0x1d1e23)
     static let fg = dyn(0x1f2329, 0xe6e8ec)
     static let fg2 = dyn(0x646a73, 0x9aa0ab)
     static let fg3 = dyn(0x8f959e, 0x6f7581)
     static let line = dyn(0xe3e5ec, 0x2c2e35)
-    static let accent = dyn(0x4e5bd8, 0x7c87f0)
-    static let sel = dyn(0x4e5bd8, 0x7c87f0, 0.10, 0.16)
+    static let accent = dyn(0x008081, 0x3fc0c0)          // 回响主色青绿（11-21 定，和 NAS 的靛蓝分开）
+    static let sel = dyn(0x008081, 0x3fc0c0, 0.10, 0.16)
     static let hover = dyn(0x1f2329, 0xffffff, 0.05, 0.06)
     static let good = dyn(0x12a150, 0x3ccf7e)
     static let warn = dyn(0xe08a00, 0xf0a63a)
@@ -226,13 +226,13 @@ struct EchoBrowserView: View {
     /// 左栏顶上一行「总览」（设计稿 设计/总览/）
     private var overviewRow: some View {
         EchoRow(fill: showOverview ? EchoColor.sideOn : nil, shadow: showOverview) {
-            HStack(spacing: 8) {
-                Image(systemName: "house").font(.system(size: 12, weight: .medium)).frame(width: 14)
+            HStack(spacing: 6) {
+                Image(systemName: "house").font(.system(size: 12, weight: .medium)).frame(width: 12)
                     .foregroundStyle(showOverview ? EchoColor.accent : EchoColor.fg2)
                 Text("总览").font(.system(size: 13, weight: showOverview ? .semibold : .regular))
                 Spacer()
             }
-            .frame(height: 30)
+            .frame(height: 32)
         } action: {
             picked = []
             showOverview = true
@@ -285,6 +285,9 @@ struct EchoBrowserView: View {
                     LazyVStack(alignment: .leading, spacing: 0) {
                         overviewRow
                         collectionSection
+                        // 树上方一行灰色小标题，左边和文件夹图标对齐（照 NAS 左栏「文件夹」）
+                        Text("目录").font(.system(size: 12, weight: .medium)).foregroundStyle(EchoColor.fg3)
+                            .padding(.leading, 10 + indentStep).padding(.top, 14)   // 和顶层目录名字对齐
                         ForEach(tree) { d in dirSection(d, level: 0) }
                     }
                     .padding(.horizontal, 10).padding(.bottom, 12)
@@ -309,7 +312,8 @@ struct EchoBrowserView: View {
     /// 每级缩进 18，正好是小三角加间距的宽度。下一级从上一级的文字起点开始：子目录的三角、会话的标题都和上一级目录名字对齐
     private let indentStep: CGFloat = 18
 
-    /// 一级目录：展开按钮（小三角）、名字、会话数，缩进 18 一级；顶层名字加粗。
+    /// 一级目录：展开按钮（小三角）、名字、会话数，缩进 18 一级：下一级从上一级的名字起点开始。
+    /// 不加文件夹、会话图标（靠留白区隔）；各级字重一样。
     /// 展开后先列子目录，再列直接在这一级开的会话
     private func dirSection(_ d: EchoDir, level: Int) -> AnyView {
         let open = isOpen(d, level: level)
@@ -317,23 +321,23 @@ struct EchoBrowserView: View {
         return AnyView(Group {
             EchoRow(fill: nil) {
                 HStack(spacing: 6) {
-                    // 展开按钮：灰色小三角，收起朝右、展开朝下；不用文件夹图标，树里除了会话都是目录，画了也不多说什么
+                    // 展开按钮：灰色小三角，收起朝右、展开朝下
                     Image(systemName: "chevron.right").font(.system(size: 9, weight: .semibold))
                         .rotationEffect(.degrees(open ? 90 : 0)).frame(width: 12)
                         .foregroundStyle(EchoColor.fg3)
                     (Text(parts[0]).foregroundColor(EchoColor.fg)
                         + Text(parts.count > 1 ? " / " + parts.dropFirst().joined(separator: " / ") : "").foregroundColor(EchoColor.fg3))
-                        .font(.system(size: 13, weight: level == 0 ? .semibold : .regular)).lineLimit(1)
+                        .font(.system(size: 13)).lineLimit(1)
                     Spacer(minLength: 4)
                     Text("\(d.count)").font(.system(size: 12)).foregroundStyle(EchoColor.fg3).monospacedDigit()
                 }
                 .padding(.leading, CGFloat(level) * indentStep)
-                .frame(height: 30)
+                .frame(height: 34)
             } action: {
                 toggle(d, level: level)
             }
             .background(guides(level))
-            .padding(.top, level == 0 ? 10 : 0)
+            .padding(.top, level == 0 ? 8 : 0)   // 顶层目录之间多空一点，靠留白分组，不加图标
             .help((d.path as NSString).abbreviatingWithTildeInPath)
 
             if open {
@@ -351,7 +355,7 @@ struct EchoBrowserView: View {
         if list.count > limit {
             EchoRow(fill: nil) {
                 Text("再显示 \(list.count - limit) 个").font(.system(size: 12)).foregroundStyle(EchoColor.fg3)
-                    .padding(.leading, CGFloat(level - 1) * indentStep + 18).frame(height: 26)
+                    .padding(.leading, CGFloat(level - 1) * indentStep + 18).frame(height: 28)   // 和会话标题对齐
             } action: {
                 showAll.insert(key)
             }
@@ -362,19 +366,21 @@ struct EchoBrowserView: View {
     private func sessionRow(_ s: EchoSession, indent: CGFloat) -> some View {
         let on = picked.contains(s.id) || (!showOverview && picked.isEmpty && collectionID == nil && s.id == session?.id)
         return EchoRow(fill: on ? EchoColor.sideOn : nil, shadow: on) {
-            VStack(alignment: .leading, spacing: 1) {
-                Text(s.meta.title == s.sessionId ? "未命名会话" : s.meta.title).font(.system(size: 13, weight: on ? .semibold : .regular)).lineLimit(1)
-                    .foregroundStyle(EchoColor.fg)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                HStack(spacing: 6) {
-                    Text(EchoTime.short(s.endDate))
-                    if computers.count > 1 { Text(s.computer).lineLimit(1) }
-                    Spacer(minLength: 4)
-                    Text(ByteCountFormatter.string(fromByteCount: s.size, countStyle: .file))
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(s.meta.title == s.sessionId ? "未命名会话" : s.meta.title).font(.system(size: 13, weight: on ? .semibold : .regular)).lineLimit(1)
+                        .foregroundStyle(EchoColor.fg)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    HStack(spacing: 6) {
+                        Text(EchoTime.short(s.endDate))
+                        if computers.count > 1 { Text(s.computer).lineLimit(1) }
+                        Spacer(minLength: 4)
+                        Text(ByteCountFormatter.string(fromByteCount: s.size, countStyle: .file))
+                    }
+                    .font(.system(size: 12)).foregroundStyle(EchoColor.fg3).monospacedDigit()
                 }
-                .font(.system(size: 12)).foregroundStyle(EchoColor.fg3).monospacedDigit()
             }
-            .padding(.leading, indent + 18).padding(.vertical, 5)   // 下一级从上一级的文字起点开始：会话标题和上一级目录名字对齐
+            .padding(.leading, indent + 18).padding(.vertical, 7)   // 会话标题和上一级目录名字对齐
         } action: {
             // ⌘ 点选：挑几个会话连起来看；普通点击打开
             if NSEvent.modifierFlags.contains(.command) {
@@ -629,14 +635,11 @@ struct EchoWebView: NSViewRepresentable {
 
 // MARK: - 总览
 
-/// 总览：网页 Web/overview.html，数据是 EchoState.overview（echo://app/overview.json）；还没整理好时转圈
+/// 总览：网页 Web/overview.html，数据是 EchoState.overview（echo://app/overview.json）；还没整理好时网页自己画灰块占位
 struct EchoOverview: View {
     @EnvironmentObject var state: EchoState
     var body: some View {
-        ZStack {
-            EchoOverviewWeb(data: state.overview)
-            if state.overview == nil { ProgressView().controlSize(.small) }
-        }
+        EchoOverviewWeb(data: state.overview)
     }
 }
 
@@ -652,15 +655,15 @@ struct EchoOverviewWeb: NSViewRepresentable {
         let w = WKWebView(frame: .zero, configuration: cfg)
         w.setValue(false, forKey: "drawsBackground")
         context.coordinator.web = w
+        context.coordinator.scheme.overview = data
+        w.load(URLRequest(url: URL(string: "echo://app/overview.html")!))   // 先打开：没数据时网页画占位
         return w
     }
 
     func updateNSView(_ w: WKWebView, context: Context) {
         guard let data, data != context.coordinator.scheme.overview else { return }
-        let first = context.coordinator.scheme.overview == nil
         context.coordinator.scheme.overview = data
-        if first { w.load(URLRequest(url: URL(string: "echo://app/overview.html")!)) }
-        else { w.evaluateJavaScript("window.echoReload && window.echoReload()") }   // 数据更新了：保留当前选的周，重新取数
+        w.evaluateJavaScript("window.echoReload && window.echoReload()")   // 数据到了或更新了：保留当前选的周，重新取数
     }
 
     @MainActor
@@ -690,7 +693,7 @@ final class EchoScheme: NSObject, WKURLSchemeHandler {
             let token = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "s" }?.value ?? ""
             body = sessions[token]
         } else if name == "overview.json" {
-            body = overview
+            body = overview ?? Data("{}".utf8)   // 还没整理好：空对象，网页画占位
         } else if let res = Bundle.main.resourceURL {
             body = try? Data(contentsOf: res.appendingPathComponent("Web").appendingPathComponent(name))
         }
