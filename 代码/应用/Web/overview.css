@@ -148,10 +148,12 @@ h2 .back { cursor: pointer; color: var(--accent); }
 .scard header { margin-bottom: 12px; }
 .scard .st { font-size: 15px; line-height: 22px; font-weight: 600; }
 .scard .sp { display: flex; align-items: center; gap: 8px; margin-top: 4px; font-size: 12px; line-height: 18px; color: var(--fg-faint); font-variant-numeric: tabular-nums; }
-.tg2 { display: flex; flex-wrap: wrap; gap: 4px 20px; }
-.tg2 span { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; line-height: 20px; color: var(--fg-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.tg2 { display: grid; grid-template-columns: 116px 92px 84px 112px 84px; column-gap: 16px; }
+.tg2 span { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; line-height: 20px; white-space: nowrap; }
 .tg2 svg { width: 13px; height: 13px; color: var(--fg-faint); }
-.tg2 span:first-child { color: var(--fg); font-weight: 600; }
+.tg2 i { font-style: normal; color: var(--fg-faint); }
+.tg2 b { font-weight: 400; color: var(--fg); font-variant-numeric: tabular-nums; }
+.tg2 .k b { font-weight: 600; }
 .vs { display: flex; flex-wrap: wrap; gap: 4px 16px; margin-top: 12px; }
 .vt { cursor: pointer; display: inline-flex; align-items: center; gap: 4px; height: 20px; color: var(--accent); font: 600 12px/20px var(--mono); }
 .vt svg { width: 12px; height: 12px; }
@@ -194,11 +196,9 @@ h2 .back { cursor: pointer; color: var(--accent); }
 .scard .sl { flex: 1; min-width: 0; }
 .scard .st { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .scard .sp { margin-top: 2px; }
-.scard .tg2 { flex: none; justify-content: flex-end; }
-.tg2 span:first-child { font-weight: inherit; }
-.tg2 span.b { color: var(--fg); font-weight: 600; }
-.tg2 .cm { cursor: pointer; color: var(--accent); }
-.tg2 .cm svg { color: var(--accent); }
+.scard .tg2 { flex: none; }
+.tg2 .cm { cursor: pointer; }
+.tg2 .cm svg, .tg2 .cm i, .tg2 .cm b { color: var(--accent); }
 .tg2 .cm:hover { text-decoration: underline; }
 .scard .vs { margin-top: 12px; }
 .wother { margin: 12px 0 0; }
