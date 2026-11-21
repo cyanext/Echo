@@ -148,7 +148,7 @@
         return `<i class="c l${lv(x.tot)}${+x.date === +TODAY ? " today" : ""}" data-t="${+x.date}" title="${md(x.date)} ${x.tot ? fmtM(x.tot) : "没有会话"}"></i>`;
       }).join("") + (() => {
         const ds = wk.filter((x) => x.date.getFullYear() === y && x.date.getMonth() === m).map((x) => x.date.getDate() - 1);
-        return ds.length ? `<span class="wkbox" style="left:${36 + Math.min(...ds) * 26 - 3}px;width:${(Math.max(...ds) - Math.min(...ds) + 1) * 26 + 2}px"></span>` : "";
+        return ds.length ? `<span class="wkbox" style="--a:${Math.min(...ds)};--n:${Math.max(...ds) - Math.min(...ds) + 1}"></span>` : "";
       })() + `</div>`;
     });
     $("cal").innerHTML = h + `</div></div>`;

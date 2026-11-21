@@ -62,27 +62,29 @@ h2.sec { margin: var(--s4) var(--s1) 0; }
 .spark i { flex: 1; max-width: 14px; min-height: 2px; border-radius: 2px 2px 0 0; background: var(--mute); cursor: pointer; }
 .spark i.on { background: var(--accent); }
 @media (max-width: 900px) { .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 640px) { .head, .page { padding: 0 var(--s4); } .card { padding: var(--s4); } .day { padding: var(--s4); } }
 
 /* 日历：一行一个月、一格一天 22，间隔 4 */
 .leg { margin-left: auto; display: flex; align-items: center; gap: var(--s1); font-size: var(--fs-s); font-weight: 400; color: var(--fg-faint); }
 .leg i { width: 8px; height: 8px; border-radius: 2px; }
 .q0, .c.l0 { background: var(--q0); } .q1, .c.l1 { background: var(--q1); } .q2, .c.l2 { background: var(--q2); } .q3, .c.l3 { background: var(--q3); } .q4, .c.l4 { background: var(--q4); }
-.calwrap { overflow-x: auto; overflow-y: hidden; padding: var(--s1) 0; margin: calc(-1 * var(--s1)) 0; }
-.mcal { display: grid; gap: var(--s1); }
-.mr { position: relative; display: grid; grid-template-columns: 32px repeat(31, 22px); column-gap: var(--s1); align-items: center; }
+.calwrap { container-type: inline-size; overflow-x: auto; overflow-y: hidden; padding: var(--s1) 0; margin: calc(-1 * var(--s1)) 0; }
+/* 格子跟着卡宽缩，最大 22、最小 10 */
+.mcal { --cell: clamp(10px, (100cqw - 32px - 31 * var(--s1)) / 31, 22px); display: grid; gap: var(--s1); }
+.mr { position: relative; display: grid; grid-template-columns: 32px repeat(31, var(--cell)); column-gap: var(--s1); align-items: center; }
 .mr > span { font-size: var(--fs-s); color: var(--fg-faint); }
 .mr.hd b { text-align: center; white-space: nowrap; font-weight: 400; font-size: var(--fs-s); line-height: 16px; color: var(--fg-faint); }
-.mr .c { width: 22px; height: 22px; border-radius: var(--r-s); }
+.mr .c { width: var(--cell); height: var(--cell); border-radius: min(var(--r-s), calc(var(--cell) / 5)); }
 .mr .c.no { background: none; }
 .mr .c[data-t] { cursor: pointer; }
 .mr .c[data-t]:hover { box-shadow: 0 0 0 1.5px var(--fg-muted); }
 .mr .c.today { box-shadow: 0 0 0 2px var(--bg), 0 0 0 3.5px var(--accent); }
-.wkbox { position: absolute; top: -3px; bottom: -3px; border: 1.5px solid var(--accent); border-radius: 6px; pointer-events: none; }
+.wkbox { position: absolute; top: -3px; bottom: -3px; left: calc(32px + var(--s1) + var(--a) * (var(--cell) + var(--s1)) - 3px); width: calc(var(--n) * (var(--cell) + var(--s1)) + 2px); border: 1.5px solid var(--accent); border-radius: 6px; pointer-events: none; }
 
 /* 本周：一天一张卡。卡头日期（点了展开收起）、今天、当天的量 */
-.day { padding: 20px var(--s6) var(--s3); }
+.day { container-type: inline-size; padding: 20px var(--s6) var(--s3); }
 .day.flash { background: var(--sel); transition: background .3s; }
-.day-head { display: flex; align-items: baseline; gap: var(--s3); padding-bottom: var(--s2); }
+.day-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 var(--s3); padding-bottom: var(--s2); }
 .day-head .date { font-size: var(--fs-l); line-height: var(--lh-l); font-weight: 600; cursor: pointer; }
 .day-head .date:hover { color: var(--accent); }
 .day-head .today { font-size: var(--fs-s); color: var(--accent); }
@@ -92,6 +94,15 @@ h2.sec { margin: var(--s4) var(--s1) 0; }
 .row { display: grid; grid-template-columns: minmax(0, 1fr) 72px 64px 72px 96px 64px; column-gap: var(--s4); align-items: center; padding: var(--s2) var(--s3); margin: 0 calc(-1 * var(--s3)); border-radius: var(--r-m); }
 .row.cols { padding-top: 0; padding-bottom: 0; font-size: var(--fs-s); line-height: var(--lh-s); color: var(--fg-faint); }
 .row.cols span:nth-child(n+2) { text-align: right; }
+/* 窄了先藏我的消息和时间，再藏 AI 时长；会话、Token、Git 提交一直在 */
+@container (max-width: 680px) {
+  .row { grid-template-columns: minmax(0, 1fr) 72px 72px 64px; }
+  .row > :nth-child(3), .row > :nth-child(5) { display: none; }
+}
+@container (max-width: 480px) {
+  .row { grid-template-columns: minmax(0, 1fr) 72px 64px; }
+  .row > :nth-child(4) { display: none; }
+}
 .row.sess { cursor: pointer; }
 .row.sess:hover { background: var(--bg-hover); }
 .name { min-width: 0; }
