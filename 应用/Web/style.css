@@ -59,13 +59,14 @@
   backdrop-filter: saturate(1.6) blur(16px);
   -webkit-backdrop-filter: saturate(1.6) blur(16px);
 }
-.c-head-in { display: flex; align-items: center; gap: 16px; max-width: 840px; margin: 0 auto; padding: 14px 32px 12px; }
+.c-head-in { display: flex; align-items: flex-start; gap: 16px; max-width: 840px; margin: 0 auto; padding: 14px 32px 12px; }
 .c-titles { flex: 1; min-width: 0; }
 /* 切到关键点时标题换成它的内容，淡入一下 */
 @keyframes swap { from { opacity: .35; } to { opacity: 1; } }
 .c-titles.swap { animation: swap .25s ease-out; }
 .c-titles h1 .ver { font-weight: 600; }
-.c-titles h1 { margin: 0; font-size: 16px; font-weight: 600; line-height: 1.4; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* 标题写全，长了换行；标题栏因此变高时，定位条的起点和跳转停的位置跟着 --head-h 走 */
+.c-titles h1 { margin: 0; font-size: 16px; font-weight: 600; line-height: 1.4; overflow-wrap: anywhere; }
 .c-meta { margin-top: 2px; font-size: 12px; line-height: 1.5; color: var(--fg-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .c-meta span + span::before { content: "·"; margin: 0 6px; color: var(--fg-faint); }
 .c-actions { display: flex; align-items: center; gap: 6px; flex: none; }
@@ -202,18 +203,18 @@
 
 /* 定位条：对话左边一列短横线，一个关键点一行，间距固定，排不下时自己上下滚动（滚动条隐藏）。
    线长分种类：会话开头最长、手动压缩次之、版本提交最短；当前那条变蓝。
-   左边空白够宽（rail-wide）时每行在横线右边写两行说明，行高 40；不够宽时只画横线，行高 10，悬停浮出说明。
+   写字的时候（wide：左边是空白够宽，右边是展开）每行一句说明，行高 30；不写字时只画横线，行高 10，悬停浮出说明。
    说明和浮层都只在左边空白里，不压正文。对话区照旧居中 */
 .c-rail { display: none; }
 @media (min-width: 760px) {
-  .has-rail .c-rail, .has-urail .c-rail.right { display: block; position: fixed; left: 0; top: 90px; bottom: 24px; width: 44px; z-index: 4; }
+  .has-rail .c-rail, .has-urail .c-rail.right { display: block; position: fixed; left: 0; top: calc(var(--head-h, 72px) + 18px); bottom: 24px; width: 44px; z-index: 4; }
   .has-urail .c-rail.right { left: auto; right: 0; }
 }
 .r-scroll { position: absolute; inset: 0; display: flex; flex-direction: column; overflow-y: auto; scrollbar-width: none; }
 .r-scroll::-webkit-scrollbar { display: none; }
 .r-list { margin: auto 0; padding: 8px 0; }   /* 内容少时上下居中，多了从顶上开始滚 */
 .k-row { display: flex; align-items: center; gap: 10px; height: 10px; padding-left: 14px; cursor: pointer; }
-.rail-wide .k-row { height: 30px; padding-right: 10px; border-radius: 0 8px 8px 0; }
+.c-rail.wide .k-row { height: 30px; padding-right: 10px; border-radius: 0 8px 8px 0; }
 .k-row i { flex: none; display: block; height: 2px; width: 8px; border-radius: 1px; background: var(--line-strong); transition: background .12s; }
 .k-row.t-compact i { width: 14px; }
 .k-row.t-part i { width: 20px; height: 3px; }
@@ -221,27 +222,51 @@
 .k-row.on i { background: var(--accent); }
 /* 模块名：一组上面写一次，组间留白；只画横线时不显示 */
 .r-group { display: none; }
-.rail-wide .r-group { display: block; margin: 14px 10px 2px 40px; font-size: 11px; line-height: 16px; color: var(--fg-faint); }
-.rail-wide .r-group:empty { margin-top: 8px; height: 0; }
-.rail-wide .r-group:first-child { margin-top: 0; }
+.c-rail.wide .r-group { display: block; margin: 14px 10px 2px 40px; font-size: 11px; line-height: 16px; color: var(--fg-faint); }
+.c-rail.wide .r-group:empty { margin-top: 8px; height: 0; }
+.c-rail.wide .r-group:first-child { margin-top: 0; }
 .note { display: none; }
-.rail-wide .note { display: flex; align-items: baseline; gap: 8px; min-width: 0; font-size: 12px; line-height: 18px; color: var(--fg-muted); }
+.c-rail.wide .note { display: flex; align-items: baseline; gap: 8px; min-width: 0; font-size: 12px; line-height: 18px; color: var(--fg-muted); }
 .n-ver { flex: none; min-width: 34px; font: 600 11.5px/18px var(--mono); color: var(--accent); }
 .n-text { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .n-text b { font-weight: 600; color: var(--fg); }
 .n-tag { flex: none; padding: 0 5px; border-radius: 4px; background: var(--bg-subtle); color: var(--fg-faint); font-size: 11px; line-height: 16px; }
-.rail-wide .k-row:hover { background: var(--bg-hover); }
-.rail-wide .k-row:hover .note { color: var(--fg); }
-.rail-wide .k-row.on { background: var(--accent-soft); }
-.rail-wide .k-row.on .note { color: var(--fg); }
+.c-rail.wide .k-row:hover { background: var(--bg-hover); }
+.c-rail.wide .k-row:hover .note { color: var(--fg); }
+.c-rail.wide .k-row.on { background: var(--accent-soft); }
+.c-rail.wide .k-row.on .note { color: var(--fg); }
 .tip .ver { color: var(--accent); }
 /* 右边：你的消息。横线贴右边、字在左边，镜像左边那条；浮层往左弹 */
 .c-rail.right .k-row { flex-direction: row-reverse; padding: 0 14px 0 0; border-radius: 8px 0 0 8px; }
-.rail-wide .c-rail.right .k-row { padding-left: 10px; }
-.rail-wide .c-rail.right .r-group { margin-left: 10px; margin-right: 36px; }
+.c-rail.right.wide .k-row { padding-left: 10px; }
+.c-rail.right.wide .r-group { margin-left: 10px; margin-right: 36px; }
 .c-rail.right .note { flex: 1; }
-.rail-wide .c-rail.right .k-row.short .note { color: var(--fg-faint); }
+.c-rail.right .r-list { margin: 0; }   /* 检索结果从顶上排 */
+.c-rail.right.wide .k-row.short .note { color: var(--fg-faint); }
 .c-rail.right .tip { left: auto; right: 44px; }
+/* 右边是对话检索：默认收起，只留横线和顶上的放大镜按钮；展开后顶上是搜索框，下面按天列你的消息。
+   右边空白够宽时面板放在空白里；不够宽时浮在正文上，带底色和阴影 */
+.r-head { display: none; }
+.c-rail.right .r-head { display: flex; align-items: center; gap: 6px; position: absolute; top: 0; right: 0; left: 0; height: 32px; padding: 0 8px 0 8px; justify-content: flex-end; }
+.c-rail.right .r-scroll { top: 40px; }
+.r-toggle {
+  flex: none; display: grid; place-items: center; width: 28px; height: 28px; border: 0; border-radius: 8px;
+  background: none; color: var(--fg-faint); cursor: pointer;
+}
+.r-toggle:hover, .c-rail.right.wide .r-toggle { background: var(--bg-hover); color: var(--fg); }
+.r-toggle svg { width: 15px; height: 15px; }
+.r-find { display: none; }
+.c-rail.right.wide .r-find {
+  display: block; flex: 1; min-width: 0; height: 28px; padding: 0 10px; border: 0; border-radius: 8px; outline: 0;
+  background: var(--bg-subtle); color: var(--fg); font: 12px/28px inherit; font-family: inherit;
+}
+.c-rail.right.wide .r-find:focus { box-shadow: 0 0 0 2px var(--accent-soft), 0 0 0 1px var(--accent); }
+.r-count { display: none; }
+.c-rail.right.wide .r-count:not(:empty) { display: block; flex: none; font-size: 11px; color: var(--fg-faint); }
+.c-rail.right.float { background: var(--bg); box-shadow: var(--shadow); border-radius: 12px 0 0 12px; }
+.k-row.miss, .r-group.miss { display: none !important; }
+.note mark { background: var(--hit); color: inherit; border-radius: 2px; }
+
 /* 段锚点：左边定位条点一条时跳到这一段的开头 */
 .pa { display: block; height: 0; }
 .tip {
@@ -254,7 +279,7 @@
 .tip-sub { margin-top: 2px; font-size: 12px; line-height: 1.5; color: var(--fg-muted); }
 .tip-time { margin-top: 2px; font-size: 11px; color: var(--fg-faint); font-variant-numeric: tabular-nums; }
 .ver { font-weight: 600; color: var(--accent); }
-[id^="k"], [id^="u"], .pa { scroll-margin-top: 88px; }
+[id^="k"], [id^="u"], .pa { scroll-margin-top: calc(var(--head-h, 72px) + 16px); }
 .step.commit::before { border-color: var(--accent); background: var(--accent); }
 @keyframes flash { from { background: var(--accent-soft); } to { background: transparent; } }
 .flash, .flash > summary { animation: flash 1.6s ease-out; border-radius: 8px; }

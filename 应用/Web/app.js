@@ -167,7 +167,7 @@
         if (x.length >= 10) lastAsk = x;
         else if (!lastAsk) lastShort = x;
       } else if (t.role === "summary" && t.trigger === "manual") {
-        found.push({ obj: t, turn: i, kind: "compact", ts: t.ts, label: "手动压缩", sub: (lastAsk || lastShort || summaryLine(t.text)).slice(0, 80) });
+        found.push({ obj: t, turn: i, kind: "compact", ts: t.ts, label: "手动压缩", sub: lastAsk || lastShort || summaryLine(t.text) });
         lastAsk = lastShort = "";
       } else if (t.role === "session") {
         found.push({ obj: t, turn: i, kind: "part", ts: t.ts, label: t.text });
@@ -296,16 +296,29 @@
     // 定位条：左边是关键点（版本、手动压缩、合集里的会话开头），右边是你的消息。两条共用 makeRail：
     // 一项一行、间距固定、排不下时自己滚动；空白够宽时写一行说明，不够宽时只画横线、悬停浮出说明；
     // 点了跳过去；滚动对话时当前那条变蓝，定位条跟着把它滚到中间
-    const LINE = 120;   // 标题栏下面那条线，判断读到哪用它
+    let LINE = 120;   // 标题栏下面那条线，判断读到哪用它；标题换行变高时跟着改（measureHead）
     const posOf = (id) => {
       const el = document.getElementById(id);
       return el ? (el.closest("details.steps:not([open])") || el).getBoundingClientRect().top : Infinity;   // 还没画出来的算在下面
     };
+    // 量标题栏高度：写进 --head-h（定位条起点、跳转停的位置），读到哪的那条线放在标题栏下 48
+    const measureHead = () => {
+      const h = root.querySelector(".c-head").offsetHeight;
+      root.style.setProperty("--head-h", h + "px");
+      document.documentElement.style.setProperty("--head-h", h + "px");
+      LINE = h + 48;
+    };
     let gutter = 0, pinned = null;   // pinned：刚点过的那条定位条和当时的滚动位置，页面没动时保持点中的那条
     const layout = () => {
       gutter = ((root.clientWidth || document.documentElement.clientWidth) - 840) / 2;   // 按对话区的宽度算，设计稿里对话区比窗口窄
-      root.classList.toggle("rail-wide", gutter >= 180);
-      root.querySelectorAll(".c-rail").forEach((r) => (r.style.width = gutter >= 180 ? Math.min(gutter - 8, 300) + "px" : ""));
+      const left = $("rail"), right = $("urail");
+      left.classList.toggle("wide", gutter >= 180);
+      left.style.width = gutter >= 180 ? Math.min(gutter - 8, 300) + "px" : "";
+      // 右边：展开时放在空白里，空白不够 260 就浮在正文上
+      const open = right.classList.contains("open");
+      right.classList.toggle("wide", open);
+      right.classList.toggle("float", open && gutter - 8 < 260);
+      right.style.width = open ? Math.max(260, Math.min(gutter - 8, 300)) + "px" : "";
     };
     // 画到第 part 段，滚到 id 那里（停在标题栏下），闪一下
     const goTo = (part, id) => {
@@ -323,7 +336,7 @@
       let html = "", lastGroup;
       items.forEach((it) => {
         if (it.group !== lastGroup) { html += `<div class="r-group">${esc(it.group || "")}</div>`; lastGroup = it.group; }
-        html += `<div class="k-row ${it.cls}" role="button" data-k="${it.id}"><i></i><div class="note">${it.row}</div></div>`;
+        html += `<div class="k-row ${it.cls}" role="button" data-k="${it.id}"><i></i><div class="note">${it.row}</div></div>`;   // 检索时按 it.text 过滤
       });
       nav.innerHTML = `<div class="r-scroll"><div class="r-list">${html}</div></div><div class="tip"></div>`;
       const scroller = nav.querySelector(".r-scroll"), tip = nav.querySelector(".tip");
@@ -348,14 +361,14 @@
       nav.addEventListener("click", (e) => {
         const t = e.target.closest("[data-k]");
         if (!t) return;
-        o.jump(byId[t.dataset.k]);
+        o.jump(byId[t.dataset.k]);   // 头部（检索框、按钮）不带 data-k，不会走到这里
         mark(t.dataset.k);
         pinned = { rail: nav, y: window.scrollY };
         spot();
       });
       nav.addEventListener("mouseover", (e) => {
         const t = e.target.closest(".k-row");
-        if (!t || root.classList.contains("rail-wide")) { tip.classList.remove("show"); return; }
+        if (!t || nav.classList.contains("wide")) { tip.classList.remove("show"); return; }
         const it = byId[t.dataset.k];
         const d = it.ts ? new Date(it.ts) : null;
         tip.style.maxWidth = Math.max(150, Math.min(280, gutter - 52)) + "px";
@@ -363,7 +376,7 @@
         tip.style.top = t.offsetTop - scroller.scrollTop + scroller.offsetTop + t.offsetHeight / 2 + "px";
         tip.classList.add("show");
       });
-      return { nav, mark, cur: o.cur };
+      return { nav, mark, cur: o.cur, rows, byId };
     }
 
     const rails = [];
@@ -398,6 +411,7 @@
         $("h-title").innerHTML = k ? full(k) : homeTitle;
         $("h-meta").innerHTML = k ? `<span>${esc(m.title)}</span>${d ? `<span>${md0(d)} ${hm(d)}</span>` : ""}` : homeMeta;
         $("titles").classList.remove("swap"); void $("titles").offsetWidth; $("titles").classList.add("swap");
+        measureHead();
       };
 
       rails.push(makeRail($("rail"), keys.map((k) => ({
@@ -422,14 +436,16 @@
       }));
     }
 
-    // 右边：你的消息。消息是一段对话的起点，读到哪就看读过的最后一条；按天分组
+    // 右边：对话检索。默认收起，只留横线和放大镜按钮；展开后顶上是搜索框，按天列你的消息，打字只留下命中的。
+    // 消息是一段对话的起点，读到哪就看读过的最后一条；展开收起记在本机，下次照旧
     if (myMsgs.length) {
       root.classList.add("has-urail");
       const dayOf = (ts) => (ts ? day(new Date(ts)) : "");
-      rails.push(makeRail($("urail"), myMsgs.map((a) => ({
+      const oneLine = (x) => x.replace(/\s+/g, " ").trim();
+      const r = makeRail($("urail"), myMsgs.map((a) => ({
         id: a.id, ts: a.ts, cls: "t-ask" + (a.text.trim().length <= 6 ? " short" : ""), group: dayOf(a.ts),   // 「发布」「继续」这种短确认淡一些
-        row: `<span class="n-text">${esc(a.text.replace(/\s+/g, " ").slice(0, 80))}</span>`,
-        tip: esc(a.text.replace(/\s+/g, " ").slice(0, 200)),
+        row: `<span class="n-text">${esc(oneLine(a.text).slice(0, 80))}</span>`,
+        tip: esc(oneLine(a.text).slice(0, 200)),
       })), {
         jump: (it) => goTo(partOf[myMsgs.find((a) => a.id === it.id).turn], it.id),
         cur: () => {
@@ -437,7 +453,46 @@
           for (const a of myMsgs) { const y = posOf(a.id); if (y > LINE) break; cur = a.id; }
           return cur;
         },
-      }));
+      });
+      rails.push(r);
+      const nav = r.nav;
+      nav.insertAdjacentHTML("afterbegin", `<div class="r-head"><span class="r-count" id="ucount"></span><input class="r-find" id="ufind" type="search" placeholder="搜你的消息" autocomplete="off"><button class="r-toggle" id="utoggle" type="button" title="你的消息">${ICON.find}</button></div>`);
+      const setOpen = (open) => {
+        nav.classList.toggle("open", open);
+        try { localStorage.setItem("echo.urail.open", open ? "1" : ""); } catch (e) {}
+        layout();
+        if (open) setTimeout(() => $("ufind").focus(), 0);
+      };
+      let saved = "";
+      try { saved = localStorage.getItem("echo.urail.open") || ""; } catch (e) {}
+      nav.classList.toggle("open", saved === "1");
+      $("utoggle").addEventListener("click", (e) => { e.stopPropagation(); setOpen(!nav.classList.contains("open")); });
+      // 检索：只留下包含关键词的消息，命中的字高亮；没有命中的日期组一起藏起来
+      const texts = Object.fromEntries(myMsgs.map((a) => [a.id, oneLine(a.text)]));
+      $("ufind").addEventListener("input", (e) => {
+        const q = e.target.value.trim().toLowerCase();
+        let n = 0;
+        r.rows.forEach((row) => {
+          const t = texts[row.dataset.k], hit = !q || t.toLowerCase().includes(q);
+          row.classList.toggle("miss", !hit);
+          if (hit && q) n++;
+          const hitAt = q ? t.toLowerCase().indexOf(q) : -1;
+          const from = hitAt > 40 ? hitAt - 20 : 0;   // 命中在后半段时截命中前后那一截
+          const shown = (from ? "…" : "") + t.slice(from, from + 80);
+          const at = q ? shown.toLowerCase().indexOf(q) : -1;
+          row.querySelector(".n-text").innerHTML = at < 0 ? esc(shown) : esc(shown.slice(0, at)) + "<mark>" + esc(shown.slice(at, at + q.length)) + "</mark>" + esc(shown.slice(at + q.length));
+        });
+        nav.querySelectorAll(".r-group").forEach((g) => {
+          let x = g.nextElementSibling, any = false;
+          while (x && !x.classList.contains("r-group")) { if (!x.classList.contains("miss")) any = true; x = x.nextElementSibling; }
+          g.classList.toggle("miss", !any);
+        });
+        $("ucount").textContent = q ? `${n} 条` : "";
+      });
+      $("ufind").addEventListener("keydown", (e) => {
+        if (e.key === "Escape") { if (e.target.value) { e.target.value = ""; e.target.dispatchEvent(new Event("input")); } else setOpen(false); }
+        if (e.key === "Enter") { const first = r.rows.find((x) => !x.classList.contains("miss")); if (first) first.click(); }
+      });
     }
 
     function spot() {
@@ -445,8 +500,9 @@
       rails.forEach((r) => { if (!pinned || pinned.rail !== r.nav) r.mark(r.cur()); });
     }
     if (rails.length) {
+      measureHead();
       layout();
-      window.addEventListener("resize", layout);
+      window.addEventListener("resize", () => { layout(); measureHead(); });
       let ticking = false;
       window.addEventListener("scroll", () => { if (!ticking) { ticking = true; setTimeout(() => { spot(); ticking = false; }, 60); } }, { passive: true });
       spot();
