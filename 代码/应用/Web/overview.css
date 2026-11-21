@@ -142,8 +142,8 @@ h2 .back { cursor: pointer; color: var(--accent); }
 /* 只看一天：上面一张卡写日期和六个数，下面一个会话一张卡，两列瀑布排 */
 #week.dayv { display: grid; gap: 16px; }
 .dhead .dsum { border-bottom: 0; padding-bottom: 0; margin-bottom: 0; }
-.sgrid { columns: 2; column-gap: 16px; }
-.scard { break-inside: avoid; margin-bottom: 16px; background: var(--card); border-radius: 12px; padding: 20px 24px; cursor: pointer; transition: box-shadow .15s; }
+.sgrid { display: grid; gap: 12px; }
+.scard { background: var(--card); border-radius: 12px; padding: 16px 24px; cursor: pointer; transition: box-shadow .15s; }
 .scard:hover { box-shadow: 0 0 0 1.5px var(--q1); }
 .scard header { margin-bottom: 12px; }
 .scard .st { font-size: 15px; line-height: 22px; font-weight: 600; }
@@ -159,7 +159,6 @@ h2 .back { cursor: pointer; color: var(--accent); }
 .cl .cr2 { grid-template-columns: 13px 40px minmax(0, 1fr) auto; }
 .cl .sm { padding-left: 61px; }
 .oc3 { cursor: default; } .oc3:hover { box-shadow: none; }
-@media (max-width: 900px) { .sgrid { columns: 1; } }
 .vm { align-self: center; font-size: 12px; color: var(--fg-faint); }
 .sr3 { display: grid; grid-template-columns: 13px minmax(0, 1fr) auto; gap: 8px; align-items: center; height: 28px; padding: 0 8px; margin: 0 -8px; border-radius: 8px; cursor: pointer; }
 .sr3:hover { background: var(--bg-hover); }
@@ -188,3 +187,18 @@ h2 .back { cursor: pointer; color: var(--accent); }
 .wtitle { padding: 16px 4px 0; } .wtitle h2 { margin: 0; }
 .wmore { margin: 0 4px;  font-size: 12px; color: var(--accent); cursor: pointer; }
 .wother { margin: 16px 0; padding: 12px 24px; }
+
+/* 会话卡占满一行：左标题和路径，右标签 */
+.scard .sh { display: flex; align-items: center; gap: 24px; }
+.scard .sl { flex: 1; min-width: 0; }
+.scard .st { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.scard .sp { margin-top: 2px; }
+.scard .tg2 { flex: none; justify-content: flex-end; }
+.tg2 span:first-child { font-weight: inherit; }
+.tg2 span.b { color: var(--fg); font-weight: 600; }
+.tg2 .cm { cursor: pointer; color: var(--accent); background: var(--sel); }
+.tg2 .cm:hover { background: var(--accent); color: var(--card); }
+.scard .vs { margin-top: 12px; }
+.wother { margin: 12px 0 0; }
+.wmore { margin: 12px 4px 0; }
+@media (max-width: 900px) { .scard .sh { flex-direction: column; align-items: flex-start; gap: 8px; } .scard .tg2 { justify-content: flex-start; } }
