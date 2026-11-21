@@ -227,12 +227,11 @@ struct EchoBrowserView: View {
     private var overviewRow: some View {
         EchoRow(fill: showOverview ? EchoColor.sideOn : nil, shadow: showOverview) {
             HStack(spacing: 6) {
-                Image(systemName: "house").font(.system(size: 13)).frame(width: 16)
+                Image(systemName: "house").font(.system(size: 12, weight: .medium)).frame(width: 12)
                     .foregroundStyle(showOverview ? EchoColor.accent : EchoColor.fg2)
                 Text("总览").font(.system(size: 13, weight: showOverview ? .semibold : .regular))
                 Spacer()
             }
-            .padding(.leading, indentStep)   // 图标和目录的文件夹图标对在一条竖线上（照 NAS 左栏）
             .frame(height: 32)
         } action: {
             picked = []
@@ -288,7 +287,7 @@ struct EchoBrowserView: View {
                         collectionSection
                         // 树上方一行灰色小标题，左边和文件夹图标对齐（照 NAS 左栏「文件夹」）
                         Text("目录").font(.system(size: 12, weight: .medium)).foregroundStyle(EchoColor.fg3)
-                            .padding(.leading, 10 + indentStep).padding(.top, 12).padding(.bottom, 2)
+                            .padding(.leading, 10 + indentStep).padding(.top, 14)   // 和顶层目录名字对齐
                         ForEach(tree) { d in dirSection(d, level: 0) }
                     }
                     .padding(.horizontal, 10).padding(.bottom, 12)
@@ -313,8 +312,8 @@ struct EchoBrowserView: View {
     /// 每级缩进 18，正好是小三角加间距的宽度。下一级从上一级的文字起点开始：子目录的三角、会话的标题都和上一级目录名字对齐
     private let indentStep: CGFloat = 18
 
-    /// 一级目录：展开按钮（小三角）、文件夹图标、名字、会话数，缩进 18 一级：下一级的小三角在上一级的文件夹图标下面。
-    /// 照 NAS 左栏：每行一个图标，左边一列对齐；各级字重一样。
+    /// 一级目录：展开按钮（小三角）、名字、会话数，缩进 18 一级：下一级从上一级的名字起点开始。
+    /// 不加文件夹、会话图标（靠留白区隔）；各级字重一样。
     /// 展开后先列子目录，再列直接在这一级开的会话
     private func dirSection(_ d: EchoDir, level: Int) -> AnyView {
         let open = isOpen(d, level: level)
@@ -326,8 +325,6 @@ struct EchoBrowserView: View {
                     Image(systemName: "chevron.right").font(.system(size: 9, weight: .semibold))
                         .rotationEffect(.degrees(open ? 90 : 0)).frame(width: 12)
                         .foregroundStyle(EchoColor.fg3)
-                    Image(systemName: "folder").font(.system(size: 13)).frame(width: 16)
-                        .foregroundStyle(EchoColor.fg2)
                     (Text(parts[0]).foregroundColor(EchoColor.fg)
                         + Text(parts.count > 1 ? " / " + parts.dropFirst().joined(separator: " / ") : "").foregroundColor(EchoColor.fg3))
                         .font(.system(size: 13)).lineLimit(1)
@@ -335,11 +332,12 @@ struct EchoBrowserView: View {
                     Text("\(d.count)").font(.system(size: 12)).foregroundStyle(EchoColor.fg3).monospacedDigit()
                 }
                 .padding(.leading, CGFloat(level) * indentStep)
-                .frame(height: 32)
+                .frame(height: 34)
             } action: {
                 toggle(d, level: level)
             }
             .background(guides(level))
+            .padding(.top, level == 0 ? 8 : 0)   // 顶层目录之间多空一点，靠留白分组，不加图标
             .help((d.path as NSString).abbreviatingWithTildeInPath)
 
             if open {
@@ -357,7 +355,7 @@ struct EchoBrowserView: View {
         if list.count > limit {
             EchoRow(fill: nil) {
                 Text("再显示 \(list.count - limit) 个").font(.system(size: 12)).foregroundStyle(EchoColor.fg3)
-                    .padding(.leading, CGFloat(level - 1) * indentStep + 18 + 22).frame(height: 26)   // 和会话标题对齐
+                    .padding(.leading, CGFloat(level - 1) * indentStep + 18).frame(height: 28)   // 和会话标题对齐
             } action: {
                 showAll.insert(key)
             }
@@ -369,10 +367,7 @@ struct EchoBrowserView: View {
         let on = picked.contains(s.id) || (!showOverview && picked.isEmpty && collectionID == nil && s.id == session?.id)
         return EchoRow(fill: on ? EchoColor.sideOn : nil, shadow: on) {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
-                // 会话图标和同级目录的文件夹图标对在一条竖线上
-                Image(systemName: "bubble.left").font(.system(size: 12)).frame(width: 16)
-                    .foregroundStyle(on ? EchoColor.accent : EchoColor.fg3)
-                VStack(alignment: .leading, spacing: 1) {
+                VStack(alignment: .leading, spacing: 2) {
                     Text(s.meta.title == s.sessionId ? "未命名会话" : s.meta.title).font(.system(size: 13, weight: on ? .semibold : .regular)).lineLimit(1)
                         .foregroundStyle(EchoColor.fg)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -385,7 +380,7 @@ struct EchoBrowserView: View {
                     .font(.system(size: 12)).foregroundStyle(EchoColor.fg3).monospacedDigit()
                 }
             }
-            .padding(.leading, indent + 18).padding(.vertical, 6)
+            .padding(.leading, indent + 18).padding(.vertical, 7)   // 会话标题和上一级目录名字对齐
         } action: {
             // ⌘ 点选：挑几个会话连起来看；普通点击打开
             if NSEvent.modifierFlags.contains(.command) {
