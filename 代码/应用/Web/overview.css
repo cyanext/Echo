@@ -128,18 +128,7 @@ h2 .back { cursor: pointer; color: var(--accent); }
 .dsum { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 16px; padding-bottom: 16px; margin-bottom: 8px; border-bottom: 1px solid var(--line); }
 .dsum span { display: block; font-size: 12px; line-height: 18px; color: var(--fg-muted); }
 .dsum b { display: block; margin-top: 4px; font-size: 15px; line-height: 22px; font-weight: 600; font-variant-numeric: tabular-nums; }
-.dh2, .sr2 { display: grid; grid-template-columns: 14px minmax(0, 1fr) 72px 64px 56px 72px; gap: 8px; align-items: center; }
-.dh2 { height: 28px; font-size: 12px; color: var(--fg-faint); }
-.dh2 span:nth-child(n+3), .sr2 .v { text-align: right; }
-.sr2 { height: 32px; padding: 0 8px; margin: 0 -8px; border-radius: 8px; cursor: pointer; }
-.sr2:hover { background: var(--bg-hover); }
-.sr2 svg { width: 13px; height: 13px; color: var(--fg-faint); }
-.sr2 .t { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.sr2 .t i { font-style: normal; font-size: 12px; color: var(--fg-faint); margin-right: 8px; font-variant-numeric: tabular-nums; }
-.sr2 .t em { font-style: normal; font-size: 12px; color: var(--fg-faint); margin-left: 8px; }
-.sr2 .v { font-size: 12px; color: var(--fg-muted); font-variant-numeric: tabular-nums; }
-.sc2 { padding-left: 22px; margin-bottom: 4px; }
-.cr2 { display: grid; grid-template-columns: 13px 40px minmax(0, 1fr) auto; gap: 8px; align-items: center; height: 24px; }
+.cr2 { display: grid; grid-template-columns: 13px 40px minmax(0, 1fr) auto; gap: 8px; align-items: center; height: 26px; }
 .cr2 svg { width: 13px; height: 13px; color: var(--fg-muted); }
 .cr2 .tm2 { font-size: 12px; color: var(--fg-faint); font-variant-numeric: tabular-nums; }
 .cr2 .t { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--fg-muted); }
@@ -149,3 +138,33 @@ h2 .back { cursor: pointer; color: var(--accent); }
 .oc2 { margin-top: 12px; }
 .oh { font-size: 12px; line-height: 24px; color: var(--fg-faint); }
 .sc2 .sm { padding-left: 21px; }
+
+/* 只看一天：上面一张卡写日期和六个数，下面一个会话一张卡，两列瀑布排 */
+#week.dayv { display: grid; gap: 16px; }
+.dhead .dsum { border-bottom: 0; padding-bottom: 0; margin-bottom: 0; }
+.sgrid { columns: 2; column-gap: 16px; }
+.scard { break-inside: avoid; margin-bottom: 16px; background: var(--card); border-radius: 12px; padding: 20px 24px; cursor: pointer; transition: box-shadow .15s; }
+.scard:hover { box-shadow: 0 0 0 1.5px var(--q1); }
+.scard header { margin-bottom: 16px; }
+.scard .st { font-size: 15px; line-height: 22px; font-weight: 600; }
+.scard .sp { display: flex; align-items: center; gap: 8px; margin-top: 4px; font-size: 12px; line-height: 18px; color: var(--fg-faint); font-variant-numeric: tabular-nums; }
+.scard .pt { padding: 0 8px; border-radius: 4px; background: var(--bg-subtle); color: var(--fg-muted); }
+.sn { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.sn span { display: block; font-size: 12px; line-height: 18px; color: var(--fg-faint); }
+.sn b { display: block; font-size: 13px; line-height: 20px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.vs { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+.vt { display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 8px; border-radius: 6px; background: var(--sel); color: var(--accent); font: 600 12px/22px var(--mono); }
+.vt svg { width: 12px; height: 12px; }
+.cl { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--line); }
+.ch { font-size: 12px; line-height: 18px; color: var(--fg-faint); margin-bottom: 4px; }
+.cl .cr2 { grid-template-columns: 13px 40px minmax(0, 1fr) auto; }
+.cl .sm { padding-left: 61px; }
+.oc3 { cursor: default; } .oc3:hover { box-shadow: none; }
+@media (max-width: 900px) { .sgrid { columns: 1; } }
+.vm { align-self: center; font-size: 12px; color: var(--fg-faint); }
+.sr3 { display: grid; grid-template-columns: 13px minmax(0, 1fr) auto; gap: 8px; align-items: center; height: 28px; padding: 0 8px; margin: 0 -8px; border-radius: 8px; cursor: pointer; }
+.sr3:hover { background: var(--bg-hover); }
+.sr3 svg { width: 13px; height: 13px; color: var(--fg-faint); }
+.sr3 .t { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sr3 .t em { font-style: normal; font-size: 12px; color: var(--fg-faint); margin-left: 8px; }
+.sr3 .v { font-size: 12px; color: var(--fg-muted); }

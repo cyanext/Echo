@@ -5,6 +5,7 @@
   const $ = (id) => document.getElementById(id);
   const WD = "日一二三四五六";
   const IC = {
+    tag: '<svg viewBox="0 0 24 24"><path d="M4 12.6V5.5A1.5 1.5 0 0 1 5.5 4h7.1l7.4 7.4a1.5 1.5 0 0 1 0 2.1l-6.5 6.5a1.5 1.5 0 0 1-2.1 0z"/><circle cx="8.5" cy="8.5" r="1.4"/></svg>',
     commit: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.5"/><path d="M3 12h5.5M15.5 12H21"/></svg>',
     msg: '<svg viewBox="0 0 24 24"><path d="M5 18.5V7a2.5 2.5 0 0 1 2.5-2.5h9A2.5 2.5 0 0 1 19 7v6a2.5 2.5 0 0 1-2.5 2.5H9z"/></svg>',
   };
@@ -167,6 +168,7 @@
   function week() {
     if (dayView) return dayCard();
     const w = weeks[cur], el = $("week");
+    el.classList.add("card"); el.classList.remove("dayv");
     if (!w.sids.size) { el.innerHTML = `<h2>本周</h2><div class="empty">这周没有会话</div>`; return; }
     const lv = levels(w.days.map((x) => x.tot));
     let h = `<h2>本周<span class="note">${w.projs.size} 个项目 · ${w.sids.size} 个会话 · ${w.commits} 次提交</span></h2><div class="tl">`;
@@ -199,21 +201,35 @@
   function commitRow(c, label) {
     return `<div class="cr2">${IC.commit}<span class="tm2">${hm(c.time)}</span><span class="t">${c.ver ? `<b>${c.ver}</b>` : ""}${esc(c.s)}${label ? `<em>${esc(label)}</em>` : ""}</span><span class="x">+${fmtN(c.a)} −${fmtN(c.r)}</span></div>`;
   }
+  // 只看一天：上面一张卡写日期、左右切天、「看整周」和六个数；下面一个会话一张卡，两列瀑布排，按 Token 从多到少。
+  // 会话卡：标题、项目和时间段；一行四个数；这天发的版本（主色标签）；最近几次提交；对不上会话的提交另放一张卡
+  function sessCard(s) {
+    const cs = [...s.commits].sort((a, b) => b.time - a.time), vers = [...new Set(cs.filter((c) => c.ver).map((c) => c.ver))];
+    const more = open.has(s.id), list = more ? cs : cs.slice(0, 4);
+    return `<article class="scard" data-id="${esc(s.id)}">
+      <header><div class="st">${esc(s.t)}</div><div class="sp"><span class="pt">${esc(s.p)}</span>${s.a ? `<span>${hm(s.a)}–${hm(s.b)}</span>` : ""}</div></header>
+      <div class="sn">${[["Token", fmtM(s.tot)], ["折合", fmtU(s.usd)], ["消息", s.msg + " 条"], ["AI 干活", s.ms ? dur(s.ms) : "—"]].map(([l, v]) => `<div><span>${l}</span><b>${v}</b></div>`).join("")}</div>
+      ${vers.length ? `<div class="vs">${vers.slice(0, 6).map((v) => `<span class="vt">${IC.tag}${v}</span>`).join("")}${vers.length > 6 ? `<span class="vm" title="${vers.slice(6).join("、")}">等 ${vers.length} 个版本</span>` : ""}</div>` : ""}
+      ${cs.length ? `<div class="cl"><div class="ch">${cs.length} 次提交</div>${list.map((c) => commitRow(c)).join("")}${cs.length > 4 ? `<div class="sm" data-cm="${esc(s.id)}">${more ? "收起" : `还有 ${cs.length - 4} 次`}</div>` : ""}</div>` : ""}
+    </article>`;
+  }
   function dayCard() {
     const el = $("week"), all = weeks.flatMap((w) => w.days).filter((x) => !x.fut);
     const i = all.findIndex((x) => +x.date === dayView), x = all[i];
-    const isToday = +x.date === +TODAY;
+    const isToday = +x.date === +TODAY, nc = x.commits.length;
+    el.classList.remove("card");
+    el.classList.add("dayv");
     const nav = `<span class="dn"><span class="ib${i <= 0 ? " off" : ""}" data-go="${i > 0 ? +all[i - 1].date : ""}"><svg viewBox="0 0 24 24"><path d="m15 6-6 6 6 6"/></svg></span><span class="ib${i >= all.length - 1 ? " off" : ""}" data-go="${i < all.length - 1 ? +all[i + 1].date : ""}"><svg viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></svg></span></span>`;
-    let h = `<h2>${md(x.date)} 周${WD[x.date.getDay()]}${isToday ? `<span class="tdy">今天</span>` : ""}${nav}<span class="note back" data-back="1">看整周</span></h2>`;
-    const nc = x.commits.length;
-    h += `<div class="dsum">${[["Token", fmtM(x.tot)], ["折合", fmtU(x.usd)], ["我的消息", x.msg + " 条"], ["AI 干活", dur(x.ms)], ["会话", x.sess.length + " 个"], ["提交", nc + " 次"]]
-      .map(([l, v]) => `<div><span>${l}</span><b>${v}</b></div>`).join("")}</div>`;
-    if (!x.sess.length && !nc) { el.innerHTML = h + `<div class="empty">这天没有会话</div>`; return; }
-    h += `<div class="dh2"><span></span><span>会话</span><span>Token</span><span>折合</span><span>消息</span><span>AI 干活</span></div>`;
-    h += x.sess.map((s) => `<div class="sr2" data-id="${esc(s.id)}">${IC.msg}<span class="t"><i>${s.a ? hm(s.a) + "–" + hm(s.b) : ""}</i>${esc(s.t)}<em>${esc(s.p)}</em></span><span class="v">${fmtM(s.tot)}</span><span class="v">${fmtU(s.usd)}</span><span class="v">${s.msg} 条</span><span class="v">${s.ms ? dur(s.ms) : ""}</span></div>` +
-      (s.commits.length ? `<div class="sc2">${[...s.commits].sort((a, b) => b.time - a.time).slice(0, open.has(s.id) ? 999 : 5).map((c) => commitRow(c)).join("")}` +
-        (s.commits.length > 5 ? `<div class="sm" data-cm="${esc(s.id)}">${open.has(s.id) ? "收起" : `还有 ${s.commits.length - 5} 次提交`}</div>` : "") + `</div>` : "")).join("");
-    if ((x.other || []).length) h += `<div class="oc2"><div class="oh">没对上会话的提交</div>${[...x.other].sort((a, b) => b.time - a.time).map((c) => commitRow(c, c.p)).join("")}</div>`;
+    let h = `<div class="card dhead"><h2>${md(x.date)} 周${WD[x.date.getDay()]}${isToday ? `<span class="tdy">今天</span>` : ""}${nav}<span class="note back" data-back="1">看整周</span></h2>` +
+      `<div class="dsum">${[["Token", fmtM(x.tot)], ["折合", fmtU(x.usd)], ["我的消息", x.msg + " 条"], ["AI 干活", x.ms ? dur(x.ms) : "—"], ["会话", x.sess.length + " 个"], ["提交", nc + " 次"]]
+        .map(([l, v]) => `<div><span>${l}</span><b>${v}</b></div>`).join("")}</div></div>`;
+    if (!x.sess.length && !nc) { el.innerHTML = h + `<div class="card"><div class="empty">这天没有会话</div></div>`; return; }
+    const other = (x.other || []).sort((a, b) => b.time - a.time);
+    // 用得很少（不到 1M Token）又没有提交的会话，合成一张「其他会话」卡，一行一个
+    const small = x.sess.filter((s) => s.tot < 1e6 && !s.commits.length), big = x.sess.filter((s) => !small.includes(s));
+    const smallCard = small.length ? `<article class="scard oc3"><header><div class="st">其他 ${small.length} 个会话</div><div class="sp"><span>用得少、没有提交</span></div></header>${small.map((s) => `<div class="sr3" data-id="${esc(s.id)}">${IC.msg}<span class="t">${esc(s.t)}<em>${esc(s.p)}</em></span><span class="v">${s.msg} 条</span></div>`).join("")}</article>` : "";
+    h += `<div class="sgrid">${big.map(sessCard).join("")}${smallCard}` +
+      (other.length ? `<article class="scard oc3"><header><div class="st">没对上会话的提交</div><div class="sp"><span>${other.length} 次</span></div></header><div class="cl">${other.map((c) => commitRow(c, c.p)).join("")}</div></article>` : "") + `</div>`;
     el.innerHTML = h;
   }
   function showDay(t) { dayView = t; cur = weeks.findIndex((w) => w.days.some((x) => +x.date === t)); open.clear(); draw(); $("week").scrollIntoView({ block: "start", behavior: "smooth" }); }
@@ -262,7 +278,7 @@
     if (cm) { const k = cm.dataset.cm; open.has(k) ? open.delete(k) : open.add(k); week(); return; }
     const dl = e.target.closest(".dl[data-t]");
     if (dl) { showDay(+dl.dataset.t); return; }
-    const s = e.target.closest(".sr, .sr2");
+    const s = e.target.closest(".sr, .sr3, .scard[data-id]");
     if (s) { post({ open: s.dataset.id }); return; }
     const m = e.target.closest(".sm");
     if (m) { const i = +m.dataset.d; open.has(i) ? open.delete(i) : open.add(i); week(); }
