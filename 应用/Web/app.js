@@ -313,7 +313,8 @@
           const y = t.offsetTop + t.offsetHeight / 2;
           if (!free(y)) return;
           taken.push(y);
-          notes.insertAdjacentHTML("beforeend", `<button class="note n-${k.kind}" type="button" data-k="${k.id}" style="top:${y}px">${noteText(k)}</button>`);
+          // 用 div：WKWebView 里按钮不认两行截断，字会铺开叠在一起
+          notes.insertAdjacentHTML("beforeend", `<div class="note n-${k.kind}" role="button" data-k="${k.id}" style="top:${y}px">${noteText(k)}</div>`);
           t.classList.add("noted");
         });
         mark(($("rail").querySelector(".tick.on") || {}).dataset?.k);
