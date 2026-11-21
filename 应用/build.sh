@@ -1,0 +1,39 @@
+#!/bin/zsh
+# 编译 回响.app（Apple 芯片，macOS 14+），输出 dist/回响.app。临时签名，自用。
+# 用法：zsh 应用/build.sh；装到 ~/Applications 并重新打开：zsh 应用/build.sh install
+set -e
+VERSION=0.1.0; BUILD=1                           # 版本号只改这里
+D="${0:A:h}"; T=$(mktemp -d); APP="$T/回响.app"
+trap 'rm -rf "$T"' EXIT
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources/Web"
+source "$D/tools/swift-env.sh" "$T"
+swiftc -O "${SWIFT_FLAGS[@]}" -parse-as-library -target arm64-apple-macos14.0 "$D"/App/*.swift -o "$APP/Contents/MacOS/Echo"
+cp "$D"/Web/*.(html|css|js) "$APP/Contents/Resources/Web/"
+cat > "$APP/Contents/Info.plist" <<P
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>CFBundleIdentifier</key><string>com.cyanext.echo</string>
+  <key>CFBundleName</key><string>回响</string>
+  <key>CFBundleDisplayName</key><string>回响</string>
+  <key>CFBundleExecutable</key><string>Echo</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleShortVersionString</key><string>${VERSION}</string>
+  <key>CFBundleVersion</key><string>${BUILD}</string>
+  <key>LSMinimumSystemVersion</key><string>14.0</string>
+  <key>LSUIElement</key><true/>
+  <key>LSApplicationCategoryType</key><string>public.app-category.productivity</string>
+  <key>NSDesktopFolderUsageDescription</key><string>把会话备份到桌面上的回响文件夹</string>
+  <key>NSDocumentsFolderUsageDescription</key><string>把会话备份到文稿里的文件夹</string>
+</dict></plist>
+P
+plutil -lint -s "$APP/Contents/Info.plist"
+codesign --force -s - "$APP"
+rm -rf "$D/dist"; mkdir -p "$D/dist"; ditto "$APP" "$D/dist/回响.app"
+echo "已生成 $D/dist/回响.app（$VERSION，build $BUILD）"
+if [[ "$1" == install ]]; then
+  osascript -e 'quit app id "com.cyanext.echo"' 2>/dev/null || true
+  sleep 1; rm -rf ~/Applications/回响.app; mkdir -p ~/Applications; ditto "$D/dist/回响.app" ~/Applications/回响.app
+  env -u TZ open ~/Applications/回响.app   # 终端带美国时区，不去掉的话界面时间不对
+  echo "已装到 ~/Applications/回响.app 并打开"
+fi
