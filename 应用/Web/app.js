@@ -12,6 +12,7 @@
     cmd: '<svg viewBox="0 0 24 24"><path d="m5 8 4 4-4 4M12 17h7"/></svg>',
     sys: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 11v5M12 8h.01"/></svg>',
     panel: '<svg viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/><path d="M14.5 4.5v15"/></svg>',
+    close: '<svg viewBox="0 0 24 24"><path d="m7 7 10 10M17 7 7 17"/></svg>',
   };
 
   const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
@@ -253,7 +254,7 @@
 
     root.innerHTML = `
       <header class="c-head"><div class="c-head-in">
-        <div class="c-titles" id="titles"><h1 id="h-title">${esc(m.title)}</h1><div class="c-meta" id="h-meta" title="${esc(m.cwd + "\n" + m.id)}">${meta.map((x) => `<span>${esc(x)}</span>`).join("")}</div></div>
+        <div class="c-bar"><div class="c-meta" id="h-meta" title="${esc(m.cwd + "\n" + m.id)}">${meta.map((x) => `<span>${esc(x)}</span>`).join("")}</div>
         <div class="c-actions">
           <label class="c-find">${ICON.find}<input id="search" type="search" placeholder="查找" autocomplete="off"><span class="hits" id="hits"></span></label>
           <div class="c-menu-wrap">
@@ -266,7 +267,9 @@
             </div>
           </div>
           <button class="c-btn outline${m.kind === "collection" ? " hidden" : ""}" id="copy-resume" type="button">${ICON.copy}<span class="lbl">复制恢复命令</span></button>
-        </div>
+          <button class="c-btn hidden" id="utoggle" type="button" title="展开你的消息">${ICON.panel}<span class="lbl">我的消息</span></button>
+        </div></div>
+        <h1 id="h-title">${esc(m.title)}</h1>
       </div></header>
       <div class="c-body"><nav class="c-rail" id="rail"></nav><main class="c-main" id="turns"></main><nav class="c-rail right" id="urail"></nav></div>
       <div class="toast" id="toast"></div>`;
@@ -411,7 +414,7 @@
         const d = k && k.ts ? new Date(k.ts) : null;
         $("h-title").innerHTML = k ? full(k) : homeTitle;
         $("h-meta").innerHTML = k ? `<span>${esc(m.title)}</span>${d ? `<span>${md0(d)} ${hm(d)}</span>` : ""}` : homeMeta;
-        $("titles").classList.remove("swap"); void $("titles").offsetWidth; $("titles").classList.add("swap");
+        ["h-title", "h-meta"].forEach((x) => { $(x).classList.remove("swap"); void $(x).offsetWidth; $(x).classList.add("swap"); });
         measureHead();
       };
 
@@ -465,10 +468,12 @@
       });
       rails.push(r);
       const nav = r.nav;
-      nav.insertAdjacentHTML("afterbegin", `<div class="r-head"><span class="r-count" id="ucount"></span><input class="r-find" id="ufind" type="search" placeholder="搜你的消息" autocomplete="off"><button class="r-toggle" id="utoggle" type="button" title="展开你的消息">${ICON.panel}</button></div>`);
+      nav.insertAdjacentHTML("afterbegin", `<div class="r-head"><input class="r-find" id="ufind" type="search" placeholder="搜你的消息" autocomplete="off"><span class="r-count" id="ucount"></span><button class="r-toggle" id="uclose" type="button" title="收起">${ICON.close}</button></div>`);
+      $("utoggle").classList.remove("hidden");
       const setOpen = (open) => {
         nav.classList.toggle("open", open);
-        $("utoggle").title = open ? "收起" : "展开你的消息";
+        $("utoggle").title = open ? "收起你的消息" : "展开你的消息";
+        $("utoggle").classList.toggle("on", open);
         try { localStorage.setItem("echo.urail.open", open ? "1" : ""); } catch (e) {}
         layout();
         if (open) setTimeout(() => $("ufind").focus(), 0);
@@ -476,8 +481,10 @@
       let saved = "";
       try { saved = localStorage.getItem("echo.urail.open") || ""; } catch (e) {}
       nav.classList.toggle("open", saved === "1");
-      $("utoggle").title = saved === "1" ? "收起" : "展开你的消息";
+      $("utoggle").title = saved === "1" ? "收起你的消息" : "展开你的消息";
+      $("utoggle").classList.toggle("on", saved === "1");
       $("utoggle").addEventListener("click", (e) => { e.stopPropagation(); setOpen(!nav.classList.contains("open")); });
+      $("uclose").addEventListener("click", () => setOpen(false));
       // 检索：只留下包含关键词的消息，命中的字高亮；没有命中的日期组一起藏起来
       const texts = Object.fromEntries(myMsgs.map((a) => [a.id, a.text.trim()]));
       $("ufind").addEventListener("input", (e) => {

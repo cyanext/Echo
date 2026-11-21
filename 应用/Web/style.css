@@ -59,15 +59,16 @@
   backdrop-filter: saturate(1.6) blur(16px);
   -webkit-backdrop-filter: saturate(1.6) blur(16px);
 }
-.c-head-in { display: flex; align-items: flex-start; gap: 16px; max-width: 840px; margin: 0 auto; padding: 14px 32px 12px; }
-.c-titles { flex: 1; min-width: 0; }
+/* 标题区两行：第一行左边小字（会话名、时间），右边按钮；第二行标题独占整行，写全，长了换行。
+   标题栏因此变高时，定位条的起点和跳转停的位置跟着 --head-h 走 */
+.c-head-in { max-width: 840px; margin: 0 auto; padding: 12px 32px 14px; }
+.c-bar { display: flex; align-items: center; gap: 12px; min-height: 30px; }
+.c-head h1 { margin: 6px 0 0; font-size: 17px; font-weight: 600; line-height: 1.45; overflow-wrap: anywhere; }
+.c-head h1 .ver { font-weight: 600; }
+.c-meta { flex: 1; min-width: 0; font-size: 12px; line-height: 1.5; color: var(--fg-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* 切到关键点时标题换成它的内容，淡入一下 */
 @keyframes swap { from { opacity: .35; } to { opacity: 1; } }
-.c-titles.swap { animation: swap .25s ease-out; }
-.c-titles h1 .ver { font-weight: 600; }
-/* 标题写全，长了换行；标题栏因此变高时，定位条的起点和跳转停的位置跟着 --head-h 走 */
-.c-titles h1 { margin: 0; font-size: 16px; font-weight: 600; line-height: 1.4; overflow-wrap: anywhere; }
-.c-meta { margin-top: 2px; font-size: 12px; line-height: 1.5; color: var(--fg-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.swap { animation: swap .25s ease-out; }
 .c-meta span + span::before { content: "·"; margin: 0 6px; color: var(--fg-faint); }
 .c-actions { display: flex; align-items: center; gap: 6px; flex: none; }
 
@@ -244,26 +245,27 @@
 .c-rail.right .r-list { margin: 0; }   /* 检索结果从顶上排 */
 
 .c-rail.right .tip { left: auto; right: 44px; }
-/* 右边是对话检索：默认收起，只留横线和顶上的放大镜按钮；展开后顶上是搜索框，下面按天列你的消息。
-   右边空白够宽时面板放在空白里；不够宽时浮在正文上，带底色和阴影 */
+/* 右边是对话检索：默认收起，只留一列横线，展开按钮在标题栏里。
+   展开后是从窗口顶到底的侧栏，盖在标题栏的右边空白上：顶上是搜索框、条数和关闭，下面按天列你的消息。
+   右边空白够宽时侧栏放在空白里，左边一条细线；不够宽时浮在正文上，带阴影 */
 .r-head { display: none; }
-.c-rail.right .r-head { display: flex; align-items: center; gap: 6px; position: absolute; top: 0; right: 0; left: 0; height: 32px; padding: 0 8px 0 8px; justify-content: flex-end; }
-.c-rail.right .r-scroll { top: 40px; }
+.has-urail .c-rail.right.open { top: 0; bottom: 0; z-index: 6; background: var(--bg); border-left: 1px solid var(--line); }
+.has-urail .c-rail.right.open.float { border-left: 0; box-shadow: var(--shadow); }
+.c-rail.right.open .r-head { display: flex; align-items: center; gap: 6px; position: absolute; top: 0; left: 0; right: 0; height: 58px; padding: 14px 10px 0 12px; }
+.c-rail.right.open .r-scroll { top: 64px; }
 .r-toggle {
   flex: none; display: grid; place-items: center; width: 28px; height: 28px; border: 0; border-radius: 8px;
   background: none; color: var(--fg-faint); cursor: pointer;
 }
-.r-toggle:hover, .c-rail.right.wide .r-toggle { background: var(--bg-hover); color: var(--fg); }
+.r-toggle:hover { background: var(--bg-hover); color: var(--fg); }
 .r-toggle svg { width: 15px; height: 15px; }
-.r-find { display: none; }
-.c-rail.right.wide .r-find {
-  display: block; flex: 1; min-width: 0; height: 28px; padding: 0 10px; border: 0; border-radius: 8px; outline: 0;
-  background: var(--bg-subtle); color: var(--fg); font: 12px/28px inherit; font-family: inherit;
+.r-find {
+  flex: 1; min-width: 0; height: 30px; padding: 0 10px; border: 0; border-radius: 8px; outline: 0;
+  background: var(--bg-subtle); color: var(--fg); font: 12.5px/30px inherit; font-family: inherit;
 }
-.c-rail.right.wide .r-find:focus { box-shadow: 0 0 0 2px var(--accent-soft), 0 0 0 1px var(--accent); }
-.r-count { display: none; }
-.c-rail.right.wide .r-count:not(:empty) { display: block; flex: none; font-size: 11px; color: var(--fg-faint); }
-.c-rail.right.float { background: var(--bg); box-shadow: var(--shadow); border-radius: 12px 0 0 12px; }
+.r-find:focus { box-shadow: 0 0 0 2px var(--accent-soft), 0 0 0 1px var(--accent); }
+.r-count { flex: none; font-size: 11px; color: var(--fg-faint); }
+.r-count:empty { display: none; }
 .k-row.miss, .r-group.miss { display: none !important; }
 .note mark { background: var(--hit); color: inherit; border-radius: 2px; }
 
