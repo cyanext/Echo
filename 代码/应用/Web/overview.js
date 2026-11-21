@@ -174,7 +174,7 @@
     w.days.map((x, i) => [x, i]).reverse().forEach(([x]) => {
       if (x.fut) return;
       const isToday = +x.date === +TODAY, other = x.other || [];
-      h += `<section class="wday"><div class="wdh"><b class="dl" data-t="${+x.date}">${md(x.date)} 周${WD[x.date.getDay()]}</b>${isToday ? `<span class="tdy">今天</span>` : ""}<span class="tm">${x.tot || x.msg ? `${fmtM(x.tot)} · ${fmtU(x.usd)} · ${x.msg} 条消息 · ${x.sess.length} 个会话${x.commits.length ? ` · ${x.commits.length} 次提交` : ""}` : "没有会话"}</span></div>`;
+      h += `<section class="card wday"><div class="wdh"><b class="dl" data-t="${+x.date}">${md(x.date)} 周${WD[x.date.getDay()]}</b>${isToday ? `<span class="tdy">今天</span>` : ""}<span class="tm">${x.tot || x.msg ? `${fmtM(x.tot)} · ${fmtU(x.usd)} · ${x.msg} 条消息 · ${x.sess.length} 个会话${x.commits.length ? ` · ${x.commits.length} 次提交` : ""}` : "没有会话"}</span></div>`;
       if (x.sess.length) {
         const top = x.sess.slice(0, 4), rest = x.sess.length - top.length;
         h += `<div class="sgrid">${top.map((s) => sessCard(s)).join("")}</div>` + (rest > 0 ? `<div class="wmore dl" data-t="${+x.date}">还有 ${rest} 个会话，看这一天</div>` : "");
@@ -182,7 +182,7 @@
       if (other.length) {
         const byP = new Map();
         other.forEach((c) => byP.set(c.p, [...(byP.get(c.p) || []), c]));
-        h += `<div class="card wother">${[...byP.entries()].map(([p, cs]) => commitLine(cs, p)).join("")}</div>`;
+        h += `<div class="wother">${[...byP.entries()].map(([p, cs]) => commitLine(cs, p)).join("")}</div>`;
       }
       h += `</section>`;
     });
@@ -224,8 +224,9 @@
     // 用得很少（不到 1M Token）又没有提交的会话，合成一张「其他会话」卡，一行一个
     const small = x.sess.filter((s) => s.tot < 1e6 && !s.commits.length), big = x.sess.filter((s) => !small.includes(s));
     const smallCard = small.length ? `<article class="scard oc3"><header><div class="st">其他 ${small.length} 个会话</div><div class="sp"><span>用得少、没有提交</span></div></header>${small.map((s) => `<div class="sr3" data-id="${esc(s.id)}">${IC.msg}<span class="t">${esc(s.t)}<em>${esc(s.dir)}</em></span><span class="v">${s.msg} 条</span></div>`).join("")}</article>` : "";
+    h = h.replace(/<\/div>$/, "");   // 会话接着放进日期那张卡
     h += `<div class="sgrid">${big.map(sessCard).join("")}${smallCard}` +
-      (other.length ? `<article class="scard oc3"><header><div class="st">没对上会话的提交</div><div class="sp"><span>${other.length} 次</span></div></header><div class="cl">${other.map((c) => commitRow(c, c.p)).join("")}</div></article>` : "") + `</div>`;
+      (other.length ? `<article class="scard oc3"><header><div class="st">没对上会话的提交</div><div class="sp"><span>${other.length} 次</span></div></header><div class="cl">${other.map((c) => commitRow(c, c.p)).join("")}</div></article>` : "") + `</div></div>`;
     el.innerHTML = h;
   }
   function showDay(t) { dayView = t; cur = weeks.findIndex((w) => w.days.some((x) => +x.date === t)); open.clear(); draw(); $("week").scrollIntoView({ block: "start", behavior: "smooth" }); }

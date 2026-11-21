@@ -202,3 +202,15 @@ h2 .back { cursor: pointer; color: var(--accent); }
 .wother { margin: 12px 0 0; }
 .wmore { margin: 12px 4px 0; }
 @media (max-width: 900px) { .scard .sh { flex-direction: column; align-items: flex-start; gap: 8px; } .scard .tg2 { justify-content: flex-start; } }
+
+/* 一天一张卡：日期在卡里，会话一行一个，行与行之间留白不画线，悬停浅底 */
+.wday { margin-top: 0; padding: 20px 24px 12px; }
+.wday .wdh { padding: 0 0 8px; }
+.sgrid { gap: 0; }
+.scard { background: none; border-radius: 8px; padding: 12px; margin: 0 -12px; }
+.scard:hover { box-shadow: none; background: var(--bg-hover); }
+.scard .vs { margin-top: 8px; }
+.wother { margin: 4px 0 0; padding: 8px 0 0; border-top: 1px solid var(--line); }
+.wmore { margin: 4px 0 8px; }
+#week.dayv { gap: 16px; }
+.dhead .sgrid { margin-top: 16px; padding-top: 8px; border-top: 1px solid var(--line); }
