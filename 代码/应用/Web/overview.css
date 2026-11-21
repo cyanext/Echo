@@ -1,7 +1,7 @@
-/* 总览（设计稿 设计/总览/，规范 需求文档/设计规范/设计规范.md）。浅灰页底上放白卡，卡不加灰边；
+/* 总览（设计稿 设计/总览/，规范 需求文档/设计规范/设计规范.md）。扁平：页底和正文一样，块用 1px 线框、圆角 12，不铺底色不加阴影；
    间距只用 4、8、12、16、24、32；字号 12、13、15、17，数字卡大数 28。浅色深色跟着系统 */
 :root {
-  --page: #f4f5f8; --card: #ffffff; --bg-subtle: #f3f4f7; --sel: rgba(78,91,216,.06); --bg-hover: rgba(31,35,41,.05);
+  --page: #ffffff; --card: #ffffff; --bg-subtle: #f3f4f7; --sel: rgba(78,91,216,.06); --bg-hover: rgba(31,35,41,.05);
   --fg: #1f2329; --fg-muted: #646a73; --fg-faint: #8f959e; --line: #e8e9ef;
   --accent: #4e5bd8;
   /* 主色同一色相由浅到深，0 是没会话；2 到 4 档用 dataviz validate_palette --ordinal 校验过 */
@@ -11,7 +11,7 @@
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --page: #18191d; --card: #212227; --bg-subtle: #2a2c32; --sel: rgba(124,135,240,.10); --bg-hover: rgba(255,255,255,.06);
+    --page: #1d1e23; --card: #1d1e23; --bg-subtle: #2a2c32; --sel: rgba(124,135,240,.10); --bg-hover: rgba(255,255,255,.06);
     --fg: #e6e8ec; --fg-muted: #9aa0ab; --fg-faint: #6f7581; --line: #2e3037;
     --accent: #7c87f0;
     --q0: #2c2e35; --q1: #2f386c; --q2: #4855a6; --q3: #6b7cdf; --q4: #8796f0;
@@ -33,14 +33,14 @@ svg { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; s
 .head { display: flex; align-items: center; gap: 16px; height: 64px; max-width: 1200px; margin: 0 auto; padding: 0 32px; }
 .head h1 { margin: 0; font-size: 17px; line-height: 24px; font-weight: 600; }
 .wk { display: flex; align-items: center; gap: 4px; color: var(--fg-muted); }
-.wk .now { margin-left: 8px; font-size: 12px; line-height: 18px; padding: 0 6px; border-radius: 4px; background: var(--card); }
+.wk .now { margin-left: 8px; font-size: 12px; line-height: 18px; padding: 0 6px; border-radius: 4px; background: var(--bg-subtle); }
 .ib { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 4px; color: var(--fg-muted); cursor: pointer; }
 .ib:hover { background: var(--bg-subtle); }
 .ib.off { opacity: .35; pointer-events: none; }
 .page { max-width: 1200px; margin: 0 auto; padding: 0 32px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
 
 /* 卡片：白底、圆角 12、内边距 24，不加边 */
-.card { background: var(--card); border-radius: 12px; padding: 24px; }
+.card { background: none; border: 1px solid var(--line); border-radius: 12px; padding: 24px; }
 h2 { display: flex; align-items: baseline; gap: 12px; margin: 0 0 16px; font-size: 15px; line-height: 22px; font-weight: 600; }
 h2 .note { margin-left: auto; font-size: 12px; font-weight: 400; color: var(--fg-faint); font-variant-numeric: tabular-nums; }
 .num { font-variant-numeric: tabular-nums; }
