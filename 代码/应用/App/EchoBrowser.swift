@@ -32,8 +32,7 @@ enum EchoColor {
 struct EchoBrowserView: View {
     @EnvironmentObject var state: EchoState
     @AppStorage("filterComputer") private var computer = ""           // 空表示全部电脑
-    @AppStorage("collapsedCategories") private var collapsedRaw = ""   // 收起的大目录，换行分隔（默认展开）
-    @AppStorage("openProjects") private var openRaw = ""               // 展开的项目，换行分隔（默认收起）
+    @AppStorage("dirState") private var dirStateRaw = ""               // 用户点过的目录：一行「路径\t1」展开、「路径\t0」收起
     @State private var sessionID: String?
     @State private var collectionID: String?
     @State private var picked: Set<String> = []                        // ⌘ 点选的会话，用来连起来看
@@ -41,12 +40,15 @@ struct EchoBrowserView: View {
     @State private var newTitle = ""
     @State private var editError: String?
     @State private var deleting: [EchoSession] = []
-    @State private var tree: [EchoCategory] = []                       // 会话列表变了才重新分组，不在每次刷新时算
+    @State private var tree: [EchoDir] = []                            // 会话列表变了才重新分组，不在每次刷新时算
     @State private var showAll: Set<String> = []                       // 点过「再显示」的项目
 
     private var computers: [String] { Array(Set(state.sessions.map(\.computer))).sorted() }
-    private var collapsed: Set<String> { Set(collapsedRaw.split(separator: "\n").map(String.init)) }
-    private var opened: Set<String> { Set(openRaw.split(separator: "\n").map(String.init)) }
+    private var dirState: [String: Bool] {
+        Dictionary(dirStateRaw.split(separator: "\n").compactMap { l -> (String, Bool)? in
+            let f = l.split(separator: "\t"); return f.count == 2 ? (String(f[0]), f[1] == "1") : nil
+        }, uniquingKeysWith: { _, b in b })
+    }
     /// 没选过会话时打开最近的一个，右栏不空着
     private var session: EchoSession? {
         tree.lazy.flatMap(\.all).first { $0.id == sessionID } ?? tree.lazy.flatMap(\.all).max { ($0.endDate ?? .distantPast) < ($1.endDate ?? .distantPast) }
@@ -61,7 +63,7 @@ struct EchoBrowserView: View {
     var body: some View {
         HStack(spacing: 0) {
             sidebar
-                .frame(width: 300)
+                .frame(width: 272)
                 .background(EchoColor.side)
                 .overlay(alignment: .trailing) { Rectangle().fill(EchoColor.sideLine).frame(width: 1) }
             ZStack {
@@ -169,24 +171,27 @@ struct EchoBrowserView: View {
     private var collectionSection: some View {
         let list = state.collections.sorted { $0.created > $1.created }
         if !list.isEmpty {
-            Text("合集").font(.system(size: 12, weight: .semibold)).foregroundStyle(EchoColor.sideFg)
-                .padding(.horizontal, 10).frame(height: 28).padding(.top, 8)
+            HStack(spacing: 8) {
+                EchoIcon(kind: .stack).foregroundStyle(EchoColor.fg2)
+                Text("合集").font(.system(size: 13, weight: .semibold)).foregroundStyle(EchoColor.fg)
+            }
+            .padding(.horizontal, 10).frame(height: 30)
             ForEach(list) { c in
                 let members = EchoCollections.sessions(c, in: state.sessions, root: EchoPrefs.backupRoot)
                 let on = c.id == collectionID
                 EchoRow(fill: on ? EchoColor.sideOn : nil, shadow: on) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(c.title).font(.system(size: 13, weight: on ? .medium : .regular)).lineLimit(1)
-                            .foregroundStyle(on ? EchoColor.fg : EchoColor.sideFg)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(c.title).font(.system(size: 13, weight: on ? .semibold : .regular)).lineLimit(1)
+                            .foregroundStyle(EchoColor.fg)
                             .frame(maxWidth: .infinity, alignment: .leading)
                         HStack(spacing: 6) {
                             Text("\(members.count) 个会话")
                             Spacer(minLength: 4)
                             Text(EchoTime.short(members.compactMap(\.endDate).max()))
                         }
-                        .font(.system(size: 11)).foregroundStyle(EchoColor.fg3).monospacedDigit()
+                        .font(.system(size: 12)).foregroundStyle(EchoColor.fg3).monospacedDigit()
                     }
-                    .padding(.leading, 18).padding(.vertical, 6)
+                    .padding(.leading, 24).padding(.vertical, 5)
                 } action: {
                     collectionID = c.id
                     picked = []
@@ -200,21 +205,22 @@ struct EchoBrowserView: View {
     }
 
     private func regroup() {
-        tree = EchoLibrary.tree(computer.isEmpty ? state.sessions : state.sessions.filter { $0.computer == computer })
+        tree = EchoLibrary.dirTree(computer.isEmpty ? state.sessions : state.sessions.filter { $0.computer == computer })
     }
 
-    private func flip(_ raw: inout String, _ id: String) {
-        var c = Set(raw.split(separator: "\n").map(String.init))
-        if c.contains(id) { c.remove(id) } else { c.insert(id) }
-        raw = c.sorted().joined(separator: "\n")
+    /// 目录展开收起：点过的按点的来；没点过的，顶层默认展开，当前会话所在的那几级也展开
+    private func isOpen(_ d: EchoDir, level: Int) -> Bool {
+        if let v = dirState[d.path] { return v }
+        return level == 0 || (collectionID == nil && d.contains(session?.id))
     }
 
-    /// 当前会话所在的项目自动展开
-    private func isOpen(_ p: EchoProject) -> Bool {
-        opened.contains(p.id) || (collectionID == nil && p.sessions.contains { $0.id == session?.id })
+    private func toggle(_ d: EchoDir, level: Int) {
+        var st = dirState
+        st[d.path] = !isOpen(d, level: level)
+        dirStateRaw = st.map { "\($0.key)\t\($0.value ? 1 : 0)" }.sorted().joined(separator: "\n")
     }
 
-    // MARK: 左栏：按项目分组的会话
+    // MARK: 左栏：多级目录和会话
 
     private var sidebar: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -233,7 +239,7 @@ struct EchoBrowserView: View {
                 }
             }
             .padding(.leading, 80).padding(.trailing, 14)
-            .frame(height: 52)
+            .frame(height: 56)
             .background(EchoWindowDrag())                                     // 红绿灯那一行，按住能拖窗口
 
             if state.sessions.isEmpty {
@@ -242,7 +248,7 @@ struct EchoBrowserView: View {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 1) {
                         collectionSection
-                        ForEach(tree) { c in categorySection(c) }
+                        ForEach(tree) { d in dirSection(d, level: 0) }
                     }
                     .padding(.horizontal, 10).padding(.bottom, 12)
                 }
@@ -252,64 +258,46 @@ struct EchoBrowserView: View {
         }
     }
 
-    /// 第一级：大目录。下面先列直接在大目录里开的会话，再列项目
-    @ViewBuilder
-    private func categorySection(_ c: EchoCategory) -> some View {
-        let folded = collapsed.contains(c.id)
-        EchoRow(fill: nil) {
-            HStack(spacing: 6) {
-                Image(systemName: "chevron.right").font(.system(size: 9, weight: .bold))
-                    .rotationEffect(.degrees(folded ? 0 : 90)).frame(width: 12)
-                Text(c.name).font(.system(size: 12, weight: .semibold)).lineLimit(1)
-                Spacer(minLength: 4)
-                if folded { Text("\(c.count)").font(.system(size: 11)).foregroundStyle(EchoColor.fg3).monospacedDigit() }
+    /// 一级目录：文件夹图标（收起合上、展开打开）、名字、会话数，缩进 16 一级；顶层名字加粗。
+    /// 展开后先列子目录，再列直接在这一级开的会话
+    private func dirSection(_ d: EchoDir, level: Int) -> AnyView {
+        let open = isOpen(d, level: level)
+        let parts = d.name.components(separatedBy: " / ")
+        return AnyView(Group {
+            EchoRow(fill: nil) {
+                HStack(spacing: 8) {
+                    EchoIcon(kind: open ? .folderOpen : .folder)
+                        .foregroundStyle(open ? EchoColor.accent : EchoColor.fg2)
+                    (Text(parts[0]).foregroundColor(EchoColor.fg)
+                        + Text(parts.count > 1 ? " / " + parts.dropFirst().joined(separator: " / ") : "").foregroundColor(EchoColor.fg3))
+                        .font(.system(size: 13, weight: level == 0 ? .semibold : .regular)).lineLimit(1)
+                    Spacer(minLength: 4)
+                    Text("\(d.count)").font(.system(size: 12)).foregroundStyle(EchoColor.fg3).monospacedDigit()
+                }
+                .padding(.leading, CGFloat(level) * 16)
+                .frame(height: 30)
+            } action: {
+                toggle(d, level: level)
             }
-            .foregroundStyle(EchoColor.fg2)
-            .frame(height: 28)
-        } action: {
-            flip(&collapsedRaw, c.id)
-        }
-        .padding(.top, 10)
-        .help((c.path as NSString).abbreviatingWithTildeInPath)
+            .padding(.top, level == 0 ? 10 : 0)
+            .help((d.path as NSString).abbreviatingWithTildeInPath)
 
-        if !folded {
-            sessionList(c.root, key: c.id, indent: 18)
-            ForEach(c.projects) { p in projectSection(p) }
-        }
-    }
-
-    /// 第二级：项目，默认收起
-    @ViewBuilder
-    private func projectSection(_ p: EchoProject) -> some View {
-        let open = isOpen(p)
-        EchoRow(fill: nil) {
-            HStack(spacing: 7) {
-                Image(systemName: open ? "folder.fill" : "folder").font(.system(size: 12)).frame(width: 16)
-                    .foregroundStyle(open ? EchoColor.accent : EchoColor.fg3)
-                Text(p.name).font(.system(size: 13)).lineLimit(1)
-                Spacer(minLength: 4)
-                Text("\(p.sessions.count)").font(.system(size: 11)).foregroundStyle(EchoColor.fg3).monospacedDigit()
+            if open {
+                ForEach(d.children) { c in dirSection(c, level: level + 1) }
+                sessionList(d.sessions, key: d.path, level: level + 1)
             }
-            .foregroundStyle(EchoColor.sideFg)
-            .padding(.leading, 12)
-            .frame(height: 30)
-        } action: {
-            flip(&openRaw, p.id)
-        }
-        .help((p.path as NSString).abbreviatingWithTildeInPath)
-
-        if open { sessionList(p.sessions, key: p.id, indent: 40) }
+        })
     }
 
     /// 会话先显示最近 5 个，下面「再显示 N 个」
     @ViewBuilder
-    private func sessionList(_ list: [EchoSession], key: String, indent: CGFloat) -> some View {
+    private func sessionList(_ list: [EchoSession], key: String, level: Int) -> some View {
         let limit = showAll.contains(key) ? list.count : 5
-        ForEach(list.prefix(limit)) { s in sessionRow(s, indent: indent) }
+        ForEach(list.prefix(limit)) { s in sessionRow(s, indent: CGFloat(level) * 16) }
         if list.count > limit {
             EchoRow(fill: nil) {
                 Text("再显示 \(list.count - limit) 个").font(.system(size: 12)).foregroundStyle(EchoColor.fg3)
-                    .padding(.leading, indent).frame(height: 26)
+                    .padding(.leading, CGFloat(level) * 16 + 24).frame(height: 26)
             } action: {
                 showAll.insert(key)
             }
@@ -319,9 +307,11 @@ struct EchoBrowserView: View {
     private func sessionRow(_ s: EchoSession, indent: CGFloat) -> some View {
         let on = picked.contains(s.id) || (picked.isEmpty && collectionID == nil && s.id == session?.id)
         return EchoRow(fill: on ? EchoColor.sideOn : nil, shadow: on) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(s.meta.title == s.sessionId ? "未命名会话" : s.meta.title).font(.system(size: 13, weight: on ? .medium : .regular)).lineLimit(1)
-                    .foregroundStyle(on ? EchoColor.fg : EchoColor.sideFg)
+          HStack(alignment: .top, spacing: 8) {
+            EchoIcon(kind: .chat, size: 14).foregroundStyle(on ? EchoColor.accent : EchoColor.fg3).padding(.top, 3)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(s.meta.title == s.sessionId ? "未命名会话" : s.meta.title).font(.system(size: 13, weight: on ? .semibold : .regular)).lineLimit(1)
+                    .foregroundStyle(EchoColor.fg)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 HStack(spacing: 6) {
                     Text(EchoTime.short(s.endDate))
@@ -329,9 +319,10 @@ struct EchoBrowserView: View {
                     Spacer(minLength: 4)
                     Text(ByteCountFormatter.string(fromByteCount: s.size, countStyle: .file))
                 }
-                .font(.system(size: 11)).foregroundStyle(EchoColor.fg3).monospacedDigit()
+                .font(.system(size: 12)).foregroundStyle(EchoColor.fg3).monospacedDigit()
             }
-            .padding(.leading, indent).padding(.vertical, 6)
+          }
+          .padding(.leading, indent).padding(.vertical, 5)
         } action: {
             // ⌘ 点选：挑几个会话连起来看；普通点击打开
             if NSEvent.modifierFlags.contains(.command) {
@@ -364,7 +355,8 @@ struct EchoBrowserView: View {
             if state.running {
                 ProgressView().controlSize(.mini).frame(width: 6, height: 6)
             } else {
-                Circle().fill(state.needsAttention ? EchoColor.warn : EchoColor.good).frame(width: 6, height: 6)
+                Image(systemName: state.needsAttention ? "exclamationmark.icloud" : "checkmark.icloud")
+                    .font(.system(size: 13)).foregroundStyle(state.needsAttention ? EchoColor.warn : EchoColor.good)
             }
             Text(statusText).font(.system(size: 12)).foregroundStyle(EchoColor.fg3).lineLimit(1)
                 .help(state.cleanupDays != nil ? "在 ~/.claude/settings.json 把 cleanupPeriodDays 设成 36500 可永久保留" : state.failures.joined(separator: "\n"))

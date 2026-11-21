@@ -13,6 +13,12 @@
     sys: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 11v5M12 8h.01"/></svg>',
     panel: '<svg viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/><path d="M14.5 4.5v15"/></svg>',
     close: '<svg viewBox="0 0 24 24"><path d="m7 7 10 10M17 7 7 17"/></svg>',
+    pin: '<svg viewBox="0 0 24 24"><path d="M12 21s-6.5-6.2-6.5-11a6.5 6.5 0 0 1 13 0c0 4.8-6.5 11-6.5 11z"/><circle cx="12" cy="10" r="2.3"/></svg>',
+    msgs: '<svg viewBox="0 0 24 24"><path d="M4.5 16V6.5A2 2 0 0 1 6.5 4.5h8A2 2 0 0 1 16.5 6.5v5a2 2 0 0 1-2 2H8z"/><path d="M19.5 9.5v10l-3-2.5h-6.5a2 2 0 0 1-2-2"/></svg>',
+    commit: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.5"/><path d="M3 12h5.5M15.5 12H21"/></svg>',
+    squeeze: '<svg viewBox="0 0 24 24"><path d="M12 3v6m0 0-3-3m3 3 3-3M12 21v-6m0 0-3 3m3-3 3 3M4 12h16"/></svg>',
+    flag: '<svg viewBox="0 0 24 24"><path d="M5 21V4.5M5 4.5h11l-2 4 2 4H5"/></svg>',
+    box: '<svg viewBox="0 0 24 24"><path d="M4.5 8.5 12 4.5l7.5 4v7L12 19.5l-7.5-4z"/><path d="M4.5 8.5 12 12.5l7.5-4M12 12.5v7"/></svg>',
   };
 
   const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
@@ -155,7 +161,7 @@
     return any ? any[1] : null;
   }
 
-  // 定位条的关键点（方案 需求文档/版本需求/v0.3.0-会话定位条.html）：只标三类
+  // 要点栏的要点（方案 需求文档/版本需求/v0.3.0-要点和我的消息.html）：只标三类
   // 1. 手动压缩：阶段总结的 trigger 是 manual；自动压缩不标
   // 2. 版本提交：同一个「模块 + 版本号」只标最后一次；会话里一次版本提交都没有时，每次提交都标
   // 3. 合集里每个会话的开头
@@ -254,11 +260,11 @@
 
     root.innerHTML = `
       <header class="c-head"><div class="c-head-in">
-        <div class="c-bar"><div class="c-meta" id="h-meta" title="${esc(m.cwd + "\n" + m.id)}">${meta.map((x) => `<span>${esc(x)}</span>`).join("")}</div>
+        <div class="c-tt"><h1 id="h-title">${esc(m.title)}</h1><div class="c-meta" id="h-meta" title="${esc(m.cwd + "\n" + m.id)}">${meta.map((x) => `<span>${esc(x)}</span>`).join("")}</div></div>
         <div class="c-actions">
-          <label class="c-find">${ICON.find}<input id="search" type="search" placeholder="查找" autocomplete="off"><span class="hits" id="hits"></span></label>
+          <label class="c-find" title="查找（⌘F）">${ICON.find}<input id="search" type="search" placeholder="查找" autocomplete="off"><span class="hits" id="hits"></span></label>
           <div class="c-menu-wrap">
-            <button class="c-btn" id="view-btn" type="button" title="显示">${ICON.view}<span class="lbl">显示</span></button>
+            <button class="c-btn icon" id="view-btn" type="button" title="显示">${ICON.view}</button>
             <div class="c-menu" id="view-menu" hidden>
               <label><input type="checkbox" id="show-thinking" checked>思考过程</label>
               <label><input type="checkbox" id="show-tools" checked>工具调用</label>
@@ -266,12 +272,11 @@
               <hr><button type="button" id="expand-all">全部展开</button>
             </div>
           </div>
-          <button class="c-btn outline${m.kind === "collection" ? " hidden" : ""}" id="copy-resume" type="button">${ICON.copy}<span class="lbl">复制恢复命令</span></button>
-          <button class="c-btn hidden" id="utoggle" type="button" title="展开你的消息">${ICON.panel}<span class="lbl">我的消息</span></button>
-        </div></div>
-        <h1 id="h-title">${esc(m.title)}</h1>
+          <button class="c-btn icon${m.kind === "collection" ? " hidden" : ""}" id="copy-resume" type="button" title="复制恢复命令">${ICON.copy}</button>
+          <button class="c-btn hidden" id="utoggle" type="button" title="展开我的消息（⌘⇧F）">${ICON.msgs}<span class="lbl">我的消息</span></button>
+        </div>
       </div></header>
-      <div class="c-body"><nav class="c-rail" id="rail"></nav><main class="c-main" id="turns"></main><nav class="c-rail right" id="urail"></nav></div>
+      <div class="c-body"><nav class="c-rail left" id="rail"></nav><main class="c-main" id="turns"></main><nav class="c-rail right" id="urail"></nav></div>
       <div class="toast" id="toast"></div>`;
 
     const $ = (id) => document.getElementById(id);
@@ -279,7 +284,7 @@
 
     // 先画前 80 段，滚到底再接着画
     const keys = keyPoints(S.turns);
-    const myMsgs = [];   // 你的消息，右边定位条用
+    const myMsgs = [];   // 你的消息，右边我的消息栏用
     S.turns.forEach((t, i) => { if (t.role === "user") { t._uid = "u" + i; myMsgs.push({ id: t._uid, turn: i, text: t.text, ts: t.ts }); } });
     const partOf = [];
     const parts = render(S.turns, partOf);
@@ -289,7 +294,7 @@
       if (drawn >= parts.length) return;
       const end = Math.min(parts.length, drawn + n);
       sentinel.remove();
-      // 每段前放一个锚点 p<段号>：左边定位条点一条时跳到这一段的开头
+      // 每段前放一个锚点 p<段号>：要点栏点一条时跳到这一段的开头
       $("turns").insertAdjacentHTML("beforeend", parts.slice(drawn, end).map((h, j) => `<i class="pa" id="p${drawn + j}"></i>${h}`).join(""));
       drawn = end;
       if (drawn < parts.length) $("turns").appendChild(sentinel);
@@ -297,32 +302,35 @@
     }
     const drawAll = () => draw(parts.length);
     new IntersectionObserver((es) => { if (es.some((e) => e.isIntersecting)) draw(80); }, { rootMargin: "1200px" }).observe(sentinel);
-    // 定位条：左边是关键点（版本、手动压缩、合集里的会话开头），右边是你的消息。两条共用 makeRail：
-    // 一项一行、间距固定、排不下时自己滚动；空白够宽时写一行说明，不够宽时只画横线、悬停浮出说明；
-    // 点了跳过去；滚动对话时当前那条变蓝，定位条跟着把它滚到中间
+    // 要点栏（左，常驻）和我的消息（右，可收起），规范 需求文档/设计规范/设计规范.md「布局」「组件」。两栏共用 makeRail：
+    // 栏名一行，下面一行一项；点了跳过去；滚动对话时当前那项变浅蓝，栏跟着把它滚到中间。
+    // 窗口窄时要点栏只剩一列短横线，我的消息收起时只剩一列小点，这两种悬停浮出说明
     let LINE = 120;   // 标题栏下面那条线，判断读到哪用它；标题换行变高时跟着改（measureHead）
     const posOf = (id) => {
       const el = document.getElementById(id);
       return el ? (el.closest("details.steps:not([open])") || el).getBoundingClientRect().top : Infinity;   // 还没画出来的算在下面
     };
-    // 量标题栏高度：写进 --head-h（定位条起点、跳转停的位置），读到哪的那条线放在标题栏下 48
+    // 量标题栏高度：写进 --head-h（窄模式的起点、跳转停的位置），读到哪的那条线放在标题栏下 48
     const measureHead = () => {
       const h = root.querySelector(".c-head").offsetHeight;
       root.style.setProperty("--head-h", h + "px");
       document.documentElement.style.setProperty("--head-h", h + "px");
       LINE = h + 48;
     };
-    let gutter = 0, pinned = null;   // pinned：刚点过的那条定位条和当时的滚动位置，页面没动时保持点中的那条
+    let pinned = null;   // 刚点过的那一栏和当时的滚动位置，页面没动时保持点中的那项
+    // 两栏固定在窗口两边，正文栏用左右内边距让开：要点栏 240（窗口窄于 1000 时只剩 44 宽的横线）；
+    // 我的消息展开 260，正文剩下不到 560 时浮在正文上，收起时 16 宽的小点
     const layout = () => {
-      gutter = ((root.clientWidth || document.documentElement.clientWidth) - 840) / 2;   // 按对话区的宽度算，设计稿里对话区比窗口窄
-      const left = $("rail"), right = $("urail");
-      left.classList.toggle("wide", gutter >= 180);
-      left.style.width = gutter >= 180 ? Math.min(gutter - 8, 300) + "px" : "";
-      // 右边：展开时放在空白里，空白不够 280 就浮在正文上
-      const open = right.classList.contains("open");
-      right.classList.toggle("wide", open);
-      right.classList.toggle("float", open && gutter - 8 < 280);
-      right.style.width = open ? Math.max(280, Math.min(gutter - 8, 340)) + "px" : "";
+      const W = document.documentElement.clientWidth, L = $("rail"), R = $("urail");
+      let lw = 0, rw = 0;
+      if (keys.length) { const slim = W < 1000; L.classList.toggle("slim", slim); lw = slim ? 44 : 240; }
+      if (myMsgs.length) {
+        const open = R.classList.contains("open"), dock = open && W - lw - 260 >= 560;
+        R.classList.toggle("float", open && !dock);
+        rw = dock ? 260 : 16;
+      }
+      root.style.paddingLeft = lw + "px";
+      root.style.paddingRight = rw + "px";
     };
     // 画到第 part 段，滚到 id 那里（停在标题栏下），闪一下
     const goTo = (part, id) => {
@@ -339,15 +347,17 @@
     function makeRail(nav, items, o) {
       let html = "", lastGroup;
       items.forEach((it) => {
-        if (it.group !== lastGroup) { html += `<div class="r-group">${esc(it.group || "")}</div>`; lastGroup = it.group; }
-        html += `<div class="k-row ${it.cls}" role="button" data-k="${it.id}"><i></i><div class="note">${it.row}</div></div>`;   // 检索时按 it.text 过滤
+        if (it.group !== lastGroup) { html += `<div class="r-group">${it.group && o.groupIcon ? o.groupIcon : ""}${esc(it.group || "")}</div>`; lastGroup = it.group; }
+        html += `<div class="k-row ${it.cls}" role="button" data-k="${it.id}"><i></i>${it.icon ? `<span class="ic">${it.icon}</span>` : ""}<div class="note">${it.row}</div></div>`;
       });
-      nav.innerHTML = `<div class="r-scroll"><div class="r-list">${html}</div></div><div class="tip"></div>`;
+      nav.innerHTML = `${o.head}<div class="r-scroll"><div class="r-list">${html}</div></div><div class="tip"></div>`;
       const scroller = nav.querySelector(".r-scroll"), tip = nav.querySelector(".tip");
       const rows = [...nav.querySelectorAll(".k-row")];
       const byId = Object.fromEntries(items.map((it) => [it.id, it]));
+      // 栏里写着字的时候不用浮层：要点栏不窄、我的消息展开
+      const showsText = () => (nav.classList.contains("left") ? !nav.classList.contains("slim") : nav.classList.contains("open"));
       let over = false, current;
-      // 当前那条变蓝；它不在定位条中间 60% 的范围里时滚到中间；鼠标在定位条上时不滚，免得和用户自己滚冲突
+      // 当前那项变浅蓝；它不在栏中间 60% 的范围里时滚到中间；鼠标在栏上时不滚，免得和用户自己滚冲突
       const mark = (id) => {
         if (id !== current) {
           current = id;
@@ -365,17 +375,16 @@
       nav.addEventListener("click", (e) => {
         const t = e.target.closest("[data-k]");
         if (!t) return;
-        o.jump(byId[t.dataset.k]);   // 头部（检索框、按钮）不带 data-k，不会走到这里
+        o.jump(byId[t.dataset.k]);   // 栏名、搜索框不带 data-k，不会走到这里
         mark(t.dataset.k);
         pinned = { rail: nav, y: window.scrollY };
         spot();
       });
       nav.addEventListener("mouseover", (e) => {
         const t = e.target.closest(".k-row");
-        if (!t || nav.classList.contains("wide")) { tip.classList.remove("show"); return; }
+        if (!t || showsText()) { tip.classList.remove("show"); return; }
         const it = byId[t.dataset.k];
         const d = it.ts ? new Date(it.ts) : null;
-        tip.style.maxWidth = Math.max(150, Math.min(280, gutter - 52)) + "px";
         tip.innerHTML = `<div class="tip-label">${it.tip}</div><div class="tip-time">${d ? md0(d) + " " + hm(d) : ""}</div>`;
         tip.style.top = t.offsetTop - scroller.scrollTop + scroller.offsetTop + t.offsetHeight / 2 + "px";
         tip.classList.add("show");
@@ -385,8 +394,8 @@
 
     const rails = [];
 
-    // 左边：关键点。一个关键点是它前面那一段的终点（提交「0.1.0」之前的对话都属于 0.1.0），
-    // 所以读到哪，就看前面遇到的下一个关键点；合集里的会话开头相反，是后面那一段的起点
+    // 要点栏：版本、手动压缩、合集里的会话开头。一个要点是它前面那一段的终点（提交「0.1.0」之前的对话都属于 0.1.0），
+    // 所以读到哪，就看前面遇到的下一个要点；合集里的会话开头相反，是后面那一段的起点
     if (keys.length) {
       root.classList.add("has-rail");
       const verOf = (k) => (k.ver || "").split(" ").pop();
@@ -406,9 +415,10 @@
         if (!k.ver) return `<span class="n-text">${esc(k.label)}</span>`;
         return `<span class="n-ver">${esc(verOf(k))}</span><span class="n-text">${esc(brief(k))}</span>`;
       };
+      const kindIcon = { commit: ICON.commit, compact: ICON.squeeze, part: ICON.flag };
       const full = (k) => (k.kind === "compact" ? `手动压缩：${esc(k.sub || "")}` : k.kind === "part" ? esc(k.label) : esc(k.label).replace(/(v?\d+\.\d+\.\d+)/, '<b class="ver">$1</b>'));
 
-      // 左上角标题跟着当前段换：标题写这一段的关键点，小字写会话标题和时间；后面没有关键点时恢复会话标题
+      // 标题跟着当前段换：标题写这一段的要点，小字写会话标题和时间；后面没有要点时恢复会话标题
       const homeTitle = $("h-title").innerHTML, homeMeta = $("h-meta").innerHTML;
       const setHead = (k) => {
         const d = k && k.ts ? new Date(k.ts) : null;
@@ -419,10 +429,12 @@
       };
 
       rails.push(makeRail($("rail"), keys.map((k) => ({
-        id: k.id, ts: k.ts, cls: "t-" + k.kind, group: moduleOf(k), row: noteText(k), tip: full(k),
+        id: k.id, ts: k.ts, cls: "t-" + k.kind, icon: kindIcon[k.kind], group: moduleOf(k), row: noteText(k), tip: full(k),
       })), {
+        head: `<div class="r-hd">${ICON.pin}要点<span class="c">${keys.length}</span></div>`,
+        groupIcon: ICON.box,
         onChange: (it) => setHead(it && keys.find((k) => k.id === it.id)),
-        // 点一条跳到这一段的开头：上一个关键点之后；会话开头就跳到它自己
+        // 点一项跳到这一段的开头：上一个要点之后；会话开头就跳到它自己
         jump: (it) => {
           const n = keys.findIndex((k) => k.id === it.id), k = keys[n], prev = keys[n - 1];
           if (k.kind === "part") return goTo(partOf[k.turn], k.id);
@@ -440,25 +452,25 @@
       }));
     }
 
-    // 右边：对话检索。默认收起，只留横线和放大镜按钮；展开后顶上是搜索框，按天列你的消息，打字只留下命中的。
+    // 我的消息（右，可收起）：顶上搜索框，按天列你的消息，时间在上、原文最多三行；打字只留下命中的。
     // 消息是一段对话的起点，读到哪就看读过的最后一条；展开收起记在本机，下次照旧
     if (myMsgs.length) {
       root.classList.add("has-urail");
       const dayOf = (ts) => (ts ? day(new Date(ts)) : "");
       const oneLine = (x) => x.replace(/\s+/g, " ").trim();
-      // 展开后一条消息一个气泡，内容写全、保留换行；超过 1000 字的截断并写总字数，免得一条占满面板
-      const CAP = 1000;
-      const bubbleText = (t, q) => {
-        const body = t.length > CAP ? t.slice(0, CAP) : t;
-        let h = esc(body);
+      // 原文只显示前 400 字（三行之外的看不到），搜索命中的字高亮
+      const msgText = (t, q) => {
+        let h = esc(t.slice(0, 400));
         if (q) h = h.replace(new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/[&<>"]/g, (c) => esc(c)), "gi"), (x) => `<mark>${x}</mark>`);
-        return h + (t.length > CAP ? `<span class="n-more">…共 ${t.length} 字</span>` : "");
+        return h;
       };
       const r = makeRail($("urail"), myMsgs.map((a) => ({
         id: a.id, ts: a.ts, cls: "t-ask" + (a.text.trim().length <= 6 ? " short" : ""), group: dayOf(a.ts),   // 「发布」「继续」这种短确认淡一些
-        row: `<span class="n-text">${bubbleText(a.text.trim(), "")}</span><span class="n-time">${a.ts ? hm(new Date(a.ts)) : ""}</span>`,
+        row: `<span class="n-time">${a.ts ? hm(new Date(a.ts)) : ""}</span><span class="n-text">${msgText(oneLine(a.text), "")}</span>`,
         tip: esc(oneLine(a.text).slice(0, 200)),
       })), {
+        head: `<div class="r-hd">${ICON.msgs}我的消息<span class="c">${myMsgs.length}</span><button class="c-btn icon" id="uclose" type="button" title="收起">${ICON.close}</button></div>
+          <label class="r-findw">${ICON.find}<input class="r-find" id="ufind" type="search" placeholder="搜我的消息" autocomplete="off"><span class="r-count" id="ucount"></span></label>`,
         jump: (it) => goTo(partOf[myMsgs.find((a) => a.id === it.id).turn], it.id),
         cur: () => {
           let cur = null;
@@ -468,25 +480,25 @@
       });
       rails.push(r);
       const nav = r.nav;
-      nav.insertAdjacentHTML("afterbegin", `<div class="r-head"><input class="r-find" id="ufind" type="search" placeholder="搜你的消息" autocomplete="off"><span class="r-count" id="ucount"></span><button class="r-toggle" id="uclose" type="button" title="收起">${ICON.close}</button></div>`);
       $("utoggle").classList.remove("hidden");
       const setOpen = (open) => {
         nav.classList.toggle("open", open);
-        $("utoggle").title = open ? "收起你的消息" : "展开你的消息";
+        $("utoggle").title = open ? "收起我的消息" : "展开我的消息（⌘⇧F）";
         $("utoggle").classList.toggle("on", open);
         try { localStorage.setItem("echo.urail.open", open ? "1" : ""); } catch (e) {}
         layout();
+        measureHead();
         if (open) setTimeout(() => $("ufind").focus(), 0);
       };
       let saved = "";
       try { saved = localStorage.getItem("echo.urail.open") || ""; } catch (e) {}
       nav.classList.toggle("open", saved === "1");
-      $("utoggle").title = saved === "1" ? "收起你的消息" : "展开你的消息";
       $("utoggle").classList.toggle("on", saved === "1");
       $("utoggle").addEventListener("click", (e) => { e.stopPropagation(); setOpen(!nav.classList.contains("open")); });
       $("uclose").addEventListener("click", () => setOpen(false));
+      document.addEventListener("keydown", (e) => { if (e.metaKey && e.shiftKey && (e.key === "f" || e.key === "F")) { e.preventDefault(); setOpen(true); } });
       // 检索：只留下包含关键词的消息，命中的字高亮；没有命中的日期组一起藏起来
-      const texts = Object.fromEntries(myMsgs.map((a) => [a.id, a.text.trim()]));
+      const texts = Object.fromEntries(myMsgs.map((a) => [a.id, oneLine(a.text)]));
       $("ufind").addEventListener("input", (e) => {
         const raw = e.target.value.trim(), q = raw.toLowerCase();
         let n = 0;
@@ -494,7 +506,10 @@
           const t = texts[row.dataset.k], hit = !q || t.toLowerCase().includes(q);
           row.classList.toggle("miss", !hit);
           if (hit && q) n++;
-          row.querySelector(".n-text").innerHTML = bubbleText(t, hit ? raw : "");
+          // 命中在三行之外时，截命中前面一点开始显示
+          const at = q ? t.toLowerCase().indexOf(q) : -1;
+          const shown = at > 60 ? "…" + t.slice(at - 20) : t;
+          row.querySelector(".n-text").innerHTML = msgText(shown, hit ? raw : "");
         });
         nav.querySelectorAll(".r-group").forEach((g) => {
           let x = g.nextElementSibling, any = false;

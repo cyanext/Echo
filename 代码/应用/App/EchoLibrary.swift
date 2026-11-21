@@ -25,16 +25,17 @@ struct EchoProject: Identifiable, Hashable {
     var last: Date? { sessions.first?.endDate }
 }
 
-/// 第一级目录：大目录里直接开的会话，加它下面的项目
-struct EchoCategory: Identifiable, Hashable {
+/// 目录树的一级：名字（合成一行时是「上级 / 下级」）、子目录、直接在这一级开的会话
+struct EchoDir: Identifiable, Hashable {
     var id: String { path }
     let path: String
-    var name: String { (path as NSString).lastPathComponent }
-    let root: [EchoSession]
-    let projects: [EchoProject]
-    var count: Int { root.count + projects.reduce(0) { $0 + $1.sessions.count } }
-    var last: Date? { ([root.first?.endDate] + projects.map(\.last)).compactMap { $0 }.max() }
-    var all: [EchoSession] { root + projects.flatMap(\.sessions) }
+    let name: String
+    let children: [EchoDir]
+    let sessions: [EchoSession]
+    var count: Int { sessions.count + children.reduce(0) { $0 + $1.count } }
+    var last: Date? { ([sessions.first?.endDate] + children.map(\.last)).compactMap { $0 }.max() }
+    var all: [EchoSession] { sessions + children.flatMap(\.all) }
+    func contains(_ id: String?) -> Bool { id != nil && (sessions.contains { $0.id == id } || children.contains { $0.contains(id) }) }
 }
 
 enum EchoTime {
@@ -157,33 +158,48 @@ enum EchoLibrary {
         return out
     }
 
-    /// 二级分类：第一级是大目录（~/Desktop/项目代码、~/伙伴云NAS/客户文档），第二级是它下面的项目文件夹；
-    /// 更深的子目录归到所在项目（NAS/NAS网站 算 NAS，回响/.worktrees/v0.1.0 算回响）。直接在大目录里开的会话不进项目
-    static func place(_ cwd: String) -> (category: String, project: String?) {
+    /// 多级目录（规范「组件」目录树）：第一级是大目录（~/Desktop/项目代码、~/伙伴云NAS/客户文档 这一级，跳过 Desktop 这类外层），
+    /// 下面按真实目录一级级往下；以「.」开头的目录（.worktrees、.claude）算进它的上一级。
+    /// 只有一个子目录、自己又没有会话的层级合成一行，名字写成「上级 / 下级」
+    static func dirTree(_ sessions: [EchoSession]) -> [EchoDir] {
+        final class Node {
+            let path: String, name: String
+            var kids: [String: Node] = [:], sessions: [EchoSession] = []
+            init(_ path: String, _ name: String) { self.path = path; self.name = name }
+        }
         let home = NSHomeDirectory()
-        let under = cwd == home || cwd.hasPrefix(home + "/")
-        let rest = under ? String(cwd.dropFirst(home.count)) : cwd
-        let comps = rest.split(separator: "/").map(String.init)
-        let base = under ? home : ""
-        func join(_ n: Int) -> String { base + "/" + comps.prefix(n).joined(separator: "/") }
-        if comps.count < 2 { return (comps.isEmpty ? (under ? home : "/") : join(comps.count), nil) }
-        return (join(2), comps.count >= 3 ? join(3) : nil)
-    }
-
-    static func tree(_ sessions: [EchoSession]) -> [EchoCategory] {
-        let byEnd: (EchoSession, EchoSession) -> Bool = { ($0.endDate ?? .distantPast) > ($1.endDate ?? .distantPast) }
-        var cats: [String: (root: [EchoSession], projects: [String: [EchoSession]])] = [:]
+        var roots: [String: Node] = [:]
         for s in sessions {
-            let (c, p) = place(s.projectPath)
-            if let p { cats[c, default: ([], [:])].projects[p, default: []].append(s) }
-            else { cats[c, default: ([], [:])].root.append(s) }
+            let cwd = s.projectPath
+            let under = cwd == home || cwd.hasPrefix(home + "/")
+            var comps = (under ? String(cwd.dropFirst(home.count)) : cwd).split(separator: "/").map(String.init)
+            if let dot = comps.firstIndex(where: { $0.hasPrefix(".") }), dot >= 2 { comps = Array(comps[..<dot]) }
+            let base = under ? home : ""
+            let head = comps.count >= 2 ? 2 : comps.count
+            let rootPath = base + "/" + comps.prefix(head).joined(separator: "/")
+            let root = roots[rootPath] ?? Node(rootPath, comps.prefix(head).last ?? "~")
+            roots[rootPath] = root
+            var node = root, path = rootPath
+            for c in comps.dropFirst(head) {
+                path += "/" + c
+                let next = node.kids[c] ?? Node(path, c)
+                node.kids[c] = next
+                node = next
+            }
+            node.sessions.append(s)
         }
-        return cats.map { c, v in
-            EchoCategory(path: c, root: v.root.sorted(by: byEnd),
-                         projects: v.projects.map { EchoProject(path: $0.key, sessions: $0.value.sorted(by: byEnd)) }
-                            .sorted { ($0.last ?? .distantPast) > ($1.last ?? .distantPast) })
+        let byEnd: (EchoSession, EchoSession) -> Bool = { ($0.endDate ?? .distantPast) > ($1.endDate ?? .distantPast) }
+        func build(_ n: Node, top: Bool) -> EchoDir {
+            var d = EchoDir(path: n.path, name: n.name,
+                            children: n.kids.values.map { build($0, top: false) }.sorted { ($0.last ?? .distantPast) > ($1.last ?? .distantPast) },
+                            sessions: n.sessions.sorted(by: byEnd))
+            if !top, d.sessions.isEmpty, d.children.count == 1 {   // 中间一层只有一个子目录：合成一行
+                let c = d.children[0]
+                d = EchoDir(path: c.path, name: d.name + " / " + c.name, children: c.children, sessions: c.sessions)
+            }
+            return d
         }
-        .sorted { ($0.last ?? .distantPast) > ($1.last ?? .distantPast) }
+        return roots.values.map { build($0, top: true) }.sorted { ($0.last ?? .distantPast) > ($1.last ?? .distantPast) }
     }
 
     /// 按项目归组；项目按最近使用排序，会话按最后时间倒序
