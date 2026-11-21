@@ -148,11 +148,12 @@ h2 .back { cursor: pointer; color: var(--accent); }
 .scard header { margin-bottom: 12px; }
 .scard .st { font-size: 15px; line-height: 22px; font-weight: 600; }
 .scard .sp { display: flex; align-items: center; gap: 8px; margin-top: 4px; font-size: 12px; line-height: 18px; color: var(--fg-faint); font-variant-numeric: tabular-nums; }
-.tg2 { display: flex; flex-wrap: wrap; gap: 8px; }
-.tg2 span { height: 24px; padding: 0 10px; border-radius: 12px; background: var(--bg-subtle); font-size: 12px; line-height: 24px; color: var(--fg-muted); font-variant-numeric: tabular-nums; }
+.tg2 { display: flex; flex-wrap: wrap; gap: 4px 20px; }
+.tg2 span { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; line-height: 20px; color: var(--fg-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.tg2 svg { width: 13px; height: 13px; color: var(--fg-faint); }
 .tg2 span:first-child { color: var(--fg); font-weight: 600; }
-.vs { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
-.vt { cursor: pointer; display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 8px; border-radius: 6px; background: var(--sel); color: var(--accent); font: 600 12px/22px var(--mono); }
+.vs { display: flex; flex-wrap: wrap; gap: 4px 16px; margin-top: 12px; }
+.vt { cursor: pointer; display: inline-flex; align-items: center; gap: 4px; height: 20px; color: var(--accent); font: 600 12px/20px var(--mono); }
 .vt svg { width: 12px; height: 12px; }
 .cl { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--line); }
 .ch { font-size: 12px; line-height: 18px; color: var(--fg-faint); margin-bottom: 4px; }
@@ -166,7 +167,7 @@ h2 .back { cursor: pointer; color: var(--accent); }
 .sr3 .t { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sr3 .t em { font-style: normal; font-size: 12px; color: var(--fg-faint); margin-left: 8px; }
 .sr3 .v { font-size: 12px; color: var(--fg-muted); }
-.vt:hover { background: var(--accent); color: var(--card); }
+.vt:hover { text-decoration: underline; }
 .cl .cr2 { cursor: pointer; border-radius: 6px; margin: 0 -6px; padding: 0 6px; }
 .cl .cr2:hover { background: var(--bg-hover); }
 .vtip { position: absolute; display: none; z-index: 10; max-width: 360px; padding: 10px 12px; border-radius: 8px; background: var(--card); box-shadow: 0 8px 24px rgba(0,0,0,.16), 0 0 0 1px var(--line); font-size: 12px; line-height: 18px; pointer-events: none; }
@@ -196,8 +197,9 @@ h2 .back { cursor: pointer; color: var(--accent); }
 .scard .tg2 { flex: none; justify-content: flex-end; }
 .tg2 span:first-child { font-weight: inherit; }
 .tg2 span.b { color: var(--fg); font-weight: 600; }
-.tg2 .cm { cursor: pointer; color: var(--accent); background: var(--sel); }
-.tg2 .cm:hover { background: var(--accent); color: var(--card); }
+.tg2 .cm { cursor: pointer; color: var(--accent); }
+.tg2 .cm svg { color: var(--accent); }
+.tg2 .cm:hover { text-decoration: underline; }
 .scard .vs { margin-top: 12px; }
 .wother { margin: 12px 0 0; }
 .wmore { margin: 12px 4px 0; }

@@ -5,6 +5,9 @@
   const $ = (id) => document.getElementById(id);
   const WD = "日一二三四五六";
   const IC = {
+    tok: '<svg viewBox="0 0 24 24"><path d="M13 3 5 13.5h6L10.5 21 19 10.5h-6z"/></svg>',
+    usd: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M14.8 9.2c-.5-.9-1.6-1.4-2.8-1.4-1.6 0-2.8.8-2.8 2.1 0 2.9 5.8 1.5 5.8 4.3 0 1.3-1.3 2.1-3 2.1-1.3 0-2.5-.6-3-1.5M12 6v1.8M12 16.3V18"/></svg>',
+    time: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg>',
     tag: '<svg viewBox="0 0 24 24"><path d="M4 12.6V5.5A1.5 1.5 0 0 1 5.5 4h7.1l7.4 7.4a1.5 1.5 0 0 1 0 2.1l-6.5 6.5a1.5 1.5 0 0 1-2.1 0z"/><circle cx="8.5" cy="8.5" r="1.4"/></svg>',
     commit: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.5"/><path d="M3 12h5.5M15.5 12H21"/></svg>',
     msg: '<svg viewBox="0 0 24 24"><path d="M5 18.5V7a2.5 2.5 0 0 1 2.5-2.5h9A2.5 2.5 0 0 1 19 7v6a2.5 2.5 0 0 1-2.5 2.5H9z"/></svg>',
@@ -202,8 +205,10 @@
   function sessCard(s) {
     const cs = [...s.commits].sort((a, b) => b.time - a.time), vs = [];
     cs.forEach((c) => { if (c.ver && !vs.some((v) => v.ver === c.ver)) vs.push(c); });
-    const tags = [`<span class="b">${fmtM(s.tot)} Token</span>`, `<span>${fmtU(s.usd)}</span>`, `<span>${s.msg} 条消息</span>`, s.ms ? `<span>AI ${dur(s.ms)}</span>` : "",
-      cs.length ? `<span class="cm" data-sid="${esc(s.id)}" data-at="${cs[0].time}" title="跳到会话里最近一次提交">${cs.length} 次提交</span>` : ""].join("");
+    // 右边一排「图标 + 内容」：Token、折合、消息、AI 干活、提交（主色，点了跳到最近一次提交）
+    const tags = [`<span class="b" title="Token">${IC.tok}${fmtM(s.tot)}</span>`, `<span title="折合美元">${IC.usd}${fmtU(s.usd)}</span>`, `<span title="我的消息">${IC.msg}${s.msg} 条</span>`,
+      s.ms ? `<span title="AI 干活">${IC.time}${dur(s.ms)}</span>` : "",
+      cs.length ? `<span class="cm" data-sid="${esc(s.id)}" data-at="${cs[0].time}" title="跳到会话里最近一次提交">${IC.commit}${cs.length} 次提交</span>` : ""].join("");
     return `<article class="scard" data-id="${esc(s.id)}">
       <div class="sh"><div class="sl"><div class="st">${esc(s.t)}</div><div class="sp">${esc(s.dir)}${s.a ? ` · ${hm(s.a)}–${hm(s.b)}` : ""}</div></div><div class="tg2">${tags}</div></div>
       ${vs.length ? `<div class="vs">${vs.slice(0, 8).map((c) => `<span class="vt" data-sid="${esc(s.id)}" data-at="${c.time}" data-tip="${esc(c.ver)}|${hm(c.time)}|${esc(c.s)}|+${c.a} −${c.r}">${IC.tag}${c.ver}</span>`).join("")}${vs.length > 8 ? `<span class="vm">等 ${vs.length} 个版本</span>` : ""}</div>` : ""}
