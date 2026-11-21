@@ -180,7 +180,7 @@
       h += `<section class="card wday"><div class="wdh"><b class="dl" data-t="${+x.date}">${md(x.date)} 周${WD[x.date.getDay()]}</b>${isToday ? `<span class="tdy">今天</span>` : ""}<span class="tm">${x.tot || x.msg ? `${fmtM(x.tot)} · ${fmtU(x.usd)} · ${x.msg} 条消息 · ${x.sess.length} 个会话${x.commits.length ? ` · ${x.commits.length} 次提交` : ""}` : "没有会话"}</span></div>`;
       if (x.sess.length) {
         const top = x.sess.slice(0, 4), rest = x.sess.length - top.length;
-        h += `<div class="sgrid">${top.map((s) => sessCard(s)).join("")}</div>` + (rest > 0 ? `<div class="wmore dl" data-t="${+x.date}">还有 ${rest} 个会话，看这一天</div>` : "");
+        h += `<div class="sgrid">${COLS}${top.map((s) => sessCard(s)).join("")}</div>` + (rest > 0 ? `<div class="wmore dl" data-t="${+x.date}">还有 ${rest} 个会话，看这一天</div>` : "");
       }
       if (other.length) {
         const byP = new Map();
@@ -202,17 +202,17 @@
   // 只看一天：上面一张卡写日期、左右切天、「看整周」和六个数；下面一个会话一张卡，两列瀑布排，按 Token 从多到少。
   // 会话卡：一个会话一张，占满一行。左边标题，下面一行灰字写项目路径和时间段；右边文字标签写 Token、折合、消息、AI 干活、提交次数；
   // 这天发的版本做成主色标签，悬停看提交说明，点了打开会话跳到那次提交。提交不逐条列，要看就点「N 次提交」跳到会话里最近那次
+  // 会话一行两层，像表格：第一层标题，右边四列数字（Token、消息、AI 干活、提交）右对齐，和标题同一基线；
+  // 第二层灰字写项目路径、时间段，有发版的后面接版本号（主色等宽，最多 3 个）。列名每张卡顶上写一次
+  const COLS = `<div class="srow shd"><span></span><span>Token</span><span>消息</span><span>AI 干活</span><span>提交</span></div>`;
   function sessCard(s) {
     const cs = [...s.commits].sort((a, b) => b.time - a.time), vs = [];
     cs.forEach((c) => { if (c.ver && !vs.some((v) => v.ver === c.ver)) vs.push(c); });
-    // 标题右侧紧跟一排「图标 + 值」：Token、消息、AI 干活、提交（主色，点了跳到最近一次提交）；悬停提示是什么
-    const cell = (ic, tip, val, cls = "", attr = "") => `<span class="${cls}" title="${tip}"${attr}>${ic}<b>${val}</b></span>`;
-    const tags = [cell(IC.tok, "Token", fmtM(s.tot), "k"), cell(IC.msg, "我的消息", s.msg + " 条"),
-      s.ms ? cell(IC.time, "AI 干活", dur(s.ms)) : "",
-      cs.length ? cell(IC.commit, "跳到会话里最近一次提交", cs.length + " 次提交", "cm", ` data-sid="${esc(s.id)}" data-at="${cs[0].time}"`) : ""].join("");
-    return `<article class="scard" data-id="${esc(s.id)}">
-      <div class="sh"><div class="st">${esc(s.t)}</div><div class="tg2">${tags}</div></div><div class="sp">${esc(s.dir)}${s.a ? ` · ${hm(s.a)}–${hm(s.b)}` : ""}</div>
-      ${vs.length ? `<div class="vs">${vs.slice(0, 8).map((c) => `<span class="vt" data-sid="${esc(s.id)}" data-at="${c.time}" data-tip="${esc(c.ver)}|${hm(c.time)}|${esc(c.s)}|+${c.a} −${c.r}">${IC.tag}${c.ver}</span>`).join("")}${vs.length > 8 ? `<span class="vm">等 ${vs.length} 个版本</span>` : ""}</div>` : ""}
+    const vers = vs.slice(0, 3).map((c) => `<span class="vt" data-sid="${esc(s.id)}" data-at="${c.time}" data-tip="${esc(c.ver)}|${hm(c.time)}|${esc(c.s)}|+${c.a} −${c.r}">${c.ver}</span>`).join("") + (vs.length > 3 ? `<span class="vm">等 ${vs.length} 个版本</span>` : "");
+    return `<article class="scard srow" data-id="${esc(s.id)}">
+      <div class="sm1"><div class="st">${esc(s.t)}</div><div class="sp">${esc(s.dir)}${s.a ? ` · ${hm(s.a)}–${hm(s.b)}` : ""}${vers ? `<span class="vs">${IC.tag}${vers}</span>` : ""}</div></div>
+      <span class="n k">${fmtM(s.tot)}</span><span class="n">${s.msg}</span><span class="n">${s.ms ? dur(s.ms) : ""}</span>
+      <span class="n">${cs.length ? `<a class="cm" data-sid="${esc(s.id)}" data-at="${cs[0].time}" title="跳到会话里最近一次提交">${cs.length} 次</a>` : ""}</span>
     </article>`;
   }
   function dayCard() {
@@ -231,7 +231,7 @@
     const small = x.sess.filter((s) => s.tot < 1e6 && !s.commits.length), big = x.sess.filter((s) => !small.includes(s));
     const smallCard = small.length ? `<article class="scard oc3"><header><div class="st">其他 ${small.length} 个会话</div><div class="sp"><span>用得少、没有提交</span></div></header>${small.map((s) => `<div class="sr3" data-id="${esc(s.id)}">${IC.msg}<span class="t">${esc(s.t)}<em>${esc(s.dir)}</em></span><span class="v">${s.msg} 条</span></div>`).join("")}</article>` : "";
     h = h.replace(/<\/div>$/, "");   // 会话接着放进日期那张卡
-    h += `<div class="sgrid">${big.map(sessCard).join("")}${smallCard}` +
+    h += `<div class="sgrid">${COLS}${big.map(sessCard).join("")}${smallCard}` +
       (other.length ? `<article class="scard oc3"><header><div class="st">没对上会话的提交</div><div class="sp"><span>${other.length} 次</span></div></header><div class="cl">${other.map((c) => commitRow(c, c.p)).join("")}</div></article>` : "") + `</div></div>`;
     el.innerHTML = h;
   }
