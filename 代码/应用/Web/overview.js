@@ -120,9 +120,9 @@
     $("kpis").innerHTML = KPI.map((k, ki) => {
       const val = k.f(w), avg = prev.reduce((a, x) => a + upto(x, n, DAYF[ki]), 0) / (prev.length || 1), d = avg ? Math.round((val / avg - 1) * 100) : null;
       const [num, unit] = k.big(w), mx = Math.max(...win.map(k.f)) || 1;
-      return `<div class="card kpi"><div class="l">${k.l}${d === null ? "" : `<span class="dl" title="比前 ${prev.length} 周同期平均">${d >= 0 ? "↑" : "↓"} ${Math.abs(d)}%</span>`}</div>
+      return `<div class="card kpi"><div class="l">${k.l}${d === null ? "" : `<span class="dl" data-tip="比前 ${prev.length} 周同期平均">${d >= 0 ? "↑" : "↓"} ${Math.abs(d)}%</span>`}</div>
         <div class="v">${num}${unit ? `<small>${unit}</small>` : ""}</div><div class="s">${k.s(w)}</div>
-        <div class="spark">${win.map((x) => `<i class="${x === w ? "on" : ""}" data-i="${x.wi}" title="${wname(x)}" style="height:${Math.max(2, k.f(x) / mx * 24)}px"></i>`).join("")}</div></div>`;
+        <div class="spark">${win.map((x) => `<i class="${x === w ? "on" : ""}" data-i="${x.wi}" data-tip="${wname(x)}" style="height:${Math.max(2, k.f(x) / mx * 24)}px"></i>`).join("")}</div></div>`;
     }).join("");
   }
 
@@ -145,7 +145,7 @@
         if (d >= nd) return `<i class="c no"></i>`;
         const x = days.find((z) => z.date.getFullYear() === y && z.date.getMonth() === m && z.date.getDate() === d + 1);
         if (!x) return `<i class="c ${new Date(y, m, d + 1) > TODAY ? "no" : "l0"}"></i>`;
-        return `<i class="c l${lv(x.tot)}${+x.date === +TODAY ? " today" : ""}" data-t="${+x.date}" title="${md(x.date)} ${x.tot ? fmtM(x.tot) : "没有会话"}"></i>`;
+        return `<i class="c l${lv(x.tot)}${+x.date === +TODAY ? " today" : ""}" data-t="${+x.date}" data-tip="${md(x.date)} ${x.tot ? fmtM(x.tot) : "没有会话"}"></i>`;
       }).join("") + (() => {
         const ds = wk.filter((x) => x.date.getFullYear() === y && x.date.getMonth() === m).map((x) => x.date.getDate() - 1);
         return ds.length ? `<span class="wkbox" style="--a:${Math.min(...ds)};--n:${Math.max(...ds) - Math.min(...ds) + 1}"></span>` : "";
@@ -160,7 +160,7 @@
     let msg = "";
     cs.forEach((c) => { if (c.ver && !ver.includes(c.ver)) { ver.push(c.ver); if (ver.length === 1) msg = c.s; } });
     if (!msg) msg = cs[0].s;
-    return `<div class="other">${IC.commit}<span class="t">${ver.length ? `<b title="${ver.join("、")}">${ver.slice(0, 3).join(" · ")}${ver.length > 3 ? ` 等 ${ver.length} 个版本` : ""}</b>` : ""}${esc(msg)}</span><span class="x">${esc(label)} · ${cs.length} 次提交</span></div>`;
+    return `<div class="other">${IC.commit}<span class="t">${ver.length ? `<b data-tip="${ver.join("、")}">${ver.slice(0, 3).join(" · ")}${ver.length > 3 ? ` 等 ${ver.length} 个版本` : ""}</b>` : ""}${esc(msg)}</span><span class="x">${esc(label)} · ${cs.length} 次提交</span></div>`;
   }
 
   // 会话表一行：会话（标题、灰字项目路径，有发版的第二行放版本标签）、Token、我的消息、AI 时长、时间、Git 提交
@@ -168,12 +168,12 @@
   function sessRow(s) {
     const cs = [...s.commits].sort((a, b) => b.time - a.time), vs = [];
     cs.forEach((c) => { if (c.ver && !vs.some((v) => v.ver === c.ver)) vs.push(c); });
-    const vers = vs.slice(0, 6).map((c) => `<span class="ver" data-sid="${esc(s.id)}" data-at="${c.time}" data-tip="${esc(c.ver)}|${hm(c.time)}|${esc(c.s)}|+${c.a} −${c.r}">${IC.tag}${c.ver}</span>`).join("") + (vs.length > 6 ? `<span class="more-ver">等 ${vs.length} 个版本</span>` : "");
+    const vers = vs.slice(0, 6).map((c) => `<span class="ver" data-sid="${esc(s.id)}" data-at="${c.time}" data-tip="${esc(`${c.ver}  ${hm(c.time)} · +${c.a} −${c.r}\n${c.s}\n点一下跳到会话里这次提交`)}">${IC.tag}${c.ver}</span>`).join("") + (vs.length > 6 ? `<span class="more-ver">等 ${vs.length} 个版本</span>` : "");
     return `<div class="row sess" data-id="${esc(s.id)}">
       <div class="name"><div class="line"><span class="title">${esc(s.t)}</span><span class="path">${esc(s.dir)}</span></div>${vers ? `<div class="vers">${vers}</div>` : ""}</div>
       <span class="num strong">${fmtM(s.tot)}</span><span class="num">${s.msg} 条</span><span class="num">${s.ms ? dur(s.ms) : ""}</span>
       <span class="num faint">${s.a ? `${hm(s.a)}–${hm(s.b)}` : ""}</span>
-      <span class="num">${cs.length ? `<a class="link" data-sid="${esc(s.id)}" data-at="${cs[0].time}" title="跳到会话里最近一次提交">${cs.length} 次</a>` : ""}</span>
+      <span class="num">${cs.length ? `<a class="link" data-sid="${esc(s.id)}" data-at="${cs[0].time}" data-tip="跳到会话里最近一次提交">${cs.length} 次</a>` : ""}</span>
     </div>`;
   }
 
@@ -220,24 +220,44 @@
     const ms = Object.entries(w.models).sort((a, b) => b[1] - a[1]);
     const big = ms.filter((x) => x[1] / t >= .02), rest = ms.filter((x) => x[1] / t < .02).reduce((a, x) => a + x[1], 0);
     const models = [...big.map(([n, v], i) => [n, ["s3", "s1", "s2", "s4"][i] || "s1", v]), ...(rest ? [["其他", "s0", rest]] : [])];
-    const row = (label, list) => `<div class="use"><div class="use-name">${label}</div><div class="bar">${list.map(([n, c, v]) => `<i class="${c}" style="flex:${v}" title="${n} ${fmtU(v)}"></i>`).join("")}</div>
+    const row = (label, list) => `<div class="use"><div class="use-name">${label}</div><div class="bar">${list.map(([n, c, v]) => `<i class="${c}" style="flex:${v}" data-tip="${n} ${fmtU(v)}"></i>`).join("")}</div>
       <div class="legend">${list.map(([n, c, v]) => `<span><i class="${c}"></i>${n}<b>${fmtU(v)}</b><em>${v / t < .01 ? "<1" : Math.round(v / t * 100)}%</em></span>`).join("")}</div></div>`;
     $("money").innerHTML = `<h2>用量<span class="note">这周折合 ${fmtU(w.usd)}</span></h2>` + row("按用途", parts) + row("按模型", models);
   }
 
   function draw() {
-    if (!weeks.length) {
-      document.querySelector(".page").innerHTML = `<section class="card"><div class="empty">还没有会话</div></section>`;
-      return;
-    }
+    const none = !weeks.length;
+    $("blank").hidden = !none;
+    document.querySelector(".main").classList.toggle("none", none);
+    document.querySelector(".page").hidden = none;
+    if (none) { $("blank").innerHTML = Blank.html("empty", "还没有会话", "备份完成后，这里按周显示 Token、消息、AI 时长和 Git 提交"); return; }
     hero(); cal(); week(); money();
+  }
+
+  // 占位用的假数据：第一次整理总览要十几秒，先用它按真实版式画一遍，外面加 .ui-skel 变成灰块（照 NAS 网站公共层的自动占位）
+  function fake() {
+    const today = new Date(), sessions = [];
+    const titles = ["整理会话的总览页面", "版本需求和更新说明", "目录树和左栏的样式", "备份和同步"];
+    titles.forEach((t, i) => {
+      const days = {};
+      for (let n = 0; n < 56; n++) {
+        if ((n + i) % 3 === 2) continue;
+        const v = (3 + ((n * 7 + i * 5) % 11)) * 1e6;
+        days[key(addDays(today, -n))] = { m: 20 + n % 30, ms: 3.6e6, lg: 9e5, a: 0, b: 0, k: { "claude-opus-5-5": [0, v / 200, v, v / 40, 0] } };
+      }
+      sessions.push({ id: "skel" + i, t, p: "项目", d: "项目代码/项目", c: "", days });
+    });
+    return { today: key(today), sessions, commits: [] };
   }
 
   async function load(keepWeek) {
     const [d, p] = await Promise.all([fetch("overview.json").then((r) => r.json()), fetch("prices.json").then((r) => r.json())]);
     prices = p.models;
+    const skel = !d.sessions;   // Swift 还没整理好时给的是空对象
+    const page = document.querySelector(".page");
+    page.classList.toggle("ui-skel", skel);
     const was = weeks[cur] && +weeks[cur].start;
-    build(d);
+    build(skel ? fake() : d);
     const i = keepWeek && was ? weeks.findIndex((w) => +w.start === was) : -1;
     cur = i >= 0 ? i : weeks.length - 1;
     draw();
@@ -258,19 +278,6 @@
     const s = e.target.closest(".sess[data-id]");                  // 会话：打开
     if (s) post({ open: s.dataset.id });
   };
-  // 版本标签悬停：气泡写版本号、时间、提交说明、增删行
-  const tip = document.createElement("div");
-  tip.className = "vtip";
-  document.body.appendChild(tip);
-  document.addEventListener("mouseover", (e) => {
-    const v = e.target.closest(".ver[data-tip]");
-    if (!v) { tip.style.display = "none"; return; }
-    const [ver, t, msg, ln] = v.dataset.tip.split("|");
-    tip.innerHTML = `<div class="h"><b>${ver}</b><span>${t} · ${ln}</span></div><div class="m">${msg}</div><div class="f">点一下跳到会话里这次提交</div>`;
-    tip.style.display = "block";
-    const r = v.getBoundingClientRect(), w = tip.offsetWidth;
-    tip.style.left = Math.max(8, Math.min(r.left + r.width / 2 - w / 2, innerWidth - w - 8)) + scrollX + "px";
-    tip.style.top = r.top + scrollY - tip.offsetHeight - 8 + "px";
-  });
+  Tip.init(".name .title, .name .path, .other .t");   // 被省略的会话名、路径、提交说明，悬停看全文
   load(false);
 })();

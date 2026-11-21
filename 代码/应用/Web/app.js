@@ -263,11 +263,11 @@
 
     root.innerHTML = `
       <header class="c-head"><div class="c-head-in">
-        <div class="c-tt"><h1 id="h-title">${esc(m.title)}</h1><div class="c-meta" id="h-meta" title="${esc(m.cwd + "\n" + m.id)}">${meta.map((x) => `<span>${esc(x)}</span>`).join("")}</div></div>
+        <div class="c-tt"><h1 id="h-title">${esc(m.title)}</h1><div class="c-meta" id="h-meta" data-tip="${esc(m.cwd + "\n" + m.id)}">${meta.map((x) => `<span>${esc(x)}</span>`).join("")}</div></div>
         <div class="c-actions">
-          <label class="c-find" title="查找（⌘F）">${ICON.find}<input id="search" type="search" placeholder="查找" autocomplete="off"><span class="hits" id="hits"></span></label>
+          <label class="c-find" data-tip="查找（⌘F）">${ICON.find}<input id="search" type="search" placeholder="查找" autocomplete="off"><span class="hits" id="hits"></span></label>
           <div class="c-menu-wrap">
-            <button class="c-btn icon" id="view-btn" type="button" title="显示">${ICON.view}</button>
+            <button class="c-btn icon" id="view-btn" type="button" data-tip="显示">${ICON.view}</button>
             <div class="c-menu" id="view-menu" hidden>
               <label><input type="checkbox" id="show-thinking" checked>思考过程</label>
               <label><input type="checkbox" id="show-tools" checked>工具调用</label>
@@ -275,8 +275,8 @@
               <hr><button type="button" id="expand-all">全部展开</button>
             </div>
           </div>
-          <button class="c-btn icon${m.kind === "collection" ? " hidden" : ""}" id="copy-resume" type="button" title="复制恢复命令">${ICON.copy}</button>
-          <button class="c-btn hidden" id="utoggle" type="button" title="展开我的消息（⌘⇧F）">${ICON.msgs}<span class="lbl">我的消息</span></button>
+          <button class="c-btn icon${m.kind === "collection" ? " hidden" : ""}" id="copy-resume" type="button" data-tip="复制恢复命令">${ICON.copy}</button>
+          <button class="c-btn hidden" id="utoggle" type="button" data-tip="展开我的消息（⌘⇧F）">${ICON.msgs}<span class="lbl">我的消息</span></button>
         </div>
       </div></header>
       <div class="c-body"><nav class="c-rail left" id="rail"></nav><main class="c-main" id="turns"></main><nav class="c-rail right" id="urail"></nav></div>
@@ -479,7 +479,7 @@
         row: `<span class="n-text">${msgText(a.text.trim(), "")}</span><span class="n-time">${a.ts ? hm(new Date(a.ts)) : ""}</span>`,
         tip: esc(oneLine(a.text).slice(0, 200)),
       })), {
-        head: `<div class="r-hd">我的消息<span class="c">${myMsgs.length}</span><button class="c-btn icon" id="uclose" type="button" title="收起">${ICON.close}</button></div>
+        head: `<div class="r-hd">我的消息<span class="c">${myMsgs.length}</span><button class="c-btn icon" id="uclose" type="button" data-tip="收起">${ICON.close}</button></div>
           <label class="r-findw">${ICON.find}<input class="r-find" id="ufind" type="search" placeholder="搜我的消息" autocomplete="off"><span class="r-count" id="ucount"></span></label>`,
         jump: (it) => goTo(partOf[myMsgs.find((a) => a.id === it.id).turn], it.id),
         cur: () => {
@@ -493,7 +493,7 @@
       $("utoggle").classList.remove("hidden");
       const setOpen = (open) => {
         nav.classList.toggle("open", open);
-        $("utoggle").title = open ? "收起我的消息" : "展开我的消息（⌘⇧F）";
+        $("utoggle").dataset.tip = open ? "收起我的消息" : "展开我的消息（⌘⇧F）";
         $("utoggle").classList.toggle("on", open);
         try { localStorage.setItem("echo.urail.open", open ? "1" : ""); } catch (e) {}
         layout();
@@ -524,6 +524,9 @@
           g.classList.toggle("miss", !any);
         });
         $("ucount").textContent = q ? `${n} 条` : "";
+        let none = nav.querySelector(".r-none");   // 一条都没搜到：缺省页
+        if (!none) { none = document.createElement("div"); none.className = "r-none"; none.innerHTML = Blank.html("search", "没有找到", "换个词再搜", true); nav.querySelector(".r-scroll").appendChild(none); }
+        none.hidden = !(q && n === 0);
       });
       $("ufind").addEventListener("keydown", (e) => {
         if (e.key === "Escape") { if (e.target.value) { e.target.value = ""; e.target.dispatchEvent(new Event("input")); } else setOpen(false); }
@@ -671,5 +674,6 @@
   // 回归测试（tests/timeline_test.js）在 node 里加载本文件，取时间轴的规则
   if (typeof module !== "undefined") { module.exports = { commitMessage, summaryLine, keyPoints, versionKey }; return; }
   if (window.SESSION) start(window.SESSION);
-  else fetch("session.json" + location.search).then((r) => r.json()).then(start);
+  else fetch("session.json" + location.search).then((r) => r.json()).then(start)
+    .catch(() => { document.body.innerHTML = Blank.html("error", "这个会话读不出来", "备份文件可能正在写入或已损坏，稍后再打开试试"); });
 })();

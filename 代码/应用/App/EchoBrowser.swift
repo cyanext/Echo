@@ -629,14 +629,11 @@ struct EchoWebView: NSViewRepresentable {
 
 // MARK: - 总览
 
-/// 总览：网页 Web/overview.html，数据是 EchoState.overview（echo://app/overview.json）；还没整理好时转圈
+/// 总览：网页 Web/overview.html，数据是 EchoState.overview（echo://app/overview.json）；还没整理好时网页自己画灰块占位
 struct EchoOverview: View {
     @EnvironmentObject var state: EchoState
     var body: some View {
-        ZStack {
-            EchoOverviewWeb(data: state.overview)
-            if state.overview == nil { ProgressView().controlSize(.small) }
-        }
+        EchoOverviewWeb(data: state.overview)
     }
 }
 
@@ -652,15 +649,15 @@ struct EchoOverviewWeb: NSViewRepresentable {
         let w = WKWebView(frame: .zero, configuration: cfg)
         w.setValue(false, forKey: "drawsBackground")
         context.coordinator.web = w
+        context.coordinator.scheme.overview = data
+        w.load(URLRequest(url: URL(string: "echo://app/overview.html")!))   // 先打开：没数据时网页画占位
         return w
     }
 
     func updateNSView(_ w: WKWebView, context: Context) {
         guard let data, data != context.coordinator.scheme.overview else { return }
-        let first = context.coordinator.scheme.overview == nil
         context.coordinator.scheme.overview = data
-        if first { w.load(URLRequest(url: URL(string: "echo://app/overview.html")!)) }
-        else { w.evaluateJavaScript("window.echoReload && window.echoReload()") }   // 数据更新了：保留当前选的周，重新取数
+        w.evaluateJavaScript("window.echoReload && window.echoReload()")   // 数据到了或更新了：保留当前选的周，重新取数
     }
 
     @MainActor
@@ -690,7 +687,7 @@ final class EchoScheme: NSObject, WKURLSchemeHandler {
             let token = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "s" }?.value ?? ""
             body = sessions[token]
         } else if name == "overview.json" {
-            body = overview
+            body = overview ?? Data("{}".utf8)   // 还没整理好：空对象，网页画占位
         } else if let res = Bundle.main.resourceURL {
             body = try? Data(contentsOf: res.appendingPathComponent("Web").appendingPathComponent(name))
         }

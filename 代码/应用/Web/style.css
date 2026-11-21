@@ -297,3 +297,6 @@
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+/* 我的消息检索一条都没搜到 */
+.r-none[hidden] { display: none; }

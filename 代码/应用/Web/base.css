@@ -1,0 +1,28 @@
+/* 对话页和总览共用：滚动条、自绘提示。都照 NAS 网站公共层，颜色是回响自己的 */
+
+/* 滚动条（照 NAS 网站公共层 lib/base.css v0.9.16–17）：Mac 接着鼠标时系统画带灰槽的老式滚动条。
+   改成不画槽、细的圆角滑块，四周留 3px 透明边；平时不显示，滚动时显示、停 1 秒藏起来（base.js 给正在滚的元素加 .scrolling），鼠标停在滑块上也显示 */
+:root { --scroll-thumb: rgba(15, 18, 34, .2); --scroll-thumb-hover: rgba(15, 18, 34, .36); --tip-bg: #1f2a2b; --tip-fg: #f2f5f5; }
+@media (prefers-color-scheme: dark) { :root { --scroll-thumb: rgba(255, 255, 255, .18); --scroll-thumb-hover: rgba(255, 255, 255, .32); --tip-bg: #e9eeee; --tip-fg: #1c2223; } }
+::-webkit-scrollbar { width: 11px; height: 11px; }
+::-webkit-scrollbar-track, ::-webkit-scrollbar-corner { background: transparent; }
+::-webkit-scrollbar-thumb { min-height: 40px; min-width: 40px; border: 3px solid transparent; border-radius: 999px; background: transparent padding-box; }
+.scrolling::-webkit-scrollbar-thumb { background-color: var(--scroll-thumb); }
+::-webkit-scrollbar-thumb:hover, ::-webkit-scrollbar-thumb:active { background-color: var(--scroll-thumb-hover); }
+
+/* 自绘提示（照 NAS 网站 lib/tip.js、ui.css .ui-tip）：代替原生 title，深底浅字，在元素上方 8px，放不下放下方。
+   data-tip 里用换行分行，第一行加粗（版本标签：版本号和时间、提交说明、操作提示） */
+.ui-tip { position: fixed; z-index: 70; max-width: 320px; padding: 6px 10px; border-radius: 8px; background: var(--tip-bg); color: var(--tip-fg);
+  font: 12px/1.5 -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif; white-space: pre-line; box-shadow: 0 4px 14px rgba(0, 0, 0, .14); pointer-events: none; }
+.ui-tip[hidden] { display: none; }
+.ui-tip.multi::first-line { font-weight: 600; }
+
+/* 缺省页（照 NAS 网站 ui.css .ui-blank）：插画 + 标题 + 一句说明；整块区域用默认尺寸，侧栏、卡片里用 .sm */
+.ui-blank { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; padding: 64px 24px; text-align: center; }
+.ui-blank .art { width: 160px; height: 120px; margin-bottom: 8px; }
+.ui-blank strong { color: var(--fg); font-size: 15px; font-weight: 600; line-height: 1.5; }
+.ui-blank p { max-width: 360px; margin: 0; color: var(--fg-muted, #646a73); font-size: 13px; line-height: 1.7; }
+.ui-blank.sm { gap: 4px; padding: 32px 16px; }
+.ui-blank.sm .art { width: 96px; height: 72px; margin-bottom: 4px; }
+.ui-blank.sm strong { font-size: 13px; }
+.ui-blank.sm p { font-size: 12px; }
