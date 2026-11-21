@@ -22,9 +22,8 @@
 照伙伴云NAS应用的做法（`../NAS/伙伴云NAS应用/README.md`「开发」「发版」）：
 
 - 编译：`swiftc` 直接编译加脚本拼 `.app`，参考 `../NAS/伙伴云NAS应用/mac/build.sh`、`mac/tools/swift-env.sh`。自用，临时签名即可。
-- 版本号：一个版本一类事；新功能升中间一位，修复和小改加最后一位；当天对同一件事的小调整并进原版本号。还没做的事不定版本号，计划里只按事情列，开工时再定。
-- `CHANGELOG.md` 新的在上，每版写做了什么、为什么。日期用北京时间：`TZ=Asia/Shanghai date +%F`。
-- git：主目录始终在 main，分支工作区只建在 `.worktrees/`，合完当场删。推远端前先问用户。
+- 版本号、发版、版本需求、CHANGELOG：按 devguide；回响特有的（tag 前缀、发版步骤）见 README「版本和发版」。
+- git：主目录始终在 main，分支工作区只建在 `.worktrees/<主题>`，合完当场删。推远端前先问用户。
 - 提交前用 `git ls-files` 查同步工具补出来的「X 2」副本。
 - 测试：瘦身、消息显示、分段规则都写回归测试，改了必跑。
 - 测试版装在 `~/Applications`，用 `env -u TZ open` 启动（终端带美国时区）。
