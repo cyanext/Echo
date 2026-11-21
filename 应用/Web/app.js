@@ -2,7 +2,7 @@
 // 应用里数据来自 echo://app/session.json（EchoBrowser.swift 的 EchoScheme），复制恢复命令交给 Swift 写剪贴板；
 // 设计稿 docs/设计稿/浏览窗口/ 先放好 window.SESSION 再引用本文件。
 (function () {
-  const root = document.getElementById("conv");
+  const root = typeof document === "undefined" ? null : document.getElementById("conv");
 
   const ICON = {
     find: '<svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.2-4.2"/></svg>',
@@ -102,10 +102,11 @@
   }
   function renderStep(b) {
     const i = STEPS.push(b) - 1;
+    const kid = b._kid ? ` id="${b._kid}"` : "";
     if (b.kind === "thinking") {
       return `<li class="step thinking"><details data-i="${i}"><summary><span class="name">思考过程</span></summary><div class="io"></div></details></li>`;
     }
-    return `<li class="step tool${b.isError ? " error" : ""}"><details data-i="${i}"><summary><span class="name">${esc(b.name)}</span><span class="desc">${esc(toolSummary(b))}</span></summary><div class="io"></div></details></li>`;
+    return `<li class="step tool${b.isError ? " error" : ""}${b._kid ? " commit" : ""}"${kid}><details data-i="${i}"><summary><span class="name">${esc(b.name)}</span><span class="desc">${esc(toolSummary(b))}</span></summary><div class="io"></div></details></li>`;
   }
 
   // 一串连续的思考和工具调用收成一行：「思考过程、3 次工具调用：Bash 2、Read 1」
@@ -121,6 +122,57 @@
       <ol class="step-list">${steps.map(renderStep).join("")}</ol></details>`;
   }
 
+  // git 提交：Bash 命令里有 git commit、没出错、不是「nothing to commit」。说明取 -m "…" 或 heredoc 的第一行。
+  // heredoc 的内容先拿掉再找命令：Python 脚本里写到 git commit 的不算
+  function commitMessage(b) {
+    if (b.kind !== "tool" || b.name !== "Bash" || b.isError) return null;
+    const cmd = (b.input && b.input.command) || "";
+    if (!/git/.test(cmd) || !/commit/.test(cmd)) return null;
+    const bodies = [];
+    const bare = cmd.replace(/<<-?\s*['"]?(\w+)['"]?([^\n]*)\n([\s\S]*?)\n\s*\1(?=\s|\)|"|$)/g, (_, tag, tail, body) => { bodies.push(body); return `<<HEREDOC${bodies.length - 1}${tail}`; });
+    // 只认真的命令：在开头，或跟在 && ; | 换行后面
+    const at = bare.search(/(?:^|&&|\|\||;|\n)\s*git\b(?:\s+-c\s+\S+)*\s+commit\b/);
+    if (at < 0) return null;
+    if (/nothing to commit|no changes added/.test(b.result || "")) return null;
+    const rest = bare.slice(at);
+    let msg = "";
+    const h = rest.match(/<<HEREDOC(\d+)/);
+    const m = rest.match(/\s-[a-zA-Z]*m\s+"((?:[^"\\]|\\.)*)"/) || rest.match(/\s-[a-zA-Z]*m\s+'([^']*)'/);
+    if (m && !/^\$\(cat/.test(m[1])) msg = m[1].replace(/\\(["\\$`])/g, "$1");
+    else if (h) msg = bodies[+h[1]];
+    const line = msg.split("\n").map((x) => x.trim()).find(Boolean);
+    return line || "提交";
+  }
+
+  // 给时间轴挑关键点，记在数据上，渲染时带 id
+  function keyPoints(turns) {
+    const keys = [];
+    let n = 0;
+    turns.forEach((t, i) => {
+      if (t.role === "summary") { t._kid = "k" + n++; keys.push({ id: t._kid, turn: i, kind: "compact", ts: t.ts, label: "阶段总结", sub: summaryLine(t.text) }); }
+      else if (t.role === "session") { t._kid = "k" + n++; keys.push({ id: t._kid, turn: i, kind: "part", ts: t.ts, label: t.text }); }
+      else if (t.role === "assistant") {
+        t.blocks.forEach((b) => {
+          const msg = commitMessage(b);
+          if (msg) { b._kid = "k" + n++; keys.push({ id: b._kid, turn: i, kind: "commit", ts: t.ts, label: msg }); }
+        });
+      }
+    });
+    return keys;
+  }
+
+  // 阶段总结的一句话：去掉系统标签，有「Latest request」（压缩前最后提的要求）就用它，没有就取意图下面第一句
+  function summaryLine(text) {
+    let t = text.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, "").replace(/<[^>]+>/g, "");
+    const at = t.search(/Summary:/);
+    if (at >= 0) t = t.slice(at + 8);
+    const latest = t.match(/Latest request[^:：]*[:：]\**\s*["“「]?([^\n"”」]+)/i);
+    if (latest) return latest[1].trim().slice(0, 80);
+    const lines = t.split("\n").map((x) => x.replace(/^[#>*\-\d.\s]+/, "").replace(/\*\*/g, "").trim()).filter(Boolean);
+    const pick = lines.find((x) => !/^(Primary Request and Intent|主要请求|Summary|Analysis|This session is being continued)/i.test(x) && x.length > 6) || "";
+    return pick.slice(0, 80);
+  }
+
   function renderAI(blocks) {
     const out = [];
     let run = [];
@@ -131,7 +183,7 @@
   }
 
   // 每段一个 HTML 片段：日期线、一条消息、一段回复
-  function render(turns) {
+  function render(turns, partOf) {
     const out = [];
     let lastDay = "";
     for (let i = 0; i < turns.length; i++) {
@@ -141,21 +193,22 @@
         lastDay = dayKey(d);
         out.push(`<div class="divider"><span>${day(d)}</span></div>`);
       }
+      partOf[i] = out.length;
       if (t.role === "assistant") {
         // 连着的几条回复合成一段
         let blocks = t.blocks.slice();
-        while (turns[i + 1] && turns[i + 1].role === "assistant") blocks = blocks.concat(turns[++i].blocks);
+        while (turns[i + 1] && turns[i + 1].role === "assistant") { blocks = blocks.concat(turns[++i].blocks); partOf[i] = out.length; }
         out.push(renderAI(blocks));
       } else if (t.role === "user") {
         const long = t.text.length > 1200 || t.text.split("\n").length > 16;
         out.push(`<div class="msg user${long ? " long" : ""}"><div class="bubble">${esc(t.text)}</div>${long ? '<button class="more" type="button">展开全部</button>' : ""}<div class="stamp">${d ? hm(d) : ""}</div></div>`);
       } else if (t.role === "session") {
         // 合集里每个会话的开头
-        out.push(`<div class="divider part"><span><b>${esc(t.text)}</b>${t.computer ? "　" + esc(t.computer) : ""}</span></div>`);
+        out.push(`<div class="divider part" id="${t._kid}"><span><b>${esc(t.text)}</b>${t.computer ? "　" + esc(t.computer) : ""}</span></div>`);
       } else if (t.role === "command") {
         out.push(`<div class="event">${ICON.cmd}<code>${esc(t.text)}</code></div>`);
       } else if (t.role === "summary") {
-        out.push(`<details class="compact"><summary><div class="divider"><span>会话在这里压缩过，点开看摘要</span></div></summary>${md(t.text)}</details>`);
+        out.push(`<details class="compact" id="${t._kid}"><summary><div class="divider"><span>会话在这里压缩过，点开看摘要</span></div></summary>${md(t.text)}</details>`);
       } else {
         out.push(`<div class="event system">${ICON.sys}<span>${esc(t.text.slice(0, 300))}</span></div>`);
       }
@@ -188,14 +241,16 @@
           <button class="c-btn outline${m.kind === "collection" ? " hidden" : ""}" id="copy-resume" type="button">${ICON.copy}<span class="lbl">复制恢复命令</span></button>
         </div>
       </div></header>
-      <main class="c-main" id="turns"></main>
+      <div class="c-body"><nav class="c-rail" id="rail"></nav><main class="c-main" id="turns"></main></div>
       <div class="toast" id="toast"></div>`;
 
     const $ = (id) => document.getElementById(id);
     const all = (sel) => root.querySelectorAll(sel);
 
     // 先画前 80 段，滚到底再接着画
-    const parts = render(S.turns);
+    const keys = keyPoints(S.turns);
+    const partOf = [];
+    const parts = render(S.turns, partOf);
     let drawn = 0;
     const sentinel = document.createElement("div");
     function draw(n) {
@@ -209,6 +264,54 @@
     }
     const drawAll = () => draw(parts.length);
     new IntersectionObserver((es) => { if (es.some((e) => e.isIntersecting)) draw(80); }, { rootMargin: "1200px" }).observe(sentinel);
+    // 时间轴：对话左边一列短横线，一个关键点一条；鼠标放上去浮出说明，点了跳过去；滚动时当前那条变蓝
+    if (keys.length) {
+      root.classList.add("has-rail");
+      $("rail").innerHTML = keys.map((k) => `<button class="tick t-${k.kind}" type="button" data-k="${k.id}"><i></i></button>`).join("") + '<div class="tip" id="tip"></div>';
+      const byId = Object.fromEntries(keys.map((k) => [k.id, k]));
+      const ticks = [...$("rail").querySelectorAll(".tick")];
+      const mark = (id) => ticks.forEach((x) => x.classList.toggle("on", x.dataset.k === id));
+      let pinned = 0;
+      $("rail").addEventListener("click", (e) => {
+        const t = e.target.closest(".tick");
+        if (!t) return;
+        const k = byId[t.dataset.k];
+        if (partOf[k.turn] >= drawn) draw(partOf[k.turn] - drawn + 1);
+        const el = document.getElementById(k.id);
+        const g = el.closest("details.steps");
+        if (g) g.open = true;
+        el.scrollIntoView({ block: "start" });   // 停在标题栏下面（scroll-margin-top）
+        el.classList.remove("flash"); void el.offsetWidth; el.classList.add("flash");
+        mark(k.id);
+        pinned = Date.now();
+      });
+      $("rail").addEventListener("mouseover", (e) => {
+        const t = e.target.closest(".tick");
+        if (!t) return;
+        const k = byId[t.dataset.k];
+        const d = k.ts ? new Date(k.ts) : null;
+        const label = esc(k.label).replace(/(v?\d+\.\d+\.\d+)/, '<b class="ver">$1</b>');
+        $("tip").innerHTML = `<div class="tip-label">${label}</div>${k.sub ? `<div class="tip-sub">${esc(k.sub)}</div>` : ""}<div class="tip-time">${d ? md0(d) + " " + hm(d) : ""}</div>`;
+        $("tip").style.top = t.offsetTop + t.offsetHeight / 2 + "px";
+        $("tip").classList.add("show");
+      });
+      $("rail").addEventListener("mouseleave", () => $("tip").classList.remove("show"));
+      // 当前位置：标题栏下面那条线以上的最后一个关键点（全部看一遍，不提前停）
+      const spot = () => {
+        if (Date.now() - pinned < 600) return;   // 刚点过，跳转引起的滚动不改高亮
+        let cur = null, best = -Infinity;
+        for (const k of keys) {
+          const el = document.getElementById(k.id);
+          if (!el) continue;
+          const top = (el.closest("details.steps:not([open])") || el).getBoundingClientRect().top;
+          if (top <= 120 && top > best) { best = top; cur = k.id; }
+        }
+        mark(cur);
+      };
+      let ticking = false;
+      window.addEventListener("scroll", () => { if (!ticking) { ticking = true; requestAnimationFrame(() => { spot(); ticking = false; }); } }, { passive: true });
+    }
+
     $("turns").addEventListener("toggle", (e) => { if (e.target.dataset && e.target.dataset.i && e.target.open) fillStep(e.target); }, true);
 
     // 显示开关：一组里的步骤全藏了，这一组也藏
@@ -322,6 +425,8 @@
     if (q0) { $("search").value = q0; $("search").parentElement.classList.add("has"); search(q0); }
   }
 
+  // 回归测试（tests/timeline_test.js）在 node 里加载本文件，取时间轴的规则
+  if (typeof module !== "undefined") { module.exports = { commitMessage, summaryLine, keyPoints }; return; }
   if (window.SESSION) start(window.SESSION);
   else fetch("session.json" + location.search).then((r) => r.json()).then(start);
 })();

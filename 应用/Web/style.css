@@ -196,6 +196,41 @@
 .conv pre code { padding: 0; background: none; font-size: inherit; }
 .step pre { margin: 0; }
 
+/* 时间轴：对话左边一列短横线，一个关键点一条，线长分种类：会话开头最长、阶段总结次之、提交最短。
+   鼠标放上去浮出说明，当前那条变蓝。对话区照旧居中 */
+.c-rail { display: none; }
+@media (min-width: 760px) {
+  .has-rail .c-rail {
+    position: fixed; left: 0; top: 72px; bottom: 24px; width: 44px; z-index: 4;
+    display: flex; flex-direction: column; justify-content: center;
+  }
+}
+.tick {
+  display: flex; align-items: center; flex: 0 1 12px; min-height: 3px; width: 100%;
+  padding: 0 0 0 14px; border: 0; background: none; cursor: pointer;
+}
+.tick i { display: block; height: 2px; width: 8px; border-radius: 1px; background: var(--line-strong); transition: width .12s, background .12s; }
+.tick.t-compact i { width: 14px; }
+.tick.t-part i { width: 20px; height: 3px; }
+.tick:hover i { background: var(--fg-muted); width: 18px; }
+.tick.t-part:hover i { width: 24px; }
+.tick.on i { background: var(--accent); width: 20px; }
+.tick.t-part.on i { width: 26px; }
+.tip {
+  position: absolute; left: 44px; z-index: 6; width: max-content; max-width: 280px; padding: 8px 12px;
+  border-radius: 10px; background: var(--bg); box-shadow: var(--shadow); transform: translateY(-50%);
+  opacity: 0; pointer-events: none; transition: opacity .12s;
+}
+.tip.show { opacity: 1; }
+.tip-label { font-size: 13px; line-height: 1.5; color: var(--fg); }
+.tip-sub { margin-top: 2px; font-size: 12px; line-height: 1.5; color: var(--fg-muted); }
+.tip-time { margin-top: 2px; font-size: 11px; color: var(--fg-faint); font-variant-numeric: tabular-nums; }
+.ver { font-weight: 600; color: var(--accent); }
+[id^="k"] { scroll-margin-top: 88px; }
+.step.commit::before { border-color: var(--accent); background: var(--accent); }
+@keyframes flash { from { background: var(--accent-soft); } to { background: transparent; } }
+.flash, .flash > summary { animation: flash 1.6s ease-out; border-radius: 8px; }
+
 .conv mark { background: var(--hit); color: inherit; border-radius: 2px; }
 .conv mark.current { box-shadow: 0 0 0 2px var(--accent); }
 .hidden { display: none !important; }

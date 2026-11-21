@@ -25,6 +25,18 @@ struct EchoProject: Identifiable, Hashable {
     var last: Date? { sessions.first?.endDate }
 }
 
+/// 第一级目录：大目录里直接开的会话，加它下面的项目
+struct EchoCategory: Identifiable, Hashable {
+    var id: String { path }
+    let path: String
+    var name: String { (path as NSString).lastPathComponent }
+    let root: [EchoSession]
+    let projects: [EchoProject]
+    var count: Int { root.count + projects.reduce(0) { $0 + $1.sessions.count } }
+    var last: Date? { ([root.first?.endDate] + projects.map(\.last)).compactMap { $0 }.max() }
+    var all: [EchoSession] { root + projects.flatMap(\.sessions) }
+}
+
 enum EchoTime {
     nonisolated(unsafe) private static let frac: ISO8601DateFormatter = {
         let f = ISO8601DateFormatter()
@@ -143,6 +155,35 @@ enum EchoLibrary {
         cache = fresh
         if let d = try? JSONEncoder().encode(cache) { try? d.write(to: cacheURL, options: .atomic) }
         return out
+    }
+
+    /// 二级分类：第一级是大目录（~/Desktop/项目代码、~/伙伴云NAS/客户文档），第二级是它下面的项目文件夹；
+    /// 更深的子目录归到所在项目（NAS/NAS网站 算 NAS，回响/.worktrees/v0.1.0 算回响）。直接在大目录里开的会话不进项目
+    static func place(_ cwd: String) -> (category: String, project: String?) {
+        let home = NSHomeDirectory()
+        let under = cwd == home || cwd.hasPrefix(home + "/")
+        let rest = under ? String(cwd.dropFirst(home.count)) : cwd
+        let comps = rest.split(separator: "/").map(String.init)
+        let base = under ? home : ""
+        func join(_ n: Int) -> String { base + "/" + comps.prefix(n).joined(separator: "/") }
+        if comps.count < 2 { return (comps.isEmpty ? (under ? home : "/") : join(comps.count), nil) }
+        return (join(2), comps.count >= 3 ? join(3) : nil)
+    }
+
+    static func tree(_ sessions: [EchoSession]) -> [EchoCategory] {
+        let byEnd: (EchoSession, EchoSession) -> Bool = { ($0.endDate ?? .distantPast) > ($1.endDate ?? .distantPast) }
+        var cats: [String: (root: [EchoSession], projects: [String: [EchoSession]])] = [:]
+        for s in sessions {
+            let (c, p) = place(s.projectPath)
+            if let p { cats[c, default: ([], [:])].projects[p, default: []].append(s) }
+            else { cats[c, default: ([], [:])].root.append(s) }
+        }
+        return cats.map { c, v in
+            EchoCategory(path: c, root: v.root.sorted(by: byEnd),
+                         projects: v.projects.map { EchoProject(path: $0.key, sessions: $0.value.sorted(by: byEnd)) }
+                            .sorted { ($0.last ?? .distantPast) > ($1.last ?? .distantPast) })
+        }
+        .sorted { ($0.last ?? .distantPast) > ($1.last ?? .distantPast) }
     }
 
     /// 按项目归组；项目按最近使用排序，会话按最后时间倒序
