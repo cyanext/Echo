@@ -192,7 +192,7 @@ h2 .back { cursor: pointer; color: var(--accent); }
 .wother { margin: 16px 0; padding: 12px 24px; }
 
 /* 会话卡占满一行：左标题和路径，右标签 */
-.scard .sh { display: flex; align-items: center; gap: 24px; }
+.scard .sh { display: flex; align-items: baseline; gap: 24px; }
 .scard .sl { flex: 1; min-width: 0; }
 .scard .st { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .scard .sp { margin-top: 2px; }
