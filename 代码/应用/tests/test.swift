@@ -13,7 +13,15 @@ enum EchoTests {
 
     static func main() throws {
         let a = CommandLine.arguments
-        if a.count == 3, a[1] == "--rules" { rules(); try renameTest(fixture: URL(fileURLWithPath: a[2])) }
+        if a.count == 3, a[1] == "--rules" { rules(); try renameTest(fixture: URL(fileURLWithPath: a[2])); try statsTest() }
+        else if a.count == 4, a[1] == "--overview" {   // 手动排查：按应用的方式整理总览数据，写到文件，看用了多久
+            let t0 = Date()
+            let list = EchoLibrary.scan(backupRoot: URL(fileURLWithPath: a[2]))
+            let t1 = Date()
+            let data = EchoStats.build(list)
+            try data.write(to: URL(fileURLWithPath: a[3]))
+            print(String(format: "  %d 个会话，扫列表 %.1f 秒，整理总览 %.1f 秒，%d KB", list.count, t1.timeIntervalSince(t0), Date().timeIntervalSince(t1), data.count / 1024))
+        }
         else if a.count == 3, a[1] == "--backup" { try backup(URL(fileURLWithPath: a[2])) }
         else if a.count == 3, a[1] == "--time" { try timeExport(URL(fileURLWithPath: a[2])) }
         else if a.count == 4, a[1] == "--scan" {   // 手动排查：按应用的方式扫备份目录，看某个会话在不在、归到哪
@@ -33,6 +41,34 @@ enum EchoTests {
         else if a.count == 4 { try compare(URL(fileURLWithPath: a[1]), slimmed: URL(fileURLWithPath: a[2]), dataJS: URL(fileURLWithPath: a[3])) }
         else { print("用法：test <会话.jsonl> <原型瘦身结果> <原型 data.js> 或 test --rules"); exit(2) }
         if failed > 0 { print("失败 \(failed) 项"); exit(1) }
+    }
+
+    /// 总览的数：我的消息只算人打的字；同一次回复拆成几行按 requestId 只算一次；AI 干活取 turn_duration；写缓存分 5 分钟和 1 小时
+    static func statsTest() throws {
+        let rows = [
+            #"{"type":"user","timestamp":"2026-11-20T02:00:00Z","message":{"role":"user","content":"做总览"},"origin":{"kind":"human"}}"#,
+            #"{"type":"user","timestamp":"2026-11-20T02:00:01Z","message":{"role":"user","content":[{"type":"tool_result","content":"ok"}]}}"#,
+            #"{"type":"user","timestamp":"2026-11-20T02:00:02Z","isMeta":true,"message":{"role":"user","content":"<command-name>/clear</command-name>"}}"#,
+            #"{"type":"assistant","timestamp":"2026-11-20T02:00:03Z","requestId":"r1","message":{"model":"claude-opus-5-5","usage":{"input_tokens":2,"output_tokens":100,"cache_read_input_tokens":1000,"cache_creation_input_tokens":50,"cache_creation":{"ephemeral_5m_input_tokens":10,"ephemeral_1h_input_tokens":40}}}}"#,
+            #"{"type":"assistant","timestamp":"2026-11-20T02:00:04Z","requestId":"r1","message":{"model":"claude-opus-5-5","usage":{"input_tokens":2,"output_tokens":100,"cache_read_input_tokens":1000,"cache_creation_input_tokens":50}}}"#,
+            #"{"type":"assistant","timestamp":"2026-11-20T02:00:05Z","requestId":"r2","message":{"model":"<synthetic>","usage":{"input_tokens":0,"output_tokens":0}}}"#,
+            #"{"type":"system","subtype":"turn_duration","timestamp":"2026-11-20T02:01:00Z","durationMs":60000}"#,
+            #"{"type":"system","subtype":"turn_duration","timestamp":"2026-11-20T02:05:00Z","durationMs":30000}"#,
+        ]
+        let u = FileManager.default.temporaryDirectory.appendingPathComponent("回响统计测试.jsonl")
+        try rows.joined(separator: "\n").write(to: u, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: u) }
+        let days = try EchoStats.read(u)
+        let day = EchoStats.dayKey("2026-11-20T02:00:00Z")!
+        let d = days[day]
+        check(days.count == 1, "统计：应只有一天，实际 \(days.keys.sorted())")
+        check(d?.m == 1, "统计：我的消息应 1 条（工具结果、命令不算），实际 \(d?.m ?? -1)")
+        check(d?.k["claude-opus-5-5"] == [2, 100, 1000, 10, 40], "统计：同一 requestId 只算一次、写缓存分开，实际 \(d?.k ?? [:])")
+        check(d?.k["<synthetic>"] == nil, "统计：<synthetic> 不算")
+        check(d?.ms == 90000 && d?.lg == 60000, "统计：AI 干活 90 秒、最长 60 秒，实际 \(d?.ms ?? 0) \(d?.lg ?? 0)")
+        check(EchoStats.project(NSHomeDirectory() + "/Desktop/项目代码/NAS/伙伴云NAS应用") == "NAS", "统计：项目取大目录下一级")
+        check(EchoStats.project(NSHomeDirectory() + "/Desktop/项目代码/回响/.worktrees/主页") == "回响", "统计：.worktrees 算进上一级")
+        print("  总览统计：\(failed == 0 ? "通过" : "有失败")")
     }
 
     static func lines(_ url: URL) throws -> [Data] {

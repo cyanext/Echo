@@ -42,6 +42,9 @@ struct EchoBrowserView: View {
     @State private var deleting: [EchoSession] = []
     @State private var tree: [EchoDir] = []                            // 会话列表变了才重新分组，不在每次刷新时算
     @State private var showAll: Set<String> = []                       // 点过「再显示」的项目
+    @State private var showOverview = true                             // 打开窗口默认停在总览
+    @State private var jumpAt: Double?                                 // 从总览点版本或提交进来：打开后跳到这个时间
+    @AppStorage("sidebarWidth") private var sideW: Double = 272        // 左栏宽，拖右边缘改，220 到 420
 
     private var computers: [String] { Array(Set(state.sessions.map(\.computer))).sorted() }
     private var dirState: [String: Bool] {
@@ -63,21 +66,35 @@ struct EchoBrowserView: View {
     var body: some View {
         HStack(spacing: 0) {
             sidebar
-                .frame(width: 272)
-                .background(EchoColor.side)
-                .overlay(alignment: .trailing) { Rectangle().fill(EchoColor.sideLine).frame(width: 1) }
+                .frame(width: sideW)
+                .overlay(alignment: .trailing) { EchoResizeHandle(width: $sideW) }
+            // 右边白区：靠左栏的两个角收圆角 12，左栏的灰底从圆角外露出来（照伙伴云NAS应用）
             ZStack {
-                if let t = target { EchoConversation(target: t) }
+                if showOverview { EchoOverview() }
+                else if let t = target { EchoConversation(target: t, at: jumpAt) }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(EchoColor.surface)
+            .clipShape(UnevenRoundedRectangle(topLeadingRadius: 12, bottomLeadingRadius: 12))
+            .overlay(UnevenRoundedRectangle(topLeadingRadius: 12, bottomLeadingRadius: 12).strokeBorder(EchoColor.sideLine, lineWidth: 1).padding(.trailing, -1))
         }
-        .background(EchoColor.surface)
+        .background(EchoColor.side)
         .foregroundStyle(EchoColor.fg)
         .ignoresSafeArea()
         .frame(minWidth: 860, minHeight: 560)
         .onAppear(perform: regroup)
         .onChange(of: state.sessions) { _, _ in regroup() }
         .onChange(of: computer) { _, _ in regroup() }
+        .onChange(of: state.openSessionID) { _, id in
+            guard let id else { return }
+            state.openSessionID = nil
+            picked = []
+            collectionID = nil
+            sessionID = id
+            jumpAt = state.openAt
+            state.openAt = nil
+            showOverview = false
+        }
         .alert("改名", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
             TextField("名字", text: $newTitle)
             Button("取消", role: .cancel) {}
@@ -178,7 +195,7 @@ struct EchoBrowserView: View {
             .padding(.horizontal, 10).frame(height: 30)
             ForEach(list) { c in
                 let members = EchoCollections.sessions(c, in: state.sessions, root: EchoPrefs.backupRoot)
-                let on = c.id == collectionID
+                let on = !showOverview && c.id == collectionID
                 EchoRow(fill: on ? EchoColor.sideOn : nil, shadow: on) {
                     VStack(alignment: .leading, spacing: 1) {
                         Text(c.title).font(.system(size: 13, weight: on ? .semibold : .regular)).lineLimit(1)
@@ -195,6 +212,8 @@ struct EchoBrowserView: View {
                 } action: {
                     collectionID = c.id
                     picked = []
+                    jumpAt = nil
+                    showOverview = false
                 }
                 .contextMenu {
                     Button("改名…") { startRename(.collection(c, members)) }
@@ -202,6 +221,23 @@ struct EchoBrowserView: View {
                 }
             }
         }
+    }
+
+    /// 左栏顶上一行「总览」（设计稿 设计/总览/）
+    private var overviewRow: some View {
+        EchoRow(fill: showOverview ? EchoColor.sideOn : nil, shadow: showOverview) {
+            HStack(spacing: 8) {
+                Image(systemName: "house").font(.system(size: 12, weight: .medium)).frame(width: 14)
+                    .foregroundStyle(showOverview ? EchoColor.accent : EchoColor.fg2)
+                Text("总览").font(.system(size: 13, weight: showOverview ? .semibold : .regular))
+                Spacer()
+            }
+            .frame(height: 30)
+        } action: {
+            picked = []
+            showOverview = true
+        }
+        .padding(.bottom, 6)
     }
 
     private func regroup() {
@@ -246,7 +282,8 @@ struct EchoBrowserView: View {
                 empty
             } else {
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 1) {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        overviewRow
                         collectionSection
                         ForEach(tree) { d in dirSection(d, level: 0) }
                     }
@@ -256,6 +293,17 @@ struct EchoBrowserView: View {
             }
             footer
         }
+    }
+
+    /// 树的竖线：每一级祖先的小三角正下方一条 1px 竖线，从上一级展开处一直连到这一级最后一行
+    private func guides(_ level: Int) -> some View {
+        ZStack(alignment: .topLeading) {
+            ForEach(0..<max(0, level), id: \.self) { k in
+                Rectangle().fill(EchoColor.line).frame(width: 1).offset(x: 10 + CGFloat(k) * indentStep + 5.5)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .allowsHitTesting(false)
     }
 
     /// 每级缩进 18，正好是小三角加间距的宽度。下一级从上一级的文字起点开始：子目录的三角、会话的标题都和上一级目录名字对齐
@@ -284,6 +332,7 @@ struct EchoBrowserView: View {
             } action: {
                 toggle(d, level: level)
             }
+            .background(guides(level))
             .padding(.top, level == 0 ? 10 : 0)
             .help((d.path as NSString).abbreviatingWithTildeInPath)
 
@@ -298,7 +347,7 @@ struct EchoBrowserView: View {
     @ViewBuilder
     private func sessionList(_ list: [EchoSession], key: String, level: Int) -> some View {
         let limit = showAll.contains(key) ? list.count : 5
-        ForEach(list.prefix(limit)) { s in sessionRow(s, indent: CGFloat(level - 1) * indentStep) }
+        ForEach(list.prefix(limit)) { s in sessionRow(s, indent: CGFloat(level - 1) * indentStep).background(guides(level)) }
         if list.count > limit {
             EchoRow(fill: nil) {
                 Text("再显示 \(list.count - limit) 个").font(.system(size: 12)).foregroundStyle(EchoColor.fg3)
@@ -306,11 +355,12 @@ struct EchoBrowserView: View {
             } action: {
                 showAll.insert(key)
             }
+            .background(guides(level))
         }
     }
 
     private func sessionRow(_ s: EchoSession, indent: CGFloat) -> some View {
-        let on = picked.contains(s.id) || (picked.isEmpty && collectionID == nil && s.id == session?.id)
+        let on = picked.contains(s.id) || (!showOverview && picked.isEmpty && collectionID == nil && s.id == session?.id)
         return EchoRow(fill: on ? EchoColor.sideOn : nil, shadow: on) {
             VStack(alignment: .leading, spacing: 1) {
                 Text(s.meta.title == s.sessionId ? "未命名会话" : s.meta.title).font(.system(size: 13, weight: on ? .semibold : .regular)).lineLimit(1)
@@ -334,6 +384,8 @@ struct EchoBrowserView: View {
                 picked = []
                 collectionID = nil
                 sessionID = s.id
+                jumpAt = nil
+                showOverview = false
             }
         }
         .contextMenu { sessionMenu(s) }
@@ -382,6 +434,25 @@ struct EchoBrowserView: View {
         if let n = state.cleanupDays { return "Claude Code 会删 \(n) 天前的会话" }
         if let d = state.lastSuccess { return "上次备份 \(EchoTime.short(d))" }
         return "还没有备份过"
+    }
+}
+
+/// 左栏右边缘的拖动把手：6 宽，悬停变左右箭头，拖了改左栏宽，220 到 420，记在本机
+struct EchoResizeHandle: View {
+    @Binding var width: Double
+    @State private var start: Double?
+    var body: some View {
+        Color.clear
+            .frame(width: 6)
+            .contentShape(Rectangle())
+            .onHover { $0 ? NSCursor.resizeLeftRight.push() : NSCursor.pop() }
+            .gesture(DragGesture(minimumDistance: 1, coordinateSpace: .global)
+                .onChanged { g in
+                    if start == nil { start = width }
+                    width = min(420, max(220, (start ?? width) + g.translation.width))
+                }
+                .onEnded { _ in start = nil })
+            .offset(x: 3)
     }
 }
 
@@ -471,12 +542,13 @@ enum EchoTarget: Hashable {
 
 struct EchoConversation: View {
     let target: EchoTarget
+    var at: Double?
     @State private var loading = false
     @State private var failed: String?
 
     var body: some View {
         ZStack {
-            EchoWebView(target: target, loading: $loading, failed: $failed)
+            EchoWebView(target: target, at: at, loading: $loading, failed: $failed)
             if loading { ProgressView().controlSize(.small) }
             if let f = failed {
                 VStack(spacing: 6) {
@@ -490,6 +562,7 @@ struct EchoConversation: View {
 
 struct EchoWebView: NSViewRepresentable {
     let target: EchoTarget
+    var at: Double?
     @Binding var loading: Bool
     @Binding var failed: String?
 
@@ -506,7 +579,7 @@ struct EchoWebView: NSViewRepresentable {
     }
 
     func updateNSView(_ w: WKWebView, context: Context) {
-        context.coordinator.show(target, loading: $loading, failed: $failed)
+        context.coordinator.show(target, at: at, loading: $loading, failed: $failed)
     }
 
     @MainActor
@@ -514,10 +587,16 @@ struct EchoWebView: NSViewRepresentable {
         let scheme = EchoScheme()
         weak var web: WKWebView?
         private var current: String?
+        private var currentAt: Double?
 
-        func show(_ t: EchoTarget, loading: Binding<Bool>, failed: Binding<String?>) {
+        func show(_ t: EchoTarget, at: Double?, loading: Binding<Bool>, failed: Binding<String?>) {
             let key = t.key
-            guard key != current else { return }
+            if key == current {
+                // 同一个会话已经开着：只换跳转位置
+                if let at, at != currentAt { currentAt = at; web?.evaluateJavaScript("window.echoJump && window.echoJump(\(Int(at)))") }
+                return
+            }
+            currentAt = at
             current = key
             loading.wrappedValue = true
             failed.wrappedValue = nil
@@ -530,7 +609,8 @@ struct EchoWebView: NSViewRepresentable {
                     case .success(let data):
                         let token = UUID().uuidString
                         self.scheme.sessions = [token: data]
-                        self.web?.load(URLRequest(url: URL(string: "echo://app/index.html?s=\(token)")!))
+                        let jump = at.map { "&at=\(Int($0))" } ?? ""
+                        self.web?.load(URLRequest(url: URL(string: "echo://app/index.html?s=\(token)\(jump)")!))
                     case .failure(let e):
                         failed.wrappedValue = e.localizedDescription
                     }
@@ -547,9 +627,60 @@ struct EchoWebView: NSViewRepresentable {
     }
 }
 
-/// echo://app/<文件>：页面文件取自 .app 的 Resources/Web，session.json 是当前会话整理好的数据
+// MARK: - 总览
+
+/// 总览：网页 Web/overview.html，数据是 EchoState.overview（echo://app/overview.json）；还没整理好时转圈
+struct EchoOverview: View {
+    @EnvironmentObject var state: EchoState
+    var body: some View {
+        ZStack {
+            EchoOverviewWeb(data: state.overview)
+            if state.overview == nil { ProgressView().controlSize(.small) }
+        }
+    }
+}
+
+struct EchoOverviewWeb: NSViewRepresentable {
+    let data: Data?
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeNSView(context: Context) -> WKWebView {
+        let cfg = WKWebViewConfiguration()
+        cfg.setURLSchemeHandler(context.coordinator.scheme, forURLScheme: "echo")
+        cfg.userContentController.add(context.coordinator, name: "echo")
+        let w = WKWebView(frame: .zero, configuration: cfg)
+        w.setValue(false, forKey: "drawsBackground")
+        context.coordinator.web = w
+        return w
+    }
+
+    func updateNSView(_ w: WKWebView, context: Context) {
+        guard let data, data != context.coordinator.scheme.overview else { return }
+        let first = context.coordinator.scheme.overview == nil
+        context.coordinator.scheme.overview = data
+        if first { w.load(URLRequest(url: URL(string: "echo://app/overview.html")!)) }
+        else { w.evaluateJavaScript("window.echoReload && window.echoReload()") }   // 数据更新了：保留当前选的周，重新取数
+    }
+
+    @MainActor
+    final class Coordinator: NSObject, WKScriptMessageHandler {
+        let scheme = EchoScheme()
+        weak var web: WKWebView?
+
+        /// 网页里点了会话：{open: 会话 id}
+        func userContentController(_ c: WKUserContentController, didReceive message: WKScriptMessage) {
+            guard let body = message.body as? [String: Any], let id = body["open"] as? String else { return }
+            EchoState.shared.openAt = (body["at"] as? NSNumber)?.doubleValue
+            EchoState.shared.openSessionID = id
+        }
+    }
+}
+
+/// echo://app/<文件>：页面文件取自 .app 的 Resources/Web，session.json 是当前会话整理好的数据，overview.json 是总览的数据
 final class EchoScheme: NSObject, WKURLSchemeHandler {
     var sessions: [String: Data] = [:]
+    var overview: Data?
 
     func webView(_ webView: WKWebView, start task: WKURLSchemeTask) {
         guard let url = task.request.url else { return }
@@ -558,6 +689,8 @@ final class EchoScheme: NSObject, WKURLSchemeHandler {
         if name == "session.json" {
             let token = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "s" }?.value ?? ""
             body = sessions[token]
+        } else if name == "overview.json" {
+            body = overview
         } else if let res = Bundle.main.resourceURL {
             body = try? Data(contentsOf: res.appendingPathComponent("Web").appendingPathComponent(name))
         }

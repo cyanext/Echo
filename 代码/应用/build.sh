@@ -8,7 +8,7 @@ trap 'rm -rf "$T"' EXIT
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources/Web"
 source "$D/tools/swift-env.sh" "$T"
 swiftc -O "${SWIFT_FLAGS[@]}" -parse-as-library -target arm64-apple-macos14.0 "$D"/App/*.swift -o "$APP/Contents/MacOS/Echo"
-cp "$D"/Web/*.(html|css|js) "$APP/Contents/Resources/Web/"
+cp "$D"/Web/*.(html|css|js|json) "$APP/Contents/Resources/Web/"
 cat > "$APP/Contents/Info.plist" <<P
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

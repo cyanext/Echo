@@ -1,0 +1,152 @@
+/* 总览（设计稿 设计/总览/说明.md，规范 需求文档/设计规范/设计规范.md）。
+   扁平：页底和正文同色，块用 1px 线框；颜色、字号、间距、圆角都从下面的变量取，正文不写裸数值。浅色深色跟着系统 */
+:root {
+  /* 颜色 */
+  --bg: #ffffff; --bg-subtle: #f3f4f7; --bg-hover: rgba(31,35,41,.05); --sel: rgba(78,91,216,.08);
+  --fg: #1f2329; --fg-muted: #646a73; --fg-faint: #8f959e; --line: #e8e9ef;
+  --accent: #4e5bd8;
+  --q0: #eceef3; --q1: #c4cff9; --q2: #95a6f0; --q3: #6273e4; --q4: #3d46ba;   /* 主色由浅到深，2 到 4 档用 dataviz 校验过 */
+  --mute: #d9dce6;
+  /* 字号 / 行高 */
+  --fs-s: 12px; --lh-s: 18px;     /* 小字：列名、灰字、数字 */
+  --fs-m: 13px; --lh-m: 20px;     /* 正文 */
+  --fs-l: 15px; --lh-l: 22px;     /* 块标题、日期 */
+  --fs-xl: 17px; --lh-xl: 24px;   /* 页标题 */
+  --fs-hero: 28px; --lh-hero: 36px; /* 数字卡大数 */
+  --mono: ui-monospace, "SF Mono", Menlo, monospace;
+  /* 间距、圆角 */
+  --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s6: 24px; --s8: 32px;
+  --r-s: 4px; --r-m: 8px; --r-l: 12px;
+  --page-w: 1200px;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1d1e23; --bg-subtle: #2a2c32; --bg-hover: rgba(255,255,255,.06); --sel: rgba(124,135,240,.14);
+    --fg: #e6e8ec; --fg-muted: #9aa0ab; --fg-faint: #6f7581; --line: #2e3037;
+    --accent: #7c87f0;
+    --q0: #2c2e35; --q1: #2f386c; --q2: #4855a6; --q3: #6b7cdf; --q4: #8796f0;
+    --mute: #3a3d47;
+  }
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--fg); font: var(--fs-m)/var(--lh-m) -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif; -webkit-font-smoothing: antialiased; }
+svg { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.empty { font-size: var(--fs-s); color: var(--fg-faint); }
+
+/* 页面骨架：顶栏和内容同宽居中 */
+.main { padding-bottom: var(--s8); }
+.head { display: flex; align-items: center; gap: var(--s4); height: 64px; max-width: var(--page-w); margin: 0 auto; padding: 0 var(--s8); }
+.head h1 { margin: 0; font-size: var(--fs-xl); line-height: var(--lh-xl); font-weight: 600; }
+.wk { display: flex; align-items: center; gap: var(--s1); color: var(--fg-muted); }
+.wk .now { margin-left: var(--s2); padding: 0 6px; border-radius: var(--r-s); background: var(--bg-subtle); font-size: var(--fs-s); line-height: var(--lh-s); }
+.ib { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: var(--r-s); color: var(--fg-muted); cursor: pointer; }
+.ib:hover { background: var(--bg-subtle); }
+.ib.off { opacity: .35; pointer-events: none; }
+.page { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--s4); max-width: var(--page-w); margin: 0 auto; padding: 0 var(--s8); }
+
+/* 块：1px 线框、圆角、内边距 24；块标题 15 加粗，右边灰字写口径 */
+.card { border: 1px solid var(--line); border-radius: var(--r-l); padding: var(--s6); }
+h2 { display: flex; align-items: baseline; gap: var(--s3); margin: 0 0 var(--s4); font-size: var(--fs-l); line-height: var(--lh-l); font-weight: 600; }
+h2 .note { margin-left: auto; font-size: var(--fs-s); font-weight: 400; color: var(--fg-faint); font-variant-numeric: tabular-nums; }
+h2.sec { margin: var(--s4) var(--s1) 0; }
+
+/* 数字卡：一行四张，右上同期比，底下近 8 周小柱 */
+.kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--s4); }
+.kpi .l { display: flex; justify-content: space-between; font-size: var(--fs-s); line-height: var(--lh-s); color: var(--fg-muted); }
+.kpi .l .dl { color: var(--fg-faint); font-variant-numeric: tabular-nums; }
+.kpi .v { height: var(--lh-hero); margin-top: var(--s2); font-size: var(--fs-hero); line-height: var(--lh-hero); font-weight: 600; letter-spacing: -.3px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.kpi .v small { margin-left: var(--s1); font-size: var(--fs-m); font-weight: 400; letter-spacing: 0; color: var(--fg-muted); }
+.kpi .s { font-size: var(--fs-s); line-height: var(--lh-s); color: var(--fg-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.spark { display: flex; align-items: flex-end; gap: var(--s1); height: 24px; margin-top: var(--s4); }
+.spark i { flex: 1; max-width: 14px; min-height: 2px; border-radius: 2px 2px 0 0; background: var(--mute); cursor: pointer; }
+.spark i.on { background: var(--accent); }
+@media (max-width: 900px) { .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 640px) { .head, .page { padding: 0 var(--s4); } .card { padding: var(--s4); } .day { padding: var(--s4); } }
+
+/* 日历：一行一个月、一格一天 22，间隔 4 */
+.leg { margin-left: auto; display: flex; align-items: center; gap: var(--s1); font-size: var(--fs-s); font-weight: 400; color: var(--fg-faint); }
+.leg i { width: 8px; height: 8px; border-radius: 2px; }
+.q0, .c.l0 { background: var(--q0); } .q1, .c.l1 { background: var(--q1); } .q2, .c.l2 { background: var(--q2); } .q3, .c.l3 { background: var(--q3); } .q4, .c.l4 { background: var(--q4); }
+.calwrap { container-type: inline-size; overflow-x: auto; overflow-y: hidden; padding: var(--s1) 0; margin: calc(-1 * var(--s1)) 0; }
+/* 格子跟着卡宽缩，最大 22、最小 10 */
+.mcal { --cell: clamp(10px, (100cqw - 32px - 31 * var(--s1)) / 31, 22px); display: grid; gap: var(--s1); }
+.mr { position: relative; display: grid; grid-template-columns: 32px repeat(31, var(--cell)); column-gap: var(--s1); align-items: center; }
+.mr > span { font-size: var(--fs-s); color: var(--fg-faint); }
+.mr.hd b { text-align: center; white-space: nowrap; font-weight: 400; font-size: var(--fs-s); line-height: 16px; color: var(--fg-faint); }
+.mr .c { width: var(--cell); height: var(--cell); border-radius: min(var(--r-s), calc(var(--cell) / 5)); }
+.mr .c.no { background: none; }
+.mr .c[data-t] { cursor: pointer; }
+.mr .c[data-t]:hover { box-shadow: 0 0 0 1.5px var(--fg-muted); }
+.mr .c.today { box-shadow: 0 0 0 2px var(--bg), 0 0 0 3.5px var(--accent); }
+.wkbox { position: absolute; top: -3px; bottom: -3px; left: calc(32px + var(--s1) + var(--a) * (var(--cell) + var(--s1)) - 3px); width: calc(var(--n) * (var(--cell) + var(--s1)) + 2px); border: 1.5px solid var(--accent); border-radius: 6px; pointer-events: none; }
+
+/* 本周：一天一张卡。卡头日期（点了展开收起）、今天、当天的量 */
+.day { container-type: inline-size; padding: 20px var(--s6) var(--s3); }
+.day.flash { background: var(--sel); transition: background .3s; }
+.day-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 var(--s3); padding-bottom: var(--s2); }
+.day-head .date { font-size: var(--fs-l); line-height: var(--lh-l); font-weight: 600; cursor: pointer; }
+.day-head .date:hover { color: var(--accent); }
+.day-head .today { font-size: var(--fs-s); color: var(--accent); }
+.day-head .meta { margin-left: auto; font-size: var(--fs-s); color: var(--fg-muted); font-variant-numeric: tabular-nums; }
+
+/* 会话表：六列，第一列标题和路径（有发版的第二行放版本标签），后五列右对齐、垂直居中 */
+.row { display: grid; grid-template-columns: minmax(0, 1fr) 72px 64px 72px 96px 64px; column-gap: var(--s4); align-items: center; padding: var(--s2) var(--s3); margin: 0 calc(-1 * var(--s3)); border-radius: var(--r-m); }
+.row.cols { padding-top: 0; padding-bottom: 0; font-size: var(--fs-s); line-height: var(--lh-s); color: var(--fg-faint); }
+.row.cols span:nth-child(n+2) { text-align: right; }
+/* 窄了先藏我的消息和时间，再藏 AI 时长；会话、Token、Git 提交一直在 */
+@container (max-width: 680px) {
+  .row { grid-template-columns: minmax(0, 1fr) 72px 72px 64px; }
+  .row > :nth-child(3), .row > :nth-child(5) { display: none; }
+}
+@container (max-width: 480px) {
+  .row { grid-template-columns: minmax(0, 1fr) 72px 64px; }
+  .row > :nth-child(4) { display: none; }
+}
+.row.sess { cursor: pointer; }
+.row.sess:hover { background: var(--bg-hover); }
+.name { min-width: 0; }
+.name .line { display: flex; align-items: baseline; gap: var(--s2); white-space: nowrap; overflow: hidden; }
+.name .title { flex: none; max-width: 60%; overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
+.name .path { flex: none; font-size: var(--fs-s); color: var(--fg-faint); }
+.vers { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 2px; }
+.ver { display: inline-flex; align-items: center; gap: var(--s1); height: 20px; padding: 0 var(--s2); border-radius: var(--r-s); background: var(--sel); color: var(--accent); font: 600 var(--fs-s)/20px var(--mono); cursor: pointer; }
+.ver svg { width: 11px; height: 11px; }
+.ver:hover { background: var(--accent); color: var(--bg); }
+.more-ver { align-self: center; font-size: var(--fs-s); color: var(--fg-faint); }
+.num { text-align: right; font-size: var(--fs-s); line-height: var(--lh-m); color: var(--fg-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.num.strong { color: var(--fg); font-weight: 600; }
+.num.faint { color: var(--fg-faint); }
+.link { color: var(--accent); cursor: pointer; }
+.link:hover { text-decoration: underline; }
+.toggle { padding: var(--s1) 0 var(--s2); font-size: var(--fs-s); color: var(--accent); cursor: pointer; }
+
+/* 对不上会话的提交：卡底一条细线隔开，一个项目一行 */
+.others { margin-top: var(--s1); padding-top: var(--s2); border-top: 1px solid var(--line); }
+.other { display: grid; grid-template-columns: 14px minmax(0, 1fr) auto; gap: var(--s2); align-items: center; height: 26px; }
+.other svg { width: 13px; height: 13px; color: var(--fg-muted); }
+.other .t { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--fg-muted); }
+.other b { margin-right: var(--s2); font: 600 var(--fs-s)/20px var(--mono); color: var(--accent); }
+.other .x { font-size: var(--fs-s); color: var(--fg-faint); font-variant-numeric: tabular-nums; }
+
+/* 用量：两根分段条拉满整宽，图例在条下；按用途金额多的深，按模型主色深浅加灰 */
+.use + .use { margin-top: var(--s4); }
+.use-name { margin-bottom: var(--s2); font-size: var(--fs-s); line-height: var(--lh-s); color: var(--fg-muted); }
+.bar { display: flex; gap: 2px; height: 8px; }
+.bar i { min-width: 3px; }
+.bar i:first-child { border-radius: var(--r-s) 0 0 var(--r-s); } .bar i:last-child { border-radius: 0 var(--r-s) var(--r-s) 0; } .bar i:only-child { border-radius: var(--r-s); }
+.legend { display: flex; flex-wrap: wrap; gap: var(--s1) var(--s6); margin-top: var(--s2); font-size: var(--fs-s); line-height: var(--lh-s); color: var(--fg-muted); }
+.legend span { display: inline-flex; align-items: center; gap: 6px; font-variant-numeric: tabular-nums; }
+.legend i { width: 8px; height: 8px; border-radius: 2px; }
+.legend b { font-weight: 400; color: var(--fg); }
+.legend em { font-style: normal; color: var(--fg-faint); }
+.s4 { background: var(--q4); } .s3 { background: var(--q3); } .s2 { background: var(--q2); } .s1 { background: var(--q1); } .s0 { background: var(--mute); }
+
+/* 版本悬停气泡 */
+.vtip { position: absolute; z-index: 10; display: none; max-width: 360px; padding: 10px var(--s3); border-radius: var(--r-m); background: var(--bg); box-shadow: 0 8px 24px rgba(0,0,0,.16), 0 0 0 1px var(--line); font-size: var(--fs-s); line-height: var(--lh-s); pointer-events: none; }
+.vtip .h { display: flex; gap: var(--s2); align-items: baseline; }
+.vtip .h b { font: 600 var(--fs-s)/var(--lh-s) var(--mono); color: var(--accent); }
+.vtip .h span { color: var(--fg-faint); font-variant-numeric: tabular-nums; }
+.vtip .m { margin-top: var(--s1); font-size: var(--fs-m); line-height: var(--lh-m); color: var(--fg); }
+.vtip .f { margin-top: 6px; color: var(--fg-faint); }
+#week { display: grid; gap: var(--s4); }
