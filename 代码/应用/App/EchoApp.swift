@@ -367,11 +367,16 @@ final class EchoAppDelegate: NSObject, NSApplicationDelegate {
                 UserDefaults.standard.set(true, forKey: "loginItemAsked")
                 try? SMAppService.mainApp.register()
             }
-            EchoState.shared.start()
             // 备份出问题时程序坞图标加「!」
             badge = EchoState.shared.objectWillChange.sink { _ in
                 DispatchQueue.main.async { NSApp.dockTile.badgeLabel = EchoState.shared.needsAttention ? "!" : nil }
             }
+            // 第一次打开：先走首次设置，点「完成」才开始备份
+            if EchoOnboarding.needed {
+                EchoOnboarding.show { EchoState.shared.start(); EchoWindows.showBrowser() }
+                return
+            }
+            EchoState.shared.start()
             if !quietLaunch { EchoWindows.showBrowser() }
         }
     }
@@ -381,7 +386,7 @@ final class EchoAppDelegate: NSObject, NSApplicationDelegate {
 
     /// 点程序坞图标、再打开一次时弹出浏览窗口
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        if !flag { MainActor.assumeIsolated { EchoWindows.showBrowser() } }
+        if !flag { MainActor.assumeIsolated { if !EchoOnboarding.bringFront() { EchoWindows.showBrowser() } } }
         return true
     }
 

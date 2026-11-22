@@ -261,18 +261,20 @@ struct EchoStorageSettings: View {
 /// 来源：一个应用一张卡片（现在只有 Claude Code），工具自己的清理选项接在卡片里
 struct EchoSourcesBlock: View {
     @ObservedObject var model: EchoStorageModel
-    @State private var on = EchoPrefs.backupClaude
-    @State private var autoDelete = EchoPrefs.autoDelete
-    @State private var days = EchoPrefs.autoDeleteDays
+    @AppStorage("backupClaude") private var on = true
+    @AppStorage("autoDelete") private var autoDelete = true
+    @AppStorage("autoDeleteDays") private var days = 30
+    /// 首次设置里：只画卡片头（第 3 步）或带清理选项（第 4 步），Claude 的自动清理用开关，点「完成」时才改
     var onboarding = false
+    var showCleanup = true
+    var closeClaude: Binding<Bool>? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             if !onboarding { EchoBlockHeader(title: "来源", sum: "勾选要备份的应用") }
             EchoSourceCard(icon: EchoSettingsStyle.claudeIcon, name: "Claude Code", meta: meta, on: $on) {
-                cleanup
+                if showCleanup { cleanup }
             }
-            .onChange(of: on) { _, v in EchoPrefs.backupClaude = v }
         }
     }
 
@@ -286,12 +288,11 @@ struct EchoSourcesBlock: View {
         VStack(alignment: .leading, spacing: 0) {
             EchoSettingRow(title: "自动删除非活跃会话", note: "仅删除已完整备份的会话，移到废纸篓；正在使用的会话不受影响") {
                 Toggle("", isOn: $autoDelete).toggleStyle(.switch).labelsHidden()
-                    .onChange(of: autoDelete) { _, v in EchoPrefs.autoDelete = v }
             }
             EchoSettingRow(title: "非活跃期限") {
                 Picker("", selection: $days) { ForEach([30, 60, 90, 180], id: \.self) { Text("\($0) 天").tag($0) } }
                     .labelsHidden().frame(width: 112)
-                    .onChange(of: days) { _, v in EchoPrefs.autoDeleteDays = v; model.countAutoDelete() }
+                    .onChange(of: days) { _, _ in model.countAutoDelete() }
             }
             .disabled(!autoDelete)
             Group {
@@ -308,8 +309,14 @@ struct EchoSourcesBlock: View {
     /// Claude 自己的清理：比回响的期限长算已关闭；不比它长就提示并给按钮
     @ViewBuilder private var claudeCleanup: some View {
         if model.claudeCleanupDays > days {
-            EchoSettingRow(title: "Claude 自动清理", note: "cleanupPeriodDays：\(model.claudeCleanupDays) 天") {
-                Text("已关闭").font(.system(size: 13)).foregroundStyle(EchoColor.fg3)
+            if !onboarding {
+                EchoSettingRow(title: "Claude 自动清理", note: "cleanupPeriodDays：\(model.claudeCleanupDays) 天") {
+                    Text("已关闭").font(.system(size: 13)).foregroundStyle(EchoColor.fg3)
+                }
+            }
+        } else if let closeClaude {
+            EchoSettingRow(title: "关闭 Claude 的自动清理（推荐）", note: "它会直接删除 \(model.claudeCleanupDays) 天未使用的会话，不等回响备份完") {
+                Toggle("", isOn: closeClaude).toggleStyle(.switch).labelsHidden()
             }
         } else {
             HStack(spacing: 16) {
@@ -366,6 +373,8 @@ struct EchoBackupBlock: View {
     @State private var keep: [EchoStorage.Kind: Int] = [.toolUse: EchoPrefs.keepToolUse, .toolResult: EchoPrefs.keepToolResult,
                                                         .thinking: EchoPrefs.keepThinking, .system: EchoPrefs.keepSystem]
     var onboarding = false
+    /// 期限改了以后（首次设置里重新估算首次备份多大）
+    var onChange: (() -> Void)? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -449,6 +458,7 @@ struct EchoBackupBlock: View {
         case .message: break
         }
         model.estimate()
+        onChange?()
     }
 
     private var cleanBox: some View {

@@ -246,6 +246,7 @@ enum EchoTests {
         let view: AnyView
         switch what {
         case "settings-general": view = AnyView(EchoSettingsView(start: .general))
+        case let x where x.hasPrefix("onboarding-"): view = AnyView(EchoOnboardingView(start: Int(x.dropFirst(11)) ?? 0) {})
         default: view = AnyView(EchoSettingsView(start: .storage))
         }
         let host = NSHostingView(rootView: view)
