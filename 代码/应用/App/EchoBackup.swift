@@ -51,6 +51,44 @@ struct EchoBackupResult {
     var seconds: Double = 0
 }
 
+/// 备份日志：备份目录/<电脑名>/备份日志.jsonl，每次备份每个应用追加一行，清理、自动删除也各记一行（同一次用同一个时间）。
+/// 总览的「备份」卡片按天汇总它。只追加，不改已有的行
+enum EchoBackupLog {
+    static func url(_ computerDir: URL) -> URL { computerDir.appendingPathComponent("备份日志.jsonl") }
+
+    static func append(_ computerDir: URL, _ entries: [[String: Any]]) {
+        guard !entries.isEmpty else { return }
+        var data = Data()
+        for e in entries {
+            guard let d = try? JSONSerialization.data(withJSONObject: e, options: [.sortedKeys, .withoutEscapingSlashes]) else { continue }
+            data.append(d); data.append(0x0A)
+        }
+        let u = url(computerDir)
+        try? FileManager.default.createDirectory(at: computerDir, withIntermediateDirectories: true)
+        if let h = try? FileHandle(forWritingTo: u) {
+            defer { try? h.close() }
+            _ = try? h.seekToEnd()
+            try? h.write(contentsOf: data)
+        } else {
+            try? data.write(to: u)
+        }
+    }
+
+    static func load(_ computerDir: URL) -> [[String: Any]] {
+        var out: [[String: Any]] = []
+        try? EchoLines.each(url(computerDir)) { line in
+            if let d = (try? JSONSerialization.jsonObject(with: Data(buffer: EchoLines.trim(line)))) as? [String: Any] { out.append(d) }
+        }
+        return out
+    }
+
+    /// 一个应用这次备份的记录
+    static func entry(_ t: String, _ app: EchoSource, _ r: EchoBackupResult) -> [String: Any] {
+        ["t": t, "app": app.rawValue, "files": r.total, "written": r.copied, "failed": r.failures.count,
+         "in": r.bytesIn, "out": r.bytesOut, "sec": (r.seconds * 10).rounded() / 10]
+    }
+}
+
 enum EchoBackup {
     static var source: URL { URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".claude/projects") }
     static var codexSource: URL { URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".codex") }

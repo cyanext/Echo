@@ -152,13 +152,15 @@ final class EchoState: ObservableObject {
         Task.detached(priority: .utility) {
             var last = Date.distantPast
             // 勾选的应用一个个备份，进度合在一起算；结果合并
+            let started = ISO8601DateFormatter().string(from: Date())
+            var logs: [[String: Any]] = []
             let r = Result { () -> EchoBackupResult in
-                let lists = try sources.map { s, d -> ([EchoBackup.Item], URL) in
-                    (s == .claude ? try EchoBackup.claudeItems(EchoBackup.source) : EchoBackup.codexItems(EchoBackup.codexSource), d)
+                let lists = try sources.map { s, d -> (EchoSource, [EchoBackup.Item], URL) in
+                    (s, s == .claude ? try EchoBackup.claudeItems(EchoBackup.source) : EchoBackup.codexItems(EchoBackup.codexSource), d)
                 }
-                let total = lists.reduce(0) { $0 + $1.0.count }
+                let total = lists.reduce(0) { $0 + $1.1.count }
                 var all = EchoBackupResult(), before = 0
-                for (items, d) in lists {
+                for (src, items, d) in lists {
                     let one = try EchoBackup.run(items: items, computerDir: d, policy: EchoPrefs.policy) { n, _ in
                         guard before + n == total || Date().timeIntervalSince(last) > 0.3 else { return }
                         last = Date()
@@ -166,15 +168,20 @@ final class EchoState: ObservableObject {
                         Task { @MainActor in EchoState.shared.done = done; EchoState.shared.total = total }
                     }
                     before += items.count
+                    logs.append(EchoBackupLog.entry(started, src, one))
                     all.copied += one.copied; all.skipped += one.skipped; all.total += one.total
                     all.bytesIn += one.bytesIn; all.bytesOut += one.bytesOut; all.failures += one.failures; all.seconds += one.seconds
                 }
                 return all
             }
             if case .success(let res) = r, res.failures.isEmpty {
-                EchoState.cleanIfDue(dir)
-                if sources.contains(where: { $0.0 == .claude }) { EchoState.autoDeleteIfOn(claudeDir) }
+                if let c = EchoState.cleanIfDue(dir) { logs.append(["t": started, "app": "", "cleanFiles": c.rewritten, "cleanFreed": c.freed]) }
+                if sources.contains(where: { $0.0 == .claude }), let a = EchoState.autoDeleteIfOn(claudeDir) {
+                    logs.append(["t": started, "app": "claude", "autoDel": a.count, "autoDelBytes": a.bytes])
+                }
             }
+            if case .failure(let e) = r { logs.append(["t": started, "app": "", "error": e.localizedDescription]) }
+            EchoBackupLog.append(dir, logs)
             await MainActor.run {
                 let s = EchoState.shared
                 s.running = false
@@ -192,10 +199,11 @@ final class EchoState: ObservableObject {
         }
     }
 
-    /// 备份成功后清理备份：每天最多一次；升级后第一次全部过一遍。在后台线程调用
-    nonisolated static func cleanIfDue(_ dir: URL, now: Date = Date()) {
+    /// 备份成功后清理备份：每天最多一次；升级后第一次全部过一遍。在后台线程调用。跑了返回结果（记进备份日志）
+    @discardableResult
+    nonisolated static func cleanIfDue(_ dir: URL, now: Date = Date()) -> EchoClean.Result? {
         let first = EchoPrefs.cleanRules < EchoPrefs.cleanRulesVersion
-        if !first, let d = EchoPrefs.lastClean, Calendar.current.isDate(d, inSameDayAs: now) { return }
+        if !first, let d = EchoPrefs.lastClean, Calendar.current.isDate(d, inSameDayAs: now) { return nil }
         var policy = EchoPrefs.policy
         policy.now = now
         do {
@@ -204,19 +212,23 @@ final class EchoState: ObservableObject {
             for f in r.failures { NSLog("回响清理失败：%@：%@", f.path, f.message) }
             if r.failures.isEmpty, first { EchoPrefs.cleanRules = EchoPrefs.cleanRulesVersion }
             EchoPrefs.lastClean = now
+            return r
         } catch {
             NSLog("回响清理没跑起来：%@", error.localizedDescription)
+            return nil
         }
     }
 
     /// 备份成功后删 Claude 里不活跃、已备份完整的会话（设置里打开时）。dir 是 Claude 的备份（claude/）。在后台线程调用
-    nonisolated static func autoDeleteIfOn(_ dir: URL) {
-        guard EchoPrefs.autoDelete else { return }
+    @discardableResult
+    nonisolated static func autoDeleteIfOn(_ dir: URL) -> (count: Int, bytes: Int64)? {
+        guard EchoPrefs.autoDelete else { return nil }
         let list = EchoAutoDelete.candidates(source: EchoBackup.source, computerDir: dir, days: EchoPrefs.autoDeleteDays)
-        guard !list.isEmpty else { return }
+        guard !list.isEmpty else { return nil }
         let r = EchoAutoDelete.run(list)
         NSLog("回响自动删除：%d 个会话移进废纸篓，腾出 %.1fMB，失败 %d", r.count, Double(r.bytes) / 1e6, r.failures.count)
         for f in r.failures { NSLog("回响自动删除失败：%@：%@", f.path, f.message) }
+        return r.count > 0 ? (r.count, r.bytes) : nil
     }
 
     func reloadSessions() {

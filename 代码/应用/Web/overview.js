@@ -223,47 +223,47 @@
 
   // 备份：累计（顶上三个数）、各应用（会话数、原会话 → 备份）、备份日志（一天一行，由每次备份追加的记录汇总）。
   // 数据由 Swift 整理时一并给 data.backup：{last, apps: [{app, sessions, src, bak, gone}], log: [{t, app, files, written, failed, in, out, cleanFreed, autoDel, autoDelBytes}]}
-  // 顶上不放密钥打码数（「密钥不用了」）
+  // 顶上不放密钥打码数（「密钥不用了」）；Claude 里不活跃会话移进废纸篓叫「自动清理」，不写删除
   const APP = { claude: "Claude Code", codex: "Codex", workbuddy: "WorkBuddy" };
   const fmtB = (n) => { if (!n) return "0"; if (n < 1024) return n + " B"; let v = n; for (const u of ["KB", "MB", "GB", "TB"]) { v /= 1024; if (v < 1000 || u === "TB") return (v < 10 ? v.toFixed(1) : Math.round(v)) + " " + u; } };
   let logAll = false;
   function backup() {
     const b = DATA && DATA.backup, el = $("backup");
-    el.hidden = !(b && b.apps && b.apps.length);
-    if (el.hidden) return;
+    if (!(b && b.apps && b.apps.length)) { el.innerHTML = `<div class="card"><div class="empty">还没有备份过</div></div>`; return; }
     const dayOf = (iso) => { const d = new Date(iso); return new Date(d.getFullYear(), d.getMonth(), d.getDate()); };
     const when = b.last ? `上次备份 ${+dayOf(b.last) === +TODAY ? "今天" : md(dayOf(b.last))} ${hm(+new Date(b.last))}` : "还没有备份过";
     const log = b.log || [], sum = (f) => log.reduce((a, x) => a + (x[f] || 0), 0);
     const src = b.apps.reduce((a, x) => a + x.src, 0), bak = b.apps.reduce((a, x) => a + x.bak, 0);
     const gone = b.apps.reduce((a, x) => a + (x.gone || 0), 0);
-    const stat = (l, v, s) => `<div class="bks"><div class="l">${l}</div><div class="v">${v}</div><div class="s">${s}</div></div>`;
-    let h = `<h2>备份<span class="note">${when}</span></h2><div class="bkstats">`
+    // 备份页：顶上三张数字卡（和会话页的指标卡同样式）、各应用一张卡、备份日志一张卡
+    const stat = (l, v, s) => `<div class="card kpi"><div class="l">${l}</div><div class="v">${v}</div><div class="s">${s}</div></div>`;
+    let h = `<div class="kpis bkstats">`
       + stat("已备份", `${fmtN(b.apps.reduce((a, x) => a + x.sessions, 0))}<small>个会话</small>`, gone ? `${fmtN(gone)} 个原文件已清理，只在备份里` : "原文件都还在")
       + stat("占用", `${fmtB(bak)}`, `原会话 ${fmtB(src)}，省 ${src ? Math.round((1 - bak / src) * 100) : 0}%`)
-      + stat("自动删除", `${fmtN(sum("autoDel"))}<small>个会话</small>`, `腾出 ${fmtB(sum("autoDelBytes"))}，清理备份又腾出 ${fmtB(sum("cleanFreed"))}`)
-      + `</div>`;
+      + stat("自动清理", `${fmtN(sum("autoDel"))}<small>个会话</small>`, `腾出 ${fmtB(sum("autoDelBytes"))}，清理备份又腾出 ${fmtB(sum("cleanFreed"))}`)
+      + `</div><section class="card"><h2>各应用<span class="note">${when}</span></h2>`;
     h += b.apps.map((x) => {
       const pct = x.src ? Math.max(0, Math.round((1 - x.bak / x.src) * 100)) : 0;
       return `<div class="bk"><div class="bk-head"><img src="app-${x.app}.svg" alt=""><span>${APP[x.app] || x.app}</span><span class="cnt">${fmtN(x.sessions)} 个会话</span>
         <span class="sz">${fmtB(x.src)} → <b>${fmtB(x.bak)}</b></span><em>省 ${pct}%</em></div>
         <div class="bkbar"><i style="width:${x.src ? Math.min(100, x.bak / x.src * 100) : 0}%"></i></div></div>`;
-    }).join("");
+    }).join("") + `</section>`;
     // 备份日志：按天并起来，新的在上
     const byDay = new Map();
     for (const x of log) { const k = +dayOf(x.t); byDay.set(k, [...(byDay.get(k) || []), x]); }
     const days = [...byDay.entries()].sort((a, b2) => b2[0] - a[0]);
     if (days.length) {
       const list = logAll ? days : days.slice(0, 7);
-      h += `<div class="bklog"><div class="use-name">备份日志</div><div class="row bkrow cols"><span>日期</span><span>次数</span><span>写入</span><span>原 → 备份</span><span>清理腾出</span><span>自动删除</span><span>结果</span></div>`
+      h += `<section class="card"><h2>备份日志<span class="note">共 ${days.length} 天、${new Set(log.map((x) => x.t)).size} 次</span></h2><div class="row bkrow cols"><span>日期</span><span>次数</span><span>写入</span><span>原 → 备份</span><span>清理腾出</span><span>自动清理</span><span>结果</span></div>`
         + list.map(([k, xs]) => {
-          const s2 = (f) => xs.reduce((a, x) => a + (x[f] || 0), 0), runs = new Set(xs.map((x) => x.t)).size, failed = s2("failed");
-          const apps = [...new Set(xs.map((x) => APP[x.app] || x.app))].join("、");
+          const s2 = (f) => xs.reduce((a, x) => a + (x[f] || 0), 0), runs = new Set(xs.map((x) => x.t)).size, failed = s2("failed"), err = (xs.find((x) => x.error) || {}).error;
+          const apps = [...new Set(xs.filter((x) => APP[x.app]).map((x) => APP[x.app]))].join("、");
           return `<div class="row bkrow"><span class="d" data-tip="${apps}">${+k === +TODAY ? "今天" : md(new Date(k))}</span><span class="num">${runs} 次</span>
             <span class="num">${fmtN(s2("written"))} 个文件</span><span class="num">${s2("written") ? `${fmtB(s2("in"))} → ${fmtB(s2("out"))}` : ""}</span>
             <span class="num">${s2("cleanFreed") ? fmtB(s2("cleanFreed")) : ""}</span><span class="num">${s2("autoDel") ? `${s2("autoDel")} 个，${fmtB(s2("autoDelBytes"))}` : ""}</span>
-            <span class="num ${failed ? "warn" : "ok"}">${failed ? `${failed} 个文件失败` : "成功"}</span></div>`;
+            <span class="num ${failed || err ? "warn" : "ok"}"${err ? ` data-tip="${esc(err)}"` : ""}>${err ? "没备份成" : failed ? `${failed} 个文件失败` : "成功"}</span></div>`;
         }).join("")
-        + (days.length > 7 ? `<div class="toggle" id="bkmore">${logAll ? "收起" : `再显示 ${days.length - 7} 天`}</div>` : "") + `</div>`;
+        + (days.length > 7 ? `<div class="toggle" id="bkmore">${logAll ? "收起" : `再显示 ${days.length - 7} 天`}</div>` : "") + `</section>`;
     }
     el.innerHTML = h;
     const more = $("bkmore");
@@ -276,8 +276,16 @@
     document.querySelector(".main").classList.toggle("none", none);
     document.querySelector(".page").hidden = none;
     if (none) { $("blank").innerHTML = Blank.html("empty", "还没有会话", "备份完成后，这里按周显示 Token、消息、AI 时长和 Git 提交"); return; }
-    hero(); cal(); week(); money(); backup();
+    const bk = view === "backup";
+    document.querySelector(".main").classList.toggle("bkview", bk);
+    document.querySelector(".page:not(.bkpage)").hidden = bk;
+    $("backup").hidden = !bk;
+    document.querySelectorAll("#view b").forEach((x) => x.classList.toggle("on", x.dataset.v === view));
+    if (bk) backup(); else { hero(); cal(); week(); money(); }
   }
+  // 右上角切换：会话 / 备份，每次打开先看会话，不记上次
+  let view = "sess";
+  $("view").onclick = (e) => { const b = e.target.closest("b"); if (!b || b.dataset.v === view) return; view = b.dataset.v; draw(); };
 
   // 占位用的假数据：第一次整理总览要十几秒，先用它按真实版式画一遍，外面加 .ui-skel 变成灰块（照 NAS 网站公共层的自动占位）
   function fake() {
