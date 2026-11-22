@@ -18,7 +18,7 @@ struct EchoBrowserView: View {
     @State private var showAll: Set<String> = []                       // 点过「再显示」的项目
     @State private var showOverview = true                             // 打开窗口默认停在总览
     @State private var jumpAt: Double?                                 // 从总览点版本或提交进来：打开后跳到这个时间
-    @AppStorage("sidebarWidth") private var sideW: Double = 272        // 左栏宽，拖右边缘改，220 到 420
+    @AppStorage("sidebarWidth") private var sideW: Double = 272        // 左栏宽，拖右边缘改，200 到 420（照 NAS 网站）
 
     private var computers: [String] { Array(Set(state.sessions.map(\.computer))).sorted() }
     private var dirState: [String: Bool] {
@@ -41,7 +41,7 @@ struct EchoBrowserView: View {
         HStack(spacing: 0) {
             sidebar
                 .frame(width: sideW)
-                .overlay(alignment: .trailing) { EchoResizeHandle(width: $sideW) }
+                .overlay(alignment: .trailing) { EchoResizeHandle(width: $sideW).frame(width: 10) }
             // 右边白区：靠左栏的两个角收圆角 12，左栏的灰底从圆角外露出来（照伙伴云NAS应用）
             ZStack {
                 if showOverview { EchoOverview() }
@@ -292,10 +292,8 @@ struct EchoBrowserView: View {
         return AnyView(Group {
             EchoRow(fill: nil) {
                 HStack(spacing: 6) {
-                    // 展开按钮：灰色小三角，收起朝右、展开朝下
-                    Image(systemName: "chevron.right").font(.system(size: 9, weight: .semibold))
-                        .rotationEffect(.degrees(open ? 90 : 0)).frame(width: 12)
-                        .foregroundStyle(EchoColor.fg3)
+                    // 展开按钮：照 NAS 网站目录树，收起朝右、展开朝下，自己有悬停底
+                    EchoTwist(open: open) { toggle(d, level: level) }
                     (Text(parts[0]).foregroundColor(EchoColor.fg)
                         + Text(parts.count > 1 ? " / " + parts.dropFirst().joined(separator: " / ") : "").foregroundColor(EchoColor.fg3))
                         .font(.system(size: 13)).lineLimit(1)

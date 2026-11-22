@@ -24,30 +24,54 @@ enum EchoColor {
     static let accent = dyn(0x008081, 0x3fc0c0)          // 回响主色青绿（11-21 定，和 NAS 的靛蓝分开）
     static let sel = dyn(0x008081, 0x3fc0c0, 0.10, 0.16)
     static let hover = dyn(0x1f2329, 0xffffff, 0.05, 0.06)
+    static let sideHover = dyn(0xffffff, 0xffffff, 0.6, 0.06)      // 左栏行悬停：灰底上的半透明白，照 NAS 网站 --bg-side-hover
+    static let onSideHover = dyn(0x1f2329, 0xffffff, 0.08, 0.08)   // 左栏里小按钮（目录展开箭头）的悬停，照 NAS 网站 --bg-on-side-hover
     static let good = dyn(0x12a150, 0x3ccf7e)
     static let warn = dyn(0xe08a00, 0xf0a63a)
 }
 
-/// 左栏右边缘的拖动把手：6 宽，悬停变左右箭头，拖了改左栏宽，220 到 420，记在本机
-struct EchoResizeHandle: View {
+/// 左栏右边缘的拖动条，照 NAS 网站 .ui-split：平时看不见，悬停或拖动时在右边缘显示 2 宽的竖线（上下各缩 20）；
+/// 用 AppKit 视图做：左栏的滚动列表和对话网页都是原生视图，叠在上面的 SwiftUI 收不到悬停；光标用光标区域，不会被网页改掉。
+/// 点按区是左栏最右边 10 宽。左栏宽 200 到 420，记在本机
+struct EchoResizeHandle: NSViewRepresentable {
     @Binding var width: Double
-    @State private var start: Double?
-    var body: some View {
-        Color.clear
-            .frame(width: 6)
-            .contentShape(Rectangle())
-            .onHover { $0 ? NSCursor.resizeLeftRight.push() : NSCursor.pop() }
-            .gesture(DragGesture(minimumDistance: 1, coordinateSpace: .global)
-                .onChanged { g in
-                    if start == nil { start = width }
-                    width = min(420, max(220, (start ?? width) + g.translation.width))
-                }
-                .onEnded { _ in start = nil })
-            .offset(x: 3)
+
+    final class V: NSView {
+        var width: Binding<Double>?
+        private var start: (x: CGFloat, w: Double)?
+        private var hover = false { didSet { needsDisplay = true } }
+        static let line = NSColor(name: nil) { $0.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            ? NSColor(srgbRed: 0x3e / 255, green: 0x41 / 255, blue: 0x4a / 255, alpha: 1)
+            : NSColor(srgbRed: 0xd5 / 255, green: 0xd8 / 255, blue: 0xde / 255, alpha: 1) }
+
+        override var mouseDownCanMoveWindow: Bool { false }
+        override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }   // 窗口不在前台时第一下就能拖
+        override func resetCursorRects() { addCursorRect(bounds, cursor: .resizeLeftRight) }
+        override func updateTrackingAreas() {
+            super.updateTrackingAreas()
+            trackingAreas.forEach(removeTrackingArea)
+            addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
+        }
+        override func mouseEntered(with e: NSEvent) { hover = true }
+        override func mouseExited(with e: NSEvent) { hover = false }
+        override func mouseDown(with e: NSEvent) { start = (e.locationInWindow.x, width?.wrappedValue ?? 0); needsDisplay = true }
+        override func mouseDragged(with e: NSEvent) {
+            guard let s = start else { return }
+            width?.wrappedValue = min(420, max(200, s.w + Double(e.locationInWindow.x - s.x)))
+        }
+        override func mouseUp(with e: NSEvent) { start = nil; needsDisplay = true }
+        override func draw(_ dirtyRect: NSRect) {
+            guard hover || start != nil, bounds.height > 40 else { return }
+            Self.line.setFill()
+            NSBezierPath(roundedRect: NSRect(x: bounds.maxX - 2, y: 20, width: 2, height: bounds.height - 40), xRadius: 1, yRadius: 1).fill()
+        }
     }
+
+    func makeNSView(context: Context) -> V { V() }
+    func updateNSView(_ v: V, context: Context) { v.width = $width }
 }
 
-/// 列表行：悬停浅色圆角底；选中时由调用方给底色
+/// 左栏的行：悬停半透明白圆角底（0.12 秒渐变），选中时由调用方给白底
 struct EchoRow<Content: View>: View {
     var fill: Color?
     var shadow = false
@@ -60,8 +84,9 @@ struct EchoRow<Content: View>: View {
             .padding(.horizontal, 10)
             .background(
                 RoundedRectangle(cornerRadius: 8)
-                    .fill(fill ?? (hover ? EchoColor.hover : .clear))
+                    .fill(fill ?? (hover ? EchoColor.sideHover : .clear))
                     .shadow(color: .black.opacity(shadow ? 0.06 : 0), radius: 1, y: 1)
+                    .animation(.easeOut(duration: 0.12), value: hover)
             )
             .contentShape(Rectangle())
             .onHover { hover = $0 }
@@ -83,6 +108,33 @@ struct EchoIconButton: ButtonStyle {
     }
 }
 
+/// 目录展开按钮：照 NAS 网站目录树的 .tw，14 的箭头放在 22 见方的按钮里，悬停深色 8% 圆角底，展开时转 90° 朝下。
+/// 排版上只占 12 宽（左右各收 5），不挤动后面的名字
+struct EchoTwist: View {
+    let open: Bool
+    let action: () -> Void
+    @State private var hover = false
+
+    var body: some View {
+        Button(action: action) {
+            EchoGlyph(kind: .chevron)
+                .stroke(style: StrokeStyle(lineWidth: 2.2 * 14 / 24, lineCap: .round, lineJoin: .round))
+                .frame(width: 14, height: 14)
+                .rotationEffect(.degrees(open ? 90 : 0))
+                .foregroundStyle(EchoColor.fg)
+                .frame(width: 22, height: 22)
+                .background(RoundedRectangle(cornerRadius: 5).fill(hover ? EchoColor.onSideHover : .clear))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hover = $0 }
+        .animation(.easeOut(duration: 0.12), value: hover)
+        .animation(.easeOut(duration: 0.12), value: open)
+        .padding(.horizontal, -5)
+        .help(open ? "收起" : "展开")
+    }
+}
+
 /// 拖窗口的区域：窗口没有标题栏，红绿灯那一行按住能拖，双击放大或还原（照伙伴云NAS应用 WindowDragArea）
 struct EchoWindowDrag: NSViewRepresentable {
     final class V: NSView {
@@ -97,9 +149,9 @@ struct EchoWindowDrag: NSViewRepresentable {
 
 // MARK: - 线性图标
 
-/// 和对话页（Web/app.js 的 ICON）同一套画法，24 格画、线宽 1.8、圆角端点，规范「图标」。目录树用系统的小三角（chevron.right），不在这里画
+/// 和对话页（Web/app.js 的 ICON）同一套画法，24 格画、线宽 1.8、圆角端点，规范「图标」。目录展开箭头也在这里画（线宽 2.2，照 NAS 网站）
 struct EchoGlyph: Shape {
-    enum Kind { case stack }
+    enum Kind { case stack, chevron }
     let kind: Kind
 
     func path(in rect: CGRect) -> Path {
@@ -113,6 +165,9 @@ struct EchoGlyph: Shape {
             path.move(to: p(7.5, 5.5)); path.addLine(to: p(17.5, 5.5))
             path.addQuadCurve(to: p(19.5, 7.5), control: p(19.5, 5.5))
             path.addLine(to: p(19.5, 16.5))
+        case .chevron:
+            // 展开箭头：朝右，和 NAS 网站的 i-tri 一样（m10 8 4 4-4 4）
+            path.move(to: p(10, 8)); path.addLine(to: p(14, 12)); path.addLine(to: p(10, 16))
         }
         return path
     }
