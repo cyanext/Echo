@@ -216,13 +216,12 @@ enum EchoLibrary {
     }
 }
 
-/// 左栏的手动顺序：拖动排好的顺序记在本机，每组一个列表。组名：顶层目录「/」，子目录用上一级目录的路径，会话用「s:目录路径」；
-/// 目录按路径记，会话按会话 ID 记（挪了文件夹也认得）。没排过的（新出现的）按最近用过排在前面，排过的跟在后面按记的顺序
+/// 左栏目录的手动顺序：拖动排好的顺序记在本机，每一级一个列表，按目录路径记。组名：顶层目录「/」，子目录用上一级目录的路径。
+/// 没排过的（新出现的）按最近用过排在前面，排过的跟在后面按记的顺序。会话不排，只按最近用过
 enum EchoOrder {
     static func arrange(_ dirs: [EchoDir], _ order: [String: [String]], group: String = "/") -> [EchoDir] {
         sorted(dirs, order[group], key: \.path).map { d in
-            EchoDir(path: d.path, name: d.name, children: arrange(d.children, order, group: d.path),
-                    sessions: sorted(d.sessions, order["s:" + d.path], key: \.sessionId))
+            EchoDir(path: d.path, name: d.name, children: arrange(d.children, order, group: d.path), sessions: d.sessions)
         }
     }
 
@@ -232,19 +231,13 @@ enum EchoOrder {
         return items.filter { pos[key($0)] == nil } + items.filter { pos[key($0)] != nil }.sorted { pos[key($0)]! < pos[key($1)]! }
     }
 
-    /// 只重排一组，其余原样：拖完排序时用，不用把整棵树按全部顺序再排一遍。只往这一组所在的那条路径上走
+    /// 只重排一级，其余原样：拖完排序时用，不用把整棵树按全部顺序再排一遍。只往这一级所在的那条路径上走
     static func apply(_ dirs: [EchoDir], group: String, keys: [String]) -> [EchoDir] {
         if group == "/" { return sorted(dirs, keys, key: \.path) }
-        let target = group.hasPrefix("s:") ? String(group.dropFirst(2)) : group
         return dirs.map { d in
-            if !group.hasPrefix("s:"), d.path == target {
-                return EchoDir(path: d.path, name: d.name, children: sorted(d.children, keys, key: \.path), sessions: d.sessions)
-            }
-            if group.hasPrefix("s:"), d.path == target {
-                return EchoDir(path: d.path, name: d.name, children: d.children, sessions: sorted(d.sessions, keys, key: \.sessionId))
-            }
+            if d.path == group { return EchoDir(path: d.path, name: d.name, children: sorted(d.children, keys, key: \.path), sessions: d.sessions) }
             let base = d.path.hasSuffix("/") ? d.path : d.path + "/"
-            guard target.hasPrefix(base) else { return d }
+            guard group.hasPrefix(base) else { return d }
             return EchoDir(path: d.path, name: d.name, children: apply(d.children, group: group, keys: keys), sessions: d.sessions)
         }
     }

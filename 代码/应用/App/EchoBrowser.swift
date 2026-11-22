@@ -16,8 +16,6 @@ struct EchoBrowserView: View {
     @State private var editError: String?
     @State private var deleting: [EchoSession] = []
     @State private var errorTitle = "没改成"
-    @State private var moveList: [EchoSession] = []                    // 拖到目录上、等确认要挪的会话
-    @State private var moveDir = ""
     @State private var moveDone: String?                               // 挪好后的提示和恢复命令
     @State private var moveCmd: String?
     @AppStorage("sidebarOrder") private var orderRaw = ""              // 拖动排好的顺序（EchoOrder），JSON
@@ -80,13 +78,6 @@ struct EchoBrowserView: View {
             Button("移到废纸篓", role: .destructive, action: commitDelete)
         } message: {
             Text("Claude Code 里的原会话和回响的备份一起移走")
-        }
-        .alert(moveList.count > 1 ? "把 \(moveList.count) 个会话挪到这个文件夹？" : "把「\(moveList.first?.meta.title ?? "")」挪到这个文件夹？",
-               isPresented: Binding(get: { !moveList.isEmpty }, set: { if !$0 { moveList = [] } })) {
-            Button("取消", role: .cancel) {}
-            Button("挪过去") { let l = moveList, d = moveDir; doMove(l, d) }
-        } message: {
-            Text("\((moveDir as NSString).abbreviatingWithTildeInPath)\nClaude Code 里的原会话和回响的备份一起挪，挪完在这个文件夹续上")
         }
         .alert("挪好了", isPresented: Binding(get: { moveDone != nil }, set: { if !$0 { moveDone = nil; moveCmd = nil } })) {
             if let c = moveCmd {
@@ -414,7 +405,7 @@ struct EchoBrowserView: View {
             .background(guides(level))
             .overlay(EchoDropMark(drag: drag, key: d.path, dragged: { [p = d.path] in $0.dir == p }))
             .onDrag {
-                startDrag(EchoDragItem(sessions: [], dir: d.path, group: group))
+                startDrag(EchoDragItem(dir: d.path, group: group))
                 return NSItemProvider(object: d.path as NSString)
             } preview: { dragGhost(d.name) }
             .onDrop(of: [.text], delegate: EchoRowDrop(drag: drag, update: { dirHover(d, group: group, y: $0.y) }, exit: { leave(d.path) }, perform: { dropOnDir(d) }))
@@ -476,15 +467,6 @@ struct EchoBrowserView: View {
             }
         }
         .contextMenu { sessionMenu(s) }
-        .overlay(EchoDropMark(drag: drag, key: s.sessionId, dragged: { [id = s.sessionId] in $0.sessions.contains { $0.sessionId == id } }))
-        .onDrag {
-            let list = picked.contains(s.id) && picked.count > 1 ? state.sessions.filter { picked.contains($0.id) } : [s]
-            startDrag(EchoDragItem(sessions: list, dir: nil, group: Set(list.map(\.projectPath)).count == 1 ? "s:" + s.projectPath : ""))
-            return NSItemProvider(object: s.sessionId as NSString)
-        } preview: {
-            dragGhost(picked.contains(s.id) && picked.count > 1 ? "\(s.meta.title) 等 \(picked.count) 个会话" : s.meta.title)
-        }
-        .onDrop(of: [.text], delegate: EchoRowDrop(drag: drag, update: { sessionHover(s, y: $0.y) }, exit: { leave(s.sessionId) }, perform: { dropOnSession(s) }))
     }
 
     // MARK: 拖动：照 NAS 网站的拖放公共层（lib/dnd.js）。开始拖记下拖的是什么；拖过某行判断能不能放，只重画那一行的标记和底部提示（状态在 EchoDragState，左栏的树不跟着重画）；松开再判断一次、收掉，能放才执行
@@ -506,53 +488,18 @@ struct EchoBrowserView: View {
 
     private func leave(_ key: String) { if drag.hint?.key == key { drag.set(nil) } }
 
-    /// 目录行：拖会话来是挪进这个目录；拖同一级的目录来是排序（上半行插到前面，下半行插到后面）
+    /// 目录行：同一级的目录拖来是排序（上半行插到前面，下半行插到后面）。会话不能拖，只按最近用过排
     private func dirHover(_ d: EchoDir, group: String, y: CGFloat) {
-        guard let it = drag.item else { return }
-        if let dir = it.dir {
-            guard dir != d.path else { drag.set(nil); return }
-            drag.set(it.group == group
-                ? EchoDropHint(key: d.path, mode: y < 17 ? .before : .after, ok: true, text: "")
-                : EchoDropHint(key: d.path, mode: .into, ok: false, text: "目录只能在同一级里排序"))
-            return
-        }
-        let name = (d.path as NSString).lastPathComponent
-        if it.sessions.allSatisfy({ $0.projectPath == d.path }) {
-            drag.set(EchoDropHint(key: d.path, mode: .into, ok: false, text: "已经在「\(name)」里，拖到会话之间可以排序"))
-        } else if let far = it.sessions.first(where: { EchoRename.originalURL(for: $0) == nil }) {
-            drag.set(EchoDropHint(key: d.path, mode: .into, ok: false, text: "「\(far.meta.title)」在 \(far.computer) 上，到那台电脑上挪"))
-        } else {
-            drag.set(EchoDropHint(key: d.path, mode: .into, ok: true, text: "松开挪到「\(name)」"))
-        }
-    }
-
-    /// 会话行：同一个目录里的会话拖来是排序；别处的会话、目录拖来时提示该往哪放
-    private func sessionHover(_ s: EchoSession, y: CGFloat) {
-        guard let it = drag.item else { return }
-        if it.dir != nil {
-            drag.set(EchoDropHint(key: s.sessionId, mode: .into, ok: false, text: "目录只能在同一级里排序"))
-        } else if it.sessions.contains(s) {
-            drag.set(nil)
-        } else if it.group == "s:" + s.projectPath {
-            drag.set(EchoDropHint(key: s.sessionId, mode: y < 24 ? .before : .after, ok: true, text: ""))
-        } else {
-            drag.set(EchoDropHint(key: s.sessionId, mode: .into, ok: false, text: "要挪到这个目录，拖到目录那一行上"))
-        }
+        guard let it = drag.item, it.dir != d.path else { drag.set(nil); return }
+        drag.set(it.group == group
+            ? EchoDropHint(key: d.path, mode: y < 17 ? .before : .after, ok: true, text: "")
+            : EchoDropHint(key: d.path, mode: .into, ok: false, text: "目录只能在同一级里排序"))
     }
 
     private func dropOnDir(_ d: EchoDir) -> Bool {
         defer { drag.clear() }
         guard let it = drag.item, let h = drag.hint, h.key == d.path, h.ok else { return false }
-        if let dir = it.dir { return reorder(it.group, [dir], to: d.path, after: h.mode == .after) }
-        moveDir = d.path
-        moveList = it.sessions
-        return true
-    }
-
-    private func dropOnSession(_ s: EchoSession) -> Bool {
-        defer { drag.clear() }
-        guard let it = drag.item, let h = drag.hint, h.key == s.sessionId, h.ok else { return false }
-        return reorder(it.group, it.sessions.map(\.sessionId), to: s.sessionId, after: h.mode == .after)
+        return reorder(it.group, [it.dir], to: d.path, after: h.mode == .after)
     }
 
     /// 按左栏现在的顺序算出整组新顺序，记下来
@@ -563,7 +510,6 @@ struct EchoBrowserView: View {
         }
         let keys: [String]
         if group == "/" { keys = tree.map(\.path) }
-        else if group.hasPrefix("s:") { keys = find(tree, String(group.dropFirst(2)))?.sessions.map(\.sessionId) ?? [] }
         else { keys = find(tree, group)?.children.map(\.path) ?? [] }
         guard !keys.isEmpty else { return false }
         let next = EchoOrder.move(keys, moving: moving, to: target, after: after)
@@ -634,10 +580,9 @@ struct EchoBrowserView: View {
     }
 }
 
-/// 正在拖的：几个会话，或一个目录。group 是排序用的组（见 EchoOrder），几个会话不在同一个目录时为空，不能排序
+/// 正在拖的目录。group 是它所在的那一级（见 EchoOrder），只能在同一级里排序
 struct EchoDragItem {
-    var sessions: [EchoSession]
-    var dir: String?
+    var dir: String
     var group: String
 }
 
