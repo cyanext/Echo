@@ -5,7 +5,7 @@
 ```text
 需求文档/     版本需求/（一类事一篇，开工时叫「待定-<主题>」，发版时改成「v<号>-<主题>」）、设计规范/、归档/（立项方案）、.pm-doc/
 设计/         设计稿，一个主题一个文件夹，每个文件夹一份说明
-代码/应用/    Mac 应用：App/ 源码（Echo*.swift，见下）、Web/ 对话页面和总览页面（overview.*，单价表 prices.json，两页共用的 base.*、缺省插画 blank-*.svg）、icon/ 应用图标（改图标跑 make_icon.py）、tests/、tools/、build.sh
+代码/应用/    Mac 应用：App/ 源码（Echo*.swift，见下）、skill/ech/ 跟着应用发的 ech skill（打包时写上版本号）、Web/ 对话页面和总览页面（overview.*，单价表 prices.json，两页共用的 base.*、缺省插画 blank-*.svg）、icon/ 应用图标（改图标跑 make_icon.py）、tests/、tools/、build.sh
 代码/原型/    Python 和网页原型，瘦身和消息显示以它为准，测试拿它比对
 样例/         真实会话和它的浏览页面（页面从 代码/原型/viewer/ 拷来，数据 export.py 生成），整个不进 git
 ```
@@ -26,12 +26,30 @@
 | `EchoOnboarding.swift` | 首次设置（第一次打开时的四步引导） |
 | `EchoLibrary.swift` | 扫备份出会话列表、目录树，路径和时间的公共函数 |
 | `EchoExport.swift` | 会话整理成对话页要的数据，规则以 `代码/原型/export.py` 为准 |
-| `EchoEdit.swift` | 改名、合集、删除、移动（含移动记录）、自动清理不活跃的会话（Claude、Codex）、关闭 Claude 的自动清理 |
-| `EchoStats.swift` | 总览的数：每天的消息、时长、Token（Claude、Codex），Git 提交按会话里的 git commit 挂到会话；备份页的汇总 |
+| `EchoEdit.swift` | 改名、合集、删除、移动（含移动记录）、目录改名和移动（EchoDirMove，左栏和 ech mv 共用）、自动清理不活跃的会话（Claude、Codex）、关闭 Claude 的自动清理 |
+| `EchoStats.swift` | 总览的数：每天的消息、时长、Token（Claude、Codex），Git 提交归到哪个会话（EchoStats.owner，总览和 ech 共用）；备份页的汇总 |
+| `EchoIndex.swift` | ech 的本机索引（`~/Library/Application Support/回响/索引.sqlite`）：会话分段（压缩点、版本提交、跨天），全文索引；备份完增量更新 |
+| `EchoCLI.swift` | 命令行工具 `ech`（同一个程序用 `ech` 这个名字调用时走这里）和它的安装（`~/.local/bin/ech`、skill） |
 | `EchoBrowser.swift` | 浏览窗口：左栏目录树、右栏切换、底部备份状态 |
 | `EchoWeb.swift` | 右栏网页：对话、总览，`echo://app/` 取文件和数据 |
 | `EchoTheme.swift` | 颜色、左栏的行、按钮等原生公共部件，自绘图标 |
 | `EchoSettings.swift` | 设置窗口：通用、存储两页，各块也给首次设置用 |
+
+## ech 命令
+
+回响带的命令行工具，装在 `~/.local/bin/ech`（指向应用里的程序），配套的 skill 装在 `~/.claude/skills/ech`。首次设置完成时自动装，设置「通用」里能重装；回响升级后启动时 skill 跟着更新。用法 `ech help`，参数 `ech schema [命令]`：
+
+| 命令 | 做什么 |
+|---|---|
+| `ech find <关键词>` | 在全部备份里找，按会话列命中，每处带引用（`会话#段号`） |
+| `ech segs <会话>` | 会话的分段：起止行、时间、提交的版本、第一句话 |
+| `ech read <引用>` | 读一段的对话文字（`ce57ce36#3`、`ce57ce36#L1200-1500`），`--tools` 带工具输出 |
+| `ech context <会话>` | 续上一个会话：最近一次压缩的阶段总结和之后的全部对话 |
+| `ech list --since 上周` | 按时间列会话、我的消息、Token、提交和版本（取总览数据，周报用） |
+| `ech backup` / `ech index` | 备份并更新索引和总览数据 / 只更新索引和总览数据 |
+| `ech mv <旧> <新>` | 改文件夹名或挪位置，本机 Claude Code 的会话一起跟过去，`--dry-run` 预览 |
+
+输出纯文本，一页最多 8000 字，`--page` 翻页，`--json` 给脚本用。开发时测：编出程序后 `ln -s <程序> <临时目录>/ech`，用这个替身调用。
 
 ## 开发
 
@@ -56,6 +74,5 @@
 
 按主题排，不编号；开工时写「待定-<主题>」需求。
 
-- 全局搜索：左栏顶上搜所有会话的内容，点结果定位到命中处。
-- 分段和 `ech` 命令：会话按要点分段，给 Claude 用的只读查询命令（立项方案第十二节）。
+- 全局搜索和按段浏览：左栏顶上搜所有会话的内容，长会话按段展开，用 ech 的分段和索引。
 - 界面减法待定项：合集的叠卡片图标、我的消息栏的条数、左栏底部的云图标、标题切换的淡入动画。
