@@ -248,14 +248,14 @@
     const sessions = apps.reduce((a, x) => a + x.sessions, 0), gone = apps.reduce((a, x) => a + (x.gone || 0), 0);
     const pctSaved = src ? Math.round(saved / src * 100) : 0;
     const name = (a) => APP[a] || a;
-    // 数字卡：累计节省用主色、带一根进度条，是这页的成果
+    // 数字卡：累计节省的数字用主色，是这页的成果（进度条和小字说的是同一件事，去掉了）
     const card = (l, v, s, cls = "") => `<div class="card kpi bks${cls}"><div class="l">${l}</div><div class="v">${v}</div><div class="s">${s}</div></div>`;
     const split = `<div class="thin">${apps.map((x) => `<i class="a-${x.app}" style="flex:${x.sessions}" data-tip="${name(x.app)} ${fmtN(x.sessions)} 个会话"></i>`).join("")}</div>`
       + `<div class="mini">${apps.map((x) => `<span><i class="a-${x.app}"></i>${name(x.app)} ${fmtN(x.sessions)}</span>`).join("")}</div>`;
     let h = `<div class="kpis bkstats">`
       + card("已备份", `${fmtN(sessions)}<small>个会话</small>`, split)
       + card("已备份容量", fmtB(bak), `原会话 ${fmtB(src)}${gone ? `<br>${fmtN(gone)} 个会话的原文件已清理，仅保留备份` : ""}`)
-      + card("累计节省", fmtB(saved), `<div class="meter"><i style="width:${pctSaved}%"></i></div>较原会话减少 ${pctSaved}%`, " win")
+      + card("累计节省", fmtB(saved), `较原会话减少 ${pctSaved}%`, " win")
       + card("自动清理", `${fmtN(sum("autoDel"))}<small>个会话</small>`, `释放 ${fmtB(sum("autoDelBytes"))}${sum("cleanFreed") ? `<br>清理备份释放 ${fmtB(sum("cleanFreed"))}` : ""}`)
       + `</div>`;
     // 空间节省：同一把尺子（最大的原会话占满），浅色整条是原会话、主色是备份；右边写省了多少

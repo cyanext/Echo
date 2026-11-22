@@ -199,10 +199,8 @@ h2.sec { margin: var(--space-4) var(--space-1) 0; }
 @media (max-width: 900px) { .kpis.bkstats { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 440px) { .kpis.bkstats { grid-template-columns: minmax(0, 1fr); } }
 .bks .s { white-space: normal; }   /* 备份页的小字能换行，窄了不截断 */
-/* 累计节省：这页的成果，数字用主色、底下一根进度条 */
+/* 累计节省：这页的成果，数字用主色 */
 .bks.win .v { color: var(--accent); }
-.meter { height: 6px; margin: var(--space-2) 0 var(--space-1); border-radius: 3px; background: var(--q1); overflow: hidden; }
-.meter i { display: block; height: 100%; border-radius: 3px; background: var(--bright); }
 /* 已备份：各应用一根细分段条加小字 */
 .thin { display: flex; gap: 2px; height: 6px; margin: var(--space-2) 0 var(--space-1); }
 .thin i { min-width: 3px; border-radius: 3px; }
@@ -263,3 +261,6 @@ h2.sec { margin: var(--space-4) var(--space-1) 0; }
 
 /* 应用 logo 不画线框；WorkBuddy 整块绿底，缩到 86% 和另两家视觉一样大 */
 img[src="app-workbuddy.svg"] { transform: scale(.86); }
+
+/* Claude 的螃蟹又扁又宽，白底在白面上看不见：放大 12%、往下 1 像素，和 Codex 图标、旁边文字视觉对齐 */
+img[src="app-claude.svg"] { transform: translateY(1px) scale(1.12); }
