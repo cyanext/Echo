@@ -265,7 +265,7 @@
       return `<div class="bk"><div class="bk-head"><img src="app-${x.app}.svg" alt=""><span>${name(x.app)}</span><span class="cnt">${fmtN(x.sessions)} 个会话</span>
         <span class="sz">${fmtB(x.src)} → <b>${fmtB(x.bak)}</b></span><em>节省 ${fmtB(Math.max(0, x.src - x.bak))} · ${pct}%</em></div>
         <div class="sbar" data-tip="${name(x.app)}：原会话 ${fmtB(x.src)}，备份 ${fmtB(x.bak)}"><i class="src" style="width:${x.src / top * 100}%"></i><i class="bak" style="width:${x.bak / top * 100}%"></i></div></div>`;
-    }).join("") + `<div class="legend"><span><i class="q1"></i>原会话</span><span><i class="q4"></i>备份</span></div></section>`;
+    }).join("") + `<div class="legend"><span><i class="q1"></i>原会话</span><span><i class="bright"></i>备份</span></div></section>`;
     // 备份容量分析：按类型（颜色同存储设置的占用条）、按应用，各一根 28 高的分段条，块里写占比，下面列名字、大小
     const kinds = (b.kinds || []).filter((k) => k.b > 0), kt = kinds.reduce((a, k) => a + k.b, 0);
     const seg = (parts, total) => `<div class="tbar">${parts.map((p) => { const r = p.v / total * 100; return `<i class="${p.c}" style="flex:${p.v}" data-tip="${p.n} ${fmtB(p.v)}（${r < 1 ? "<1" : Math.round(r)}%）">${r >= 8 ? Math.round(r) + "%" : ""}</i>`; }).join("")}</div>`

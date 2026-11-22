@@ -6,6 +6,7 @@
   --bg-surface: #ffffff; --bg-subtle: #f2f4f4; --bg-hover: rgba(31,35,41,.05); --accent-soft: rgba(0,128,129,.08);
   --fg: #1f2329; --fg-muted: #646a73; --fg-faint: #8f959e; --line: #e5e9e9;
   --accent: #008081; --down: #c46a1f;
+  --bright: #009fa0;   /* 进度条、备份条：主色同色阶亮一档，主色本身不变（累计节省亮一点） */
   --q0: #eaeeee; --q1: #afdfde; --q2: #64c3c3; --q3: #009fa0; --q4: #007677;   /* 主色由浅到深，2 到 4 档用 dataviz 校验过 */
   --mute: #d3dbdb; --mute2: #e6ebeb;
   --bg-skeleton: #edf0f0;
@@ -26,6 +27,7 @@
     --bg-surface: #1d1e23; --bg-subtle: #292e2f; --bg-hover: rgba(255,255,255,.06); --accent-soft: rgba(63,192,192,.14);
     --fg: #e6e8ec; --fg-muted: #9aa0ab; --fg-faint: #6f7581; --line: #2c3334;
     --accent: #3fc0c0; --down: #e3955a;
+    --bright: #5ecbcb;
     --q0: #2a3031; --q1: #034747; --q2: #006d6d; --q3: #009a9b; --q4: #5ecbcb;
     --mute: #364042; --mute2: #2c3536;
     --bg-skeleton: #2a2f30;
@@ -200,7 +202,7 @@ h2.sec { margin: var(--space-4) var(--space-1) 0; }
 /* 累计节省：这页的成果，数字用主色、底下一根进度条 */
 .bks.win .v { color: var(--accent); }
 .meter { height: 6px; margin: var(--space-2) 0 var(--space-1); border-radius: 3px; background: var(--q1); overflow: hidden; }
-.meter i { display: block; height: 100%; border-radius: 3px; background: var(--accent); }
+.meter i { display: block; height: 100%; border-radius: 3px; background: var(--bright); }
 /* 已备份：各应用一根细分段条加小字 */
 .thin { display: flex; gap: 2px; height: 6px; margin: var(--space-2) 0 var(--space-1); }
 .thin i { min-width: 3px; border-radius: 3px; }
@@ -209,8 +211,8 @@ h2.sec { margin: var(--space-4) var(--space-1) 0; }
 .mini i { width: 6px; height: 6px; border-radius: 2px; }
 /* 应用的颜色：低饱和的橙（Claude）、蓝（Codex），浅色深色各一套，dataviz 校验过（色度刚过 0.1 的下限，不发灰；色盲可分）。
    品牌色割裂，主色深浅又奇怪 */
-.a-claude { background: #C57A56; } .a-codex { background: #5B79BD; } .a-workbuddy { background: #4E9C86; }
-@media (prefers-color-scheme: dark) { .a-claude { background: #BA7650; } .a-codex { background: #6680C0; } }
+.a-claude { background: #D4896A; } .a-codex { background: #6E8BCC; } .a-workbuddy { background: #4E9C86; }   /* 再亮一点；橙对白底 2.7:1，有图例和柱顶数字兜底 */
+@media (prefers-color-scheme: dark) { .a-claude { background: #C5805A; } .a-codex { background: #6E87CB; } }
 .legend.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
 .use-name.gap { margin-top: var(--space-6); }
 .tbar i.a-claude, .tbar i.a-codex, .tbar i.a-workbuddy { color: #fff; }
@@ -247,12 +249,13 @@ h2.sec { margin: var(--space-4) var(--space-1) 0; }
 .sbar { position: relative; height: 8px; margin-top: var(--space-2); }
 .sbar i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 4px; }
 .sbar i.src { background: var(--q1); }
-.sbar i.bak { min-width: 3px; background: var(--q4); }
+.sbar i.bak { min-width: 3px; background: var(--bright); }
 /* 备份里都是什么：28 高的分段条，块间 2 的缝，块里写占比 */
 .tbar { display: flex; gap: 2px; height: 28px; }
 .tbar i { display: flex; align-items: center; min-width: 3px; padding-left: 8px; border-radius: 4px; font: 500 var(--text-xs)/1 -apple-system, sans-serif; font-style: normal; color: #fff; overflow: hidden; white-space: nowrap; }
 .tbar i.mute, .tbar i.mute2, .tbar i.q1, .tbar i.q2 { color: var(--fg); }
 .legend i.mute, .tbar i.mute { background: var(--mute); }
+.legend i.bright { background: var(--bright); }
 .legend i.mute2, .tbar i.mute2 { background: var(--mute2); }
 @media (prefers-color-scheme: dark) { .tbar i.q4, .tbar i.q3 { color: #10292a; } .tbar i.q2 { color: #fff; } }   /* 深色里色阶反过来：浅块上用深字 */
 .axis30 { display: flex; justify-content: space-between; margin-top: var(--space-1); font-size: var(--text-xs); color: var(--fg-faint); }
