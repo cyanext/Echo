@@ -2,6 +2,8 @@
 // 由 tests/run.sh 编译运行：test <会话.jsonl> <原型瘦身结果> <原型 data.js>；test --rules <假会话>
 // 手动验收全量备份：test --backup <临时目录>（把本机会话备份到临时目录，跑两遍看耗时）
 import Foundation
+import AppKit
+import SwiftUI
 
 @main
 enum EchoTests {
@@ -45,6 +47,9 @@ enum EchoTests {
             let list = EchoAutoDelete.candidates(source: EchoBackup.source, computerDir: URL(fileURLWithPath: a[2]), days: Int(a[3]) ?? 30)
             for c in list { print(String(format: "  %@  %.1fMB", c.rel, Double(c.bytes) / 1e6)) }
             print(String(format: "  共 %d 个，%.0fMB", list.count, Double(list.reduce(0) { $0 + $1.bytes }) / 1e6))
+        }
+        else if a.count >= 4, a[1] == "--shot" {   // 离屏截图界面，不弹窗口：test --shot <settings-general|settings-storage|onboarding-N> <输出.png> [dark] [等几秒]
+            try MainActor.assumeIsolated { try shot(a[2], to: URL(fileURLWithPath: a[3]), dark: a.contains("dark"), wait: Double(a.last!) ?? 3) }
         }
         else if a.count == 4, a[1] == "--slim" {   // 手动排查：按默认保留期限瘦身一个文件，看用时和改了多少
             let t0 = Date()
@@ -231,6 +236,31 @@ enum EchoTests {
         let still = try String(contentsOf: f, encoding: .utf8)
         check(failed && still == "{ 坏的", "坏文件不应改")
         print("  改 Claude 设置 6 项")
+    }
+
+    /// 用不显示的窗口画界面再存图：不切屏幕、不装应用就能看设置页、首次设置
+    @MainActor static func shot(_ what: String, to out: URL, dark: Bool, wait: Double) throws {
+        _ = NSApplication.shared
+        NSApp.setActivationPolicy(.prohibited)
+        NSApp.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
+        let view: AnyView
+        switch what {
+        case "settings-general": view = AnyView(EchoSettingsView(start: .general))
+        default: view = AnyView(EchoSettingsView(start: .storage))
+        }
+        let host = NSHostingView(rootView: view)
+        let w = NSWindow(contentRect: NSRect(x: -4000, y: -4000, width: 680, height: 760), styleMask: [.titled, .fullSizeContentView], backing: .buffered, defer: false)
+        w.titlebarAppearsTransparent = true
+        w.appearance = NSApp.appearance
+        w.contentView = host
+        let end = Date(timeIntervalSinceNow: wait)
+        while Date() < end { RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.1)) }
+        host.setFrameSize(host.fittingSize)
+        host.layoutSubtreeIfNeeded()
+        guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { return }
+        host.cacheDisplay(in: host.bounds, to: rep)
+        try rep.representation(using: .png, properties: [:])?.write(to: out)
+        print("  截图 \(out.lastPathComponent)")
     }
 
     static func lines(_ url: URL) throws -> [Data] {

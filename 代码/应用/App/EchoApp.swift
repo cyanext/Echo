@@ -54,6 +54,11 @@ enum EchoPrefs {
 
     /// 上次清理备份的时间；cleanRules 记清理规则的版本，升级后第一次把已有备份全部过一遍（连密钥打码）
     static var lastClean: Date? { get { d.object(forKey: "lastClean") as? Date } set { d.set(newValue, forKey: "lastClean") } }
+    /// 多久备份一次（小时）：1、6、24（默认，每天第一次开机或唤醒后）
+    static var backupHours: Int { get { int("backupHours", 24) } set { d.set(newValue, forKey: "backupHours") } }
+    /// 来源卡片上的勾：备不备份 Claude Code 的会话
+    static var backupClaude: Bool { get { d.object(forKey: "backupClaude") == nil ? true : d.bool(forKey: "backupClaude") } set { d.set(newValue, forKey: "backupClaude") } }
+
     /// 自动删除 Claude 里不活跃的会话（默认开，30 天）
     static var autoDelete: Bool { get { d.object(forKey: "autoDelete") == nil ? true : d.bool(forKey: "autoDelete") } set { d.set(newValue, forKey: "autoDelete") } }
     static var autoDeleteDays: Int { get { int("autoDeleteDays", 30) } set { d.set(newValue, forKey: "autoDeleteDays") } }
@@ -111,7 +116,11 @@ final class EchoState: ObservableObject {
     }
 
     func backupIfNeeded() {
-        if let d = lastSuccess, Calendar.current.isDateInToday(d) { return }
+        guard EchoPrefs.backupClaude else { return }
+        if let d = lastSuccess {
+            let h = EchoPrefs.backupHours
+            if h >= 24 ? Calendar.current.isDateInToday(d) : Date().timeIntervalSince(d) < Double(h) * 3600 - 60 { return }
+        }
         backupNow()
     }
 
@@ -323,9 +332,10 @@ enum EchoWindows {
 
     static func showSettings() {
         if settings == nil {
-            let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 480, height: 260),
+            let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 680, height: 720),
                              styleMask: [.titled, .closable, .fullSizeContentView], backing: .buffered, defer: false)
             w.title = "回响设置"
+            w.titleVisibility = .hidden
             w.titlebarAppearsTransparent = true
             w.isReleasedWhenClosed = false
             w.contentView = NSHostingView(rootView: EchoSettingsView())
