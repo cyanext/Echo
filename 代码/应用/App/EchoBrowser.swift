@@ -488,7 +488,7 @@ struct EchoBrowserView: View {
                     } action: { pickMenu = pickMenu == "app" ? nil : "app" }
                 }
                 EchoPickButton(on: !dateFilter.isEmpty, help: EchoDateFilter.title(dateFilter)) {
-                    Image(systemName: "line.3.horizontal.decrease").font(.system(size: 13))
+                    Image(systemName: "clock").font(.system(size: 13))
                 } action: { pickMenu = pickMenu == "date" ? nil : "date" }
             }
             .padding(.leading, 80).padding(.trailing, 10)
