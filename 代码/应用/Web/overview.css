@@ -115,11 +115,11 @@ h2.sec { margin: var(--space-4) var(--space-1) 0; }
 .day-head .date:hover { color: var(--accent); }
 .day-head .today { font-size: var(--text-xs); color: var(--accent); }
 .day-head .cnt, .row.sum .cnt { font-size: var(--text-xs); color: var(--fg-faint); }
-/* 每天的合计：会话表底下一行，加粗，数字对齐各列 */
-.row.sum { margin-top: var(--space-1); font-weight: 600; }   /* 不要分割线、不铺底、不用主色 */
+/* 每天的合计：会话表底下一行，字重 500，数字对齐各列 */
+.row.sum { margin-top: var(--space-1); font-weight: 500; }   /* 不要分割线、不铺底、不用主色 */
 .row.sum .name { display: flex; align-items: baseline; gap: var(--space-2); font-size: var(--text-sm); }
 .row.sum .cnt { font-weight: 400; }
-.row.sum .num { color: var(--fg); font-weight: 600; }
+.row.sum .num { color: var(--fg); font-weight: 500; }   /* 合计太粗，600 → 500 */
 
 /* 会话表：六列，第一列标题和路径（有发版的第二行放版本标签），后五列右对齐、垂直居中 */
 .row { display: grid; grid-template-columns: minmax(0, 1fr) 72px 64px 72px 96px 64px; column-gap: var(--space-4); align-items: center; padding: var(--space-2) var(--space-3); margin: 0 calc(-1 * var(--space-3)); border-radius: var(--radius-sm); }
