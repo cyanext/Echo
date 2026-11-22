@@ -107,18 +107,47 @@ enum EchoStats {
         return p.terminationStatus == 0 ? String(decoding: data, as: UTF8.self) : ""
     }
 
-    /// 会话所在目录里的 Git 仓库，从 since 起的提交（不含合并提交）；同一个提交在几个工作区只算一次
-    static func commits(cwds: Set<String>, since: String) -> [Commit] {
+    /// 会话目录对应的仓库目录：分支工作区合完删掉了，换成它所在的主目录（…/回响/.worktrees/整理 → …/回响）
+    static func liveDir(_ cwd: String) -> String? {
         let fm = FileManager.default
+        if fm.fileExists(atPath: cwd) { return cwd }
+        if let r = cwd.range(of: "/.worktrees/") {
+            let main = String(cwd[..<r.lowerBound])
+            if fm.fileExists(atPath: main) { return main }
+        }
+        return nil
+    }
+
+    /// 目录本身不在仓库里（在「项目代码」这种上级目录开的会话）：往下找两层里的仓库，以「.」开头的目录不进。家目录和根目录不找
+    static func reposBelow(_ dir: String) -> [String] {
+        let fm = FileManager.default
+        guard dir != NSHomeDirectory(), dir != "/" else { return [] }
+        func kids(_ d: String) -> [String] {
+            ((try? fm.contentsOfDirectory(atPath: d)) ?? []).filter { !$0.hasPrefix(".") }.map { d + "/" + $0 }
+                .filter { var isDir: ObjCBool = false; return fm.fileExists(atPath: $0, isDirectory: &isDir) && isDir.boolValue }
+        }
+        let isRepo = { (d: String) in fm.fileExists(atPath: d + "/.git") }
+        var out: [String] = []
+        for k in kids(dir) {
+            if isRepo(k) { out.append(k); continue }
+            out += kids(k).filter(isRepo)
+        }
+        return out
+    }
+
+    /// 会话所在目录里的 Git 仓库，从 since 起的提交（不含合并提交）；同一个提交在几个工作区只算一次。
+    /// 会话目录不在仓库里时，算它下面两层里的仓库（规则见 设计/总览/说明.md「数怎么算」）
+    static func commits(cwds: Set<String>, since: String) -> [Commit] {
         // 几十个目录、十几个仓库，一个个跑要几秒：并行跑
-        let dirs = cwds.filter { fm.fileExists(atPath: $0) }.sorted()
-        var tops = [String](repeating: "", count: dirs.count)
+        let dirs = Set(cwds.compactMap(liveDir)).sorted()
+        var tops = [[String]](repeating: [], count: dirs.count)
         tops.withUnsafeMutableBufferPointer { buf in
             DispatchQueue.concurrentPerform(iterations: dirs.count) { i in
-                buf[i] = git(["-C", dirs[i], "rev-parse", "--show-toplevel"]).trimmingCharacters(in: .whitespacesAndNewlines)
+                let top = git(["-C", dirs[i], "rev-parse", "--show-toplevel"]).trimmingCharacters(in: .whitespacesAndNewlines)
+                buf[i] = top.isEmpty ? reposBelow(dirs[i]) : [top]
             }
         }
-        let repos = Set(tops.filter { !$0.isEmpty }).sorted()
+        let repos = Set(tops.joined()).sorted()
         var logs = [String](repeating: "", count: repos.count)
         logs.withUnsafeMutableBufferPointer { buf in
             DispatchQueue.concurrentPerform(iterations: repos.count) { i in

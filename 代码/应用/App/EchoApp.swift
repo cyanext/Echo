@@ -20,8 +20,18 @@ enum EchoPrefs {
         set { d.set(newValue.trimmed.replacingOccurrences(of: "/", with: "-"), forKey: "computerName") }
     }
 
+    /// 默认放 iCloud 云盘的「回响」文件夹，两台电脑共用，和代码目录分开
     static var defaultBackupRoot: URL {
-        URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Desktop/项目代码/回响/备份")
+        URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Mobile Documents/com~apple~CloudDocs/回响")
+    }
+
+    /// 0.5.0 及以前默认放在代码目录里（项目代码/回响/备份）。没在设置里改过目录、新位置还没有时，整个挪过去，一次就好
+    static func moveOldBackup() {
+        guard d.string(forKey: "backupRoot") == nil else { return }
+        let fm = FileManager.default
+        let old = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Desktop/项目代码/回响/备份")
+        guard fm.fileExists(atPath: old.path), !fm.fileExists(atPath: defaultBackupRoot.path) else { return }
+        do { try fm.moveItem(at: old, to: defaultBackupRoot) } catch { NSLog("回响：旧备份目录没挪成：%@", error.localizedDescription) }
     }
 
     static var backupRoot: URL {
@@ -63,6 +73,7 @@ final class EchoState: ObservableObject {
     private var timer: Timer?
 
     func start() {
+        EchoPrefs.moveOldBackup()
         overview = EchoStats.loadLast()   // 先显示上次整理好的总览，后台再刷新
         lastSuccess = EchoBackupRecord.load(EchoPrefs.computerDir.appendingPathComponent("备份记录.json")).lastSuccess
         cleanupDays = EchoBackup.cleanupDays()

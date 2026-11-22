@@ -8,8 +8,9 @@
 代码/应用/    Mac 应用：App/ 源码（Echo*.swift，见下）、Web/ 对话页面和总览页面（overview.*，单价表 prices.json，两页共用的 base.*、缺省插画 blank-*.svg）、icon/ 应用图标（改图标跑 make_icon.py）、tests/、tools/、build.sh
 代码/原型/    Python 和网页原型，瘦身和消息显示以它为准，测试拿它比对
 样例/         真实会话和它的浏览页面（页面从 代码/原型/viewer/ 拷来，数据 export.py 生成），整个不进 git
-备份/         应用生成的备份，iCloud 同步，不进 git
 ```
+
+备份默认在 iCloud 云盘的「回响」文件夹（`~/Library/Mobile Documents/com~apple~CloudDocs/回响/<电脑名>/`），设置里能改；0.5.0 及以前在本目录的 `备份/`，新版打开时自动挪过去。
 
 `代码/应用/App/` 各文件：
 
