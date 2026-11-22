@@ -5,7 +5,7 @@
   /* 颜色 */
   --bg-surface: #ffffff; --bg-subtle: #f2f4f4; --bg-hover: rgba(31,35,41,.05); --accent-soft: rgba(0,128,129,.08);
   --fg: #1f2329; --fg-muted: #646a73; --fg-faint: #8f959e; --line: #e5e9e9;
-  --accent: #008081;
+  --accent: #008081; --down: #c46a1f;
   --q0: #eaeeee; --q1: #afdfde; --q2: #64c3c3; --q3: #009fa0; --q4: #007677;   /* 主色由浅到深，2 到 4 档用 dataviz 校验过 */
   --mute: #d3dbdb;
   --bg-skeleton: #edf0f0;
@@ -25,7 +25,7 @@
   :root {
     --bg-surface: #1d1e23; --bg-subtle: #292e2f; --bg-hover: rgba(255,255,255,.06); --accent-soft: rgba(63,192,192,.14);
     --fg: #e6e8ec; --fg-muted: #9aa0ab; --fg-faint: #6f7581; --line: #2c3334;
-    --accent: #3fc0c0;
+    --accent: #3fc0c0; --down: #e3955a;
     --q0: #2a3031; --q1: #034747; --q2: #006d6d; --q3: #009a9b; --q4: #5ecbcb;
     --mute: #364042;
     --bg-skeleton: #2a2f30;
@@ -58,6 +58,8 @@ h2.sec { margin: var(--space-4) var(--space-1) 0; }
 .kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-4); }
 .kpi .l { display: flex; justify-content: space-between; font-size: var(--text-xs); line-height: var(--lh-xs); color: var(--fg-muted); }
 .kpi .l .dl { color: var(--fg-faint); font-variant-numeric: tabular-nums; }
+.kpi .l .dl.up { color: var(--accent); }            /* 趋势：涨用主色，跌用暖橙（「趋势数给个颜色」） */
+.kpi .l .dl.down { color: var(--down); }
 .kpi .v { height: var(--lh-hero); margin-top: var(--space-2); font-size: var(--text-hero); line-height: var(--lh-hero); font-weight: 600; letter-spacing: -.3px; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .kpi .v small { margin-left: var(--space-1); font-size: var(--text-sm); font-weight: 400; letter-spacing: 0; color: var(--fg-muted); }
 .kpi .s { font-size: var(--text-xs); line-height: var(--lh-xs); color: var(--fg-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -87,11 +89,13 @@ h2.sec { margin: var(--space-4) var(--space-1) 0; }
 /* 本周：一天一张卡。卡头日期（点了展开收起）、今天、当天的量 */
 .day { container-type: inline-size; padding: 20px var(--space-6) var(--space-3); }
 .day.flash { background: var(--accent-soft); transition: background .3s; }
-.day-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 var(--space-3); padding-bottom: var(--space-2); }
-.day-head .date { font-size: var(--text-md); line-height: var(--lh-md); font-weight: 600; cursor: pointer; }
+.row.day-head { padding-top: 0; padding-bottom: var(--space-2); align-items: baseline; }   /* 和会话表同一套列（.row），合计对齐到各列 */
+.day-head .name { display: flex; align-items: baseline; gap: 0 var(--space-3); min-width: 0; }
+.day-head .date { font-size: var(--text-md); line-height: var(--lh-md); font-weight: 600; cursor: pointer; white-space: nowrap; }
 .day-head .date:hover { color: var(--accent); }
-.day-head .today { font-size: var(--text-xs); color: var(--accent); }
-.day-head .meta { margin-left: auto; font-size: var(--text-xs); color: var(--fg-muted); font-variant-numeric: tabular-nums; }
+.day-head .today { font-size: var(--text-xs); color: var(--accent); white-space: nowrap; }
+.day-head .cnt { font-size: var(--text-xs); color: var(--fg-faint); white-space: nowrap; }
+.day-head .num { font-size: var(--text-sm); color: var(--fg); }
 
 /* 会话表：六列，第一列标题和路径（有发版的第二行放版本标签），后五列右对齐、垂直居中 */
 .row { display: grid; grid-template-columns: minmax(0, 1fr) 72px 64px 72px 96px 64px; column-gap: var(--space-4); align-items: center; padding: var(--space-2) var(--space-3); margin: 0 calc(-1 * var(--space-3)); border-radius: var(--radius-sm); }

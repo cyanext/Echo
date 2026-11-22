@@ -100,11 +100,13 @@
   }
 
   // 数字卡：近 8 周小柱子，选中的周用主色；右上和前 4 周同期（周一到同一天）平均比
+  // 小字只留一项、写短（「指标卡的文案要精简一下」）：上万的行数写成「万」
+  const wan = (n) => n >= 1e4 ? (n / 1e4).toFixed(1).replace(/\.0$/, "") + " 万" : fmtN(n);
   const KPI = [
-    { l: "Token", f: (w) => w.tot, big: (w) => [fmtM(w.tot), ""], s: (w) => `其中输出 ${fmtM(w.out)} · 折合 ${fmtU(w.usd)}` },
-    { l: "我的消息", f: (w) => w.msg, big: (w) => [fmtN(w.msg), "条"], s: (w) => `在 ${w.sids.size} 个会话里` },
+    { l: "Token", f: (w) => w.tot, big: (w) => [fmtM(w.tot), ""], s: (w) => `折合 ${fmtU(w.usd)}` },
+    { l: "我的消息", f: (w) => w.msg, big: (w) => [fmtN(w.msg), "条"], s: (w) => `${w.sids.size} 个会话` },
     { l: "AI 时长", f: (w) => w.ms / 3.6e6, big: (w) => [(w.ms / 3.6e6).toFixed(1), "小时"], s: (w) => `最长一轮 ${Math.round(w.lg / 6e4)} 分钟` },
-    { l: "Git 提交", f: (w) => w.commits, big: (w) => [fmtN(w.commits), "次"], s: (w) => `+${fmtN(w.add)} −${fmtN(w.del)} 行 · ${fmtN(w.files.size)} 个文件` },
+    { l: "Git 提交", f: (w) => w.commits, big: (w) => [fmtN(w.commits), "次"], s: (w) => `+${wan(w.add)} −${wan(w.del)} 行` },
   ];
   const SPAN = 8;
   // 同期：前几周只取周一到「今天是周几」那天
@@ -120,7 +122,7 @@
     $("kpis").innerHTML = KPI.map((k, ki) => {
       const val = k.f(w), avg = prev.reduce((a, x) => a + upto(x, n, DAYF[ki]), 0) / (prev.length || 1), d = avg ? Math.round((val / avg - 1) * 100) : null;
       const [num, unit] = k.big(w), mx = Math.max(...win.map(k.f)) || 1;
-      return `<div class="card kpi"><div class="l">${k.l}${d === null ? "" : `<span class="dl" data-tip="比前 ${prev.length} 周同期平均">${d >= 0 ? "↑" : "↓"} ${Math.abs(d)}%</span>`}</div>
+      return `<div class="card kpi"><div class="l">${k.l}${d === null ? "" : `<span class="dl ${d >= 0 ? "up" : "down"}" data-tip="比前 ${prev.length} 周同期平均">${d >= 0 ? "↑" : "↓"} ${Math.abs(d)}%</span>`}</div>
         <div class="v">${num}${unit ? `<small>${unit}</small>` : ""}</div><div class="s">${k.s(w)}</div>
         <div class="spark">${win.map((x) => `<i class="${x === w ? "on" : ""}" data-i="${x.wi}" data-tip="${wname(x)}" style="height:${Math.max(2, k.f(x) / mx * 24)}px"></i>`).join("")}</div></div>`;
     }).join("");
@@ -189,8 +191,10 @@
     w.days.slice().reverse().forEach((x) => {
       if (x.fut) return;
       const t = +x.date, isToday = t === +TODAY, other = x.other || [], all = open.has(t);
-      const meta = x.tot || x.msg ? `${fmtM(x.tot)} · ${fmtU(x.usd)} · ${x.msg} 条消息 · ${x.sess.length} 个会话${x.commits.length ? ` · ${x.commits.length} 次提交` : ""}` : "没有会话";
-      h += `<section class="card day" data-t="${t}"><div class="day-head"><b class="date" data-t="${t}">${md(x.date)} 周${WD[x.date.getDay()]}</b>${isToday ? `<span class="today">今天</span>` : ""}<span class="meta">${meta}</span></div>`;
+      // 卡头和下面的会话表同一套列：日期、会话数在第一列，当天的合计对齐到各自的列（「本周卡片的总计那行太丑」）
+      const has = x.tot || x.msg, ms = x.sess.reduce((a, s) => a + (s.ms || 0), 0);
+      const sums = has ? `<span class="num strong" data-tip="折合 ${fmtU(x.usd)}">${fmtM(x.tot)}</span><span class="num">${x.msg} 条</span><span class="num">${ms ? dur(ms) : ""}</span><span></span><span class="num">${x.commits.length ? `${x.commits.length} 次` : ""}</span>` : "";
+      h += `<section class="card day" data-t="${t}"><div class="row day-head"><div class="name"><b class="date" data-t="${t}">${md(x.date)} 周${WD[x.date.getDay()]}</b>${isToday ? `<span class="today">今天</span>` : ""}<span class="cnt">${has ? `${x.sess.length} 个会话` : "没有会话"}</span></div>${sums}</div>`;
       if (x.sess.length) {
         const list = all ? x.sess : x.sess.slice(0, 4), rest = x.sess.length - 4;
         h += `<div class="table">${COLS}${list.map(sessRow).join("")}</div>` + (rest > 0 ? `<div class="toggle" data-t="${t}">${all ? "收起" : `还有 ${rest} 个会话`}</div>` : "");
