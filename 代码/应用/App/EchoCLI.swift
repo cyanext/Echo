@@ -1,5 +1,5 @@
 // 命令行工具 ech（需求 需求文档/版本需求/待定-ech命令和skill.html）：和应用同一个程序，用 ech 这个名字调用时走这里，不开窗口。
-// 查询命令只读备份、本机索引和总览数据；backup 和回响的「立即备份」同一套。输出纯文本，给 Claude 读，--json 给脚本用。
+// 查询命令只读备份、本机索引和总览数据；backup 和回响的「立即备份」同一套；mv 和左栏目录右键「改名」同一套。输出纯文本，给 Claude 读，--json 给脚本用。
 import Foundation
 
 enum EchoCLI {
@@ -46,6 +46,7 @@ enum EchoCLI {
             case "segs": out = try segs(a)
             case "read": out = try read(a)
             case "context": out = try context(a)
+            case "mv": out = try mv(a)
             case "backup": out = try backup(a)
             case "index": out = try index()
             case "schema": out = try schema(a)
@@ -72,6 +73,7 @@ enum EchoCLI {
       ech segs <会话>                                列一个会话的分段（每段一个引用，如 ce57ce36#3）
       ech read <引用> [--tools]                       把一段读成对话文字：ce57ce36#3 第 3 段，ce57ce36#L1200-1500 这几行，只写会话读最后一段
       ech context <会话> [--tools]                    续上一个会话：最近一次压缩的阶段总结和之后的对话
+      ech mv <旧路径> <新路径> [--dry-run]              改文件夹名或挪位置，本机 Claude Code 的会话一起跟过去
       ech backup                                     备份并更新索引（和回响的「立即备份」一样）
       ech index                                      只更新索引和总览数据，不备份
       ech schema [命令]                              各命令的参数（JSON）
@@ -482,6 +484,51 @@ enum EchoCLI {
         return String(format: "索引：%d 个会话，更新 %d 个，删掉 %d 个，%.1f 秒；总览数据已更新", ix.total, ix.changed, ix.removed, ix.seconds)
     }
 
+    // MARK: mv
+
+    /// 改文件夹名或挪位置，本机 Claude Code 的会话一起跟过去（和左栏目录右键「改名」同一套）。
+    /// 旧路径已经不在了（在访达里改过了）只挪会话；--dry-run 只说会做什么
+    static func mv(_ a: Args) throws -> String {
+        guard a.pos.count == 2 else { throw Fail(text: "用法：ech mv <旧路径> <新路径> [--dry-run]") }
+        let cwd = FileManager.default.currentDirectoryPath
+        func abs(_ s: String) -> String {
+            let e = (s as NSString).expandingTildeInPath
+            return ((e.hasPrefix("/") ? e : (cwd as NSString).appendingPathComponent(e)) as NSString).standardizingPath
+        }
+        let fm = FileManager.default
+        let from = abs(a.pos[0])
+        var to = abs(a.pos[1])
+        var isDir: ObjCBool = false
+        let fromExists = fm.fileExists(atPath: from, isDirectory: &isDir) && isDir.boolValue
+        // 和 mv 一样：新路径是已有的文件夹时，挪进去
+        if fromExists, fm.fileExists(atPath: to, isDirectory: &isDir), isDir.boolValue { to = (to as NSString).appendingPathComponent((from as NSString).lastPathComponent) }
+        if !fromExists, !fm.fileExists(atPath: to) { throw Fail(text: "\(from) 和 \(to) 都不存在") }
+        let root = EchoPrefs.backupRoot
+        let p = EchoDirMove.plan(from: from, to: to, sessions: EchoLibrary.scan(backupRoot: root), moveFolder: fromExists)
+        let what = fromExists ? "把 \(from) 改成 \(to)" : "\(from) 已不存在，只把会话挪到 \(to)"
+        if a.flags.contains("json") && a.flags.contains("dry-run") {
+            return json(["from": from, "to": to, "moveFolder": fromExists, "sessions": p.count, "skipped": p.skipped.count, "missing": p.missing.count, "busy": p.busy?.meta.title ?? ""])
+        }
+        if a.flags.contains("dry-run") {
+            var out = "预览：\(what)；\(EchoDirMove.describe(p))。"
+            if let b = p.busy { out += "\n「\(b.meta.title)」正在进行或在 Claude 中打开，现在执行会整个不动。" }
+            return out + "\n去掉 --dry-run 执行。"
+        }
+        let r = try EchoDirMove.run(p)
+        _ = try? EchoIndex.update(backupRoot: root)
+        var out = (fromExists ? "已把 \(from) 改成 \(to)" : "已把会话挪到 \(to)") + "；移动了 \(r.done) 个会话。"
+        if p.count > r.done, let e = r.error { out += "\n其余未移动：" + e.localizedDescription }
+        let rest = EchoDirMove.describe(Plan(skipped: p.skipped, missing: p.missing))
+        if !p.skipped.isEmpty || !p.missing.isEmpty { out += "\n" + rest + "。" }
+        return out
+    }
+
+    private static func Plan(skipped: [EchoSession], missing: [EchoSession]) -> EchoDirMove.Plan {
+        var x = EchoDirMove.Plan(from: "", to: "", moveFolder: false)
+        x.skipped = skipped; x.missing = missing
+        return x
+    }
+
     // MARK: schema、skill
 
     static let commands: [[String: Any]] = [
@@ -494,6 +541,9 @@ enum EchoCLI {
          "options": [["name": "--tools", "desc": "带上工具输出，每条前 2000 字"], ["name": "--page"], ["name": "--json"]]],
         ["command": "context", "summary": "续上一个会话：最近一次压缩的阶段总结和之后的全部对话，新会话开头读它就能接着做（只读）",
          "args": [["name": "会话", "required": true]], "options": [["name": "--tools"], ["name": "--page"], ["name": "--json"]]],
+        ["command": "mv", "summary": "改文件夹名或挪位置，本机 Claude Code 的会话一起跟过去（会写：访达里的文件夹、~/.claude 的会话位置、备份）；旧路径已经不在时只挪会话",
+         "args": [["name": "旧路径", "required": true], ["name": "新路径", "required": true, "desc": "是已有的文件夹时挪进去，和 mv 一样"]],
+         "options": [["name": "--dry-run", "desc": "只说会做什么，不动文件"], ["name": "--json"]]],
         ["command": "backup", "summary": "备份、更新索引和总览数据（和回响的「立即备份」一样，会写备份目录）"],
         ["command": "index", "summary": "只更新索引和总览数据，不备份"],
         ["command": "schema", "summary": "各命令的参数", "args": [["name": "命令", "required": false]]],

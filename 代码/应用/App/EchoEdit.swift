@@ -383,3 +383,111 @@ enum EchoClaudeSettings {
         try Data(text.utf8).write(to: url, options: .atomic)
     }
 }
+
+extension EchoMove {
+    /// 一批会话挪到 dir：一个个挪，出错的跳过；挪成的记进移动记录、合集成员换成新路径。返回挪成的和第一个错。
+    /// 应用里的移动、目录移动和改名、ech mv 共用
+    static func moveSessions(_ list: [EchoSession], to dir: String) -> (done: [EchoSession], error: Error?) {
+        let dir = (dir as NSString).standardizingPath, root = EchoPrefs.backupRoot
+        var done: [EchoSession] = [], firstError: Error?, moves: [String: String] = [:], keys: [String: String] = [:]
+        for s in list {
+            do {
+                guard let p = paths(for: s, to: dir) else { throw fail("「\(s.meta.title)」在 \(s.computer) 上，请在该电脑上移动") }
+                try move(p, sessionId: s.sessionId)
+                moves[s.sessionId] = dir
+                keys[EchoCollections.key(s, root: root)] = String(p.newBackup.standardizedFileURL.path.dropFirst(root.standardizedFileURL.path.count + 1))
+                done.append(s)
+            } catch { firstError = firstError ?? error }
+        }
+        try? EchoMoved.add(moves, EchoPrefs.claudeDir)
+        if !keys.isEmpty {
+            let cols = EchoCollections.load(root)
+            let updated = cols.map { c in EchoCollection(id: c.id, title: c.title, members: c.members.map { keys[$0] ?? $0 }, created: c.created) }
+            if updated != cols { try? EchoCollections.save(updated, root) }
+        }
+        return (done, firstError)
+    }
+}
+
+/// 目录改名、挪位置，会话跟过去（需求 需求文档/版本需求/待定-目录改名后会话跟上.html）。
+/// 左栏目录右键「改名」「移动到」「找到新位置」和 ech mv 共用：先出计划（哪些挪、哪些不跟、有没有正在用的会话），再执行
+enum EchoDirMove {
+    struct Plan {
+        var from: String, to: String
+        var moveFolder: Bool                          // 同时改名或挪动文件夹本身；false 时只挪会话（文件夹已经在访达里改过了）
+        var groups: [String: [EchoSession]] = [:]     // 新路径 → 挪到那里的会话（子文件夹里的对应到新位置的子文件夹）
+        var skipped: [EchoSession] = []               // 跟不过去的：Codex、只剩备份、在其他电脑上
+        var missing: [EchoSession] = []               // 新位置没有对应的子文件夹（只挪会话时）
+        var busy: EchoSession?                        // 2 分钟内还在写或正在 Claude 里开着
+        var count: Int { groups.values.reduce(0) { $0 + $1.count } }
+    }
+
+    /// from、to 是访达里的路径。sessions 是全部会话（不管左栏的筛选）
+    static func plan(from: String, to: String, sessions: [EchoSession], moveFolder: Bool) -> Plan {
+        let from = EchoPath.real(from), to = (to as NSString).standardizingPath
+        var p = Plan(from: from, to: to, moveFolder: moveFolder)
+        let fm = FileManager.default, me = EchoPrefs.computerName
+        for s in sessions {
+            let real = EchoPath.real(s.projectPath)
+            guard real == from || real.hasPrefix(from + "/") else { continue }
+            guard s.app == .claude, s.computer == me, let orig = EchoRename.originalURL(for: s) else { p.skipped.append(s); continue }
+            let dest = to + real.dropFirst(from.count)
+            if !moveFolder, !fm.fileExists(atPath: dest) { p.missing.append(s); continue }
+            p.groups[dest, default: []].append(s)
+            if p.busy == nil, EchoRename.isActive(orig) || EchoMove.isOpen(s.sessionId) { p.busy = s }
+        }
+        return p
+    }
+
+    /// 按计划执行：要挪文件夹的先挪文件夹（有会话正在用、新位置已有同名的整个不动），再把会话挪到新路径下
+    static func run(_ p: Plan) throws -> (done: Int, error: Error?) {
+        let fm = FileManager.default
+        if p.moveFolder {
+            if let b = p.busy { throw EchoMove.fail("「\(b.meta.title)」正在进行或在 Claude 中打开，请结束后再改") }
+            guard !fm.fileExists(atPath: p.to) else { throw EchoMove.fail("\((p.to as NSString).abbreviatingWithTildeInPath) 已存在") }
+            try fm.moveItem(atPath: p.from, toPath: p.to)
+        }
+        var done = 0, firstError: Error?
+        for (dest, list) in p.groups.sorted(by: { $0.key < $1.key }) {
+            let r = EchoMove.moveSessions(list, to: dest)
+            done += r.done.count
+            firstError = firstError ?? r.error
+        }
+        return (done, firstError)
+    }
+
+    /// 计划写成一句话：挪几个会话，几个不跟、为什么
+    static func describe(_ p: Plan) -> String {
+        var out: [String] = []
+        if p.count > 0 { out.append("\(p.count) 个 Claude Code 的会话移到新位置") }
+        let codex = p.skipped.filter { $0.app != .claude }.count
+        let other = p.skipped.filter { $0.app == .claude && $0.computer != EchoPrefs.computerName }.count
+        let gone = p.skipped.count - codex - other
+        var not: [String] = []
+        if codex > 0 { not.append("\(codex) 个 Codex 的") }
+        if gone > 0 { not.append("\(gone) 个只剩备份的") }
+        if other > 0 { not.append("\(other) 个在其他电脑上的") }
+        if !not.isEmpty { out.append(not.joined(separator: "、") + "会话不跟，左栏仍显示在原位置") }
+        if !p.missing.isEmpty { out.append("\(p.missing.count) 个会话在新位置没有对应的子文件夹，不移动") }
+        return out.isEmpty ? "这个文件夹下没有会话" : out.joined(separator: "；")
+    }
+
+    /// 文件夹已不存在时猜它改成了什么：上一级文件夹（还在的话）里名字最像的子文件夹。去掉开头的序号（「02 」「1.」）后比共同的字，至少 2 个字相同
+    static func guess(_ path: String) -> String? {
+        let parent = (path as NSString).deletingLastPathComponent
+        guard let kids = try? FileManager.default.contentsOfDirectory(atPath: parent) else { return nil }
+        func core(_ s: String) -> Set<Character> {
+            Set(s.replacingOccurrences(of: #"^[0-9]+[ .、_-]*"#, with: "", options: .regularExpression).filter { !$0.isWhitespace })
+        }
+        let want = core((path as NSString).lastPathComponent)
+        var best: (String, Int)?
+        for k in kids where !k.hasPrefix(".") {
+            var isDir: ObjCBool = false
+            let full = (parent as NSString).appendingPathComponent(k)
+            guard FileManager.default.fileExists(atPath: full, isDirectory: &isDir), isDir.boolValue else { continue }
+            let n = core(k).intersection(want).count
+            if n >= 2, n > (best?.1 ?? 0) { best = (full, n) }
+        }
+        return best?.0
+    }
+}

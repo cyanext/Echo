@@ -303,27 +303,10 @@ final class EchoState: ObservableObject {
 
     /// 挪到 dir：一个个挪，出错的跳过。挪成的记进移动记录、合集成员换成新路径。返回挪成的和第一个错
     func move(_ list: [EchoSession], to dir: String) -> (done: [EchoSession], error: Error?) {
-        let dir = (dir as NSString).standardizingPath, root = EchoPrefs.backupRoot
-        var done: [EchoSession] = [], firstError: Error?, moves: [String: String] = [:], keys: [String: String] = [:]
-        for s in list {
-            do {
-                guard let p = EchoMove.paths(for: s, to: dir) else {
-                    throw EchoMove.fail("「\(s.meta.title)」在 \(s.computer) 上，请在该电脑上移动")
-                }
-                try EchoMove.move(p, sessionId: s.sessionId)
-                moves[s.sessionId] = dir
-                keys[EchoCollections.key(s, root: root)] = String(p.newBackup.standardizedFileURL.path.dropFirst(root.standardizedFileURL.path.count + 1))
-                done.append(s)
-            } catch { firstError = firstError ?? error }
-        }
-        try? EchoMoved.add(moves, EchoPrefs.claudeDir)
-        if !keys.isEmpty {
-            let cols = EchoCollections.load(root)
-            let updated = cols.map { c in EchoCollection(id: c.id, title: c.title, members: c.members.map { keys[$0] ?? $0 }, created: c.created) }
-            if updated != cols { try? saveCollections(updated) }
-        }
+        let r = EchoMove.moveSessions(list, to: dir)
+        collections = EchoCollections.load(EchoPrefs.backupRoot)
         reloadSessions()
-        return (done, firstError)
+        return r
     }
 
     func saveCollections(_ list: [EchoCollection]) throws {

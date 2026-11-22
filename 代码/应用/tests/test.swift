@@ -289,7 +289,14 @@ enum EchoTests {
         check(EchoIndex.versionKey("总览：提交按会话挂") == nil, "没有版本号的说明不该认出版本")
         check(EchoCLI.short("019d52b6-7616-72e1-9780-037355606bcd") == "019d52b6-7616" && EchoCLI.short("ce57ce36-7e31-45fd-b076-5262412dae73") == "ce57ce36", "引用的短写法不对")
         check(EchoCLI.splitRef("ce57ce36#L10-20") == ("ce57ce36", "L10-20") && EchoCLI.splitRef("ce57ce36").1 == nil, "引用拆不开")
-        print("  ech 分段和引用 10 项")
+        // 猜新位置：去掉序号后比共同的字，取最像的
+        let fm = FileManager.default
+        let t = EchoPath.real(fm.temporaryDirectory.path) + "/echo-guess-\(getpid())"
+        defer { try? fm.removeItem(atPath: t) }
+        for n in ["02 二期项目", "01 一期项目", "会议"] { try fm.createDirectory(atPath: t + "/" + n, withIntermediateDirectories: true) }
+        check(EchoDirMove.guess(t + "/项目二期") == t + "/02 二期项目", "没猜出「02 二期项目」：\(EchoDirMove.guess(t + "/项目二期") ?? "无")")
+        check(EchoDirMove.guess(t + "/客户资料") == nil, "不像的不该猜")
+        print("  ech 分段、引用、猜新位置 12 项")
     }
 
     static func layoutTest() throws {
