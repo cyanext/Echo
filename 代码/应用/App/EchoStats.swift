@@ -407,6 +407,7 @@ enum EchoStats {
                                       "p": project(s.projectPath), "d": projectPath(s.projectPath), "c": s.computer, "days": dict]
             if !g.isEmpty { one["g"] = g }
             if s.app != .claude { one["a"] = s.app.rawValue }
+            one["z"] = s.size   // 备份文件多大：备份页的「备份趋势」按会话开始那周累加
             list.append(one)
         }
         if let d = try? JSONEncoder().encode(fresh) { try? d.write(to: cacheURL, options: .atomic) }
