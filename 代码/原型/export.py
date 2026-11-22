@@ -18,6 +18,10 @@ SYSTEM_PREFIXES = (
 )
 
 
+# 备份里思考过程的占位（见 slim.py）
+THINKING_CLEANED = re.compile(r"^\[已清理：思考过程，原 (.+)\]$")
+
+
 def text_of(content):
     if isinstance(content, str):
         return content
@@ -93,7 +97,10 @@ def export(path, computer):
                 turns.append(turn)
             for b in content or []:
                 bt = b.get("type")
-                if bt == "text" and b.get("text", "").strip():
+                if bt == "text" and THINKING_CLEANED.match(b.get("text", "")):
+                    # 备份里清理掉的思考过程：还原成思考块，只记原来多大
+                    turn["blocks"].append({"kind": "thinking", "text": "", "cleaned": THINKING_CLEANED.match(b["text"]).group(1)})
+                elif bt == "text" and b.get("text", "").strip():
                     turn["blocks"].append({"kind": "text", "text": b["text"]})
                 elif bt == "thinking" and b.get("thinking", "").strip():
                     turn["blocks"].append({"kind": "thinking", "text": b["thinking"]})

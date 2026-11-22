@@ -4,6 +4,7 @@
 set -e
 D="${0:A:h:h}"; P="${D:h}/原型"; T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
 export TMPDIR="$T/"   # 测试程序的缓存目录（EchoLibrary.supportDir）落在这里，跑完一起删
+export ECHO_NOW=2026-11-21T00:00:00Z   # 「现在」固定，按保留期限换占位的结果每次一样（原型和测试程序都读它）
 source "$D/tools/swift-env.sh" "$T"
 swiftc "${SWIFT_FLAGS[@]}" -D TEST -parse-as-library -target arm64-apple-macos14.0 "$D"/App/*.swift "$D/tests/test.swift" -o "$T/test"
 "$T/test" --rules "$D/tests/fixtures/各类记录.jsonl"
@@ -13,5 +14,8 @@ for f in "$@" "$D"/tests/fixtures/*.jsonl(N) "${D:h:h}"/样例/*.jsonl(N) "${D:h
   python3 -I "$P/slim.py" "$f" "$T/slim.jsonl" >/dev/null
   python3 -I "$P/export.py" "$f" "$T/data.js" 测试机 >/dev/null
   "$T/test" "$f" "$T/slim.jsonl" "$T/data.js"
+  # 备份里的样子（占位）也要整理得一样
+  python3 -I "$P/export.py" "$T/slim.jsonl" "$T/data2.js" 测试机 >/dev/null
+  "$T/test" --export "$T/slim.jsonl" "$T/data2.js"
 done
 echo "全部通过"

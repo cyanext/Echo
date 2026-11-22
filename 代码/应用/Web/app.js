@@ -17,6 +17,9 @@
   };
 
   const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  // 备份里清理掉的内容（占位「[已清理：类别，原 大小]」，旧版的「[图片已移除]」）显示成灰色小标签。用在转义之后的 HTML 上
+  const CLEANED = /\[已清理：([^，\]]+)，原 ([^\]]+)\]|\[(图片|文件)已移除\]/g;
+  const chips = (html) => html.replace(CLEANED, (_, kind, size, old) => `<span class="cleaned">${kind || old}已清理${size ? " · " + size : ""}</span>`);
   const p2 = (n) => String(n).padStart(2, "0");
   const WEEK = "日一二三四五六";
   const hm = (d) => `${p2(d.getHours())}:${p2(d.getMinutes())}`;
@@ -80,7 +83,7 @@
       while (i < lines.length && lines[i].trim() && !isBlock(lines[i])) buf.push(inline(lines[i++]));
       out.push(`<p>${buf.join("<br>")}</p>`);
     }
-    return `<div class="md">${out.join("")}</div>`;
+    return `<div class="md">${chips(out.join(""))}</div>`;
   }
 
   // 工具调用的一行说明：优先取说明，其次命令、文件路径
@@ -92,12 +95,16 @@
 
   // 思考和工具的内容可能很长，先只记下来，点开（或查找命中）时才生成，几千条的会话也不卡
   const STEPS = [];
-  function stepInput(b) { const x = b.input || {}; return x.command ? x.command : JSON.stringify(x, null, 2); }
+  function stepInput(b) {
+    const x = b.input || {};
+    if (typeof x["已清理"] === "string") return `[已清理：${x["已清理"]}]`;
+    return x.command ? x.command : JSON.stringify(x, null, 2);
+  }
   function stepText(b) { return b.kind === "thinking" ? b.text : stepInput(b) + "\n" + (b.result == null ? "" : b.result); }
   function stepBody(b) {
     if (b.kind === "thinking") return esc(b.text);
     const result = b.result == null ? "（没有返回）" : b.result;
-    return `<div class="label">输入</div><pre>${esc(stepInput(b))}</pre><div class="label">${b.isError ? "输出（出错）" : "输出"}</div><pre>${esc(result)}</pre>`;
+    return `<div class="label">输入</div><pre>${chips(esc(stepInput(b)))}</pre><div class="label">${b.isError ? "输出（出错）" : "输出"}</div><pre>${chips(esc(result))}</pre>`;
   }
   function fillStep(det) {
     const io = det.querySelector(":scope > .io");
@@ -106,6 +113,9 @@
   function renderStep(b) {
     const i = STEPS.push(b) - 1;
     const kid = b._kid ? ` id="${b._kid}"` : "";
+    if (b.kind === "thinking" && b.cleaned) {
+      return `<li class="step thinking"><div class="static"><span class="name">思考过程</span><span class="cleaned">已清理 · ${esc(b.cleaned)}</span></div></li>`;
+    }
     if (b.kind === "thinking") {
       return `<li class="step thinking"><details data-i="${i}"><summary><span class="name">思考过程</span></summary><div class="io"></div></details></li>`;
     }
@@ -184,30 +194,18 @@
       }
     });
     // 同一个版本标在它最后一次提交的位置：提交是这一版的终点。版本之后没带版本号的提交（「方案：按反馈改…」、小修）
-    // 并进这个版本，位置延到下一个版本之前的最后一次提交；说明取这一版第一次提交那句。
-    // 同一个模块中间换过别的号、后来又用回这个号（号改过、重新给了别的事），算新的一版，单独标：不然两件事会合成一条
+    // 并进这个版本，位置延到下一个版本之前的最后一次提交；说明取这一版第一次提交那句
     const anyVer = found.some((k) => k.ver);
-    const last = new Map(), first = new Map(), run = new Map(), modLast = new Map();
-    let curRun = null, n = 0;
+    const last = new Map(), first = new Map();
+    let curVer = null;
     found.forEach((k, i) => {
       if (k.kind !== "commit") return;
-      if (k.ver) {
-        const mod = k.ver.includes(" ") ? k.ver.slice(0, k.ver.lastIndexOf(" ")) : "";
-        if (!run.has(k.ver) || modLast.get(mod) !== k.ver) run.set(k.ver, k.ver + "#" + n++);
-        modLast.set(mod, k.ver);
-        curRun = run.get(k.ver);
-        if (!first.has(curRun)) first.set(curRun, k.label);
-      }
-      if (curRun) last.set(curRun, i);
+      if (k.ver) { curVer = k.ver; if (!first.has(k.ver)) first.set(k.ver, k.label); }
+      if (curVer) last.set(curVer, i);
     });
-    const at = new Map([...last].map(([r, i]) => [i, r]));
+    const at = new Map([...last].map(([v, i]) => [i, v]));
     const keys = found.filter((k, i) => k.kind !== "commit" || !anyVer || at.has(i));
-    keys.forEach((k) => {
-      if (k.kind !== "commit" || !anyVer) return;
-      const r = at.get(found.indexOf(k));
-      k.ver = r.slice(0, r.lastIndexOf("#"));
-      k.label = first.get(r);
-    });
+    keys.forEach((k) => { if (k.kind === "commit" && anyVer) { k.ver = at.get(found.indexOf(k)); k.label = first.get(k.ver); } });
     keys.forEach((k, n) => { k.id = "k" + n; k.obj._kid = k.id; delete k.obj; });
     return keys;
   }

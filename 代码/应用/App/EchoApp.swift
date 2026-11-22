@@ -42,6 +42,29 @@ enum EchoPrefs {
     }
 
     static var computerDir: URL { backupRoot.appendingPathComponent(computerName) }
+
+    private static func int(_ key: String, _ def: Int) -> Int { d.object(forKey: key) == nil ? def : d.integer(forKey: key) }
+
+    /// 各类内容在备份里留多久（天）：-1 永久，0 不备份。默认：工具调用、工具结果 30 天，思考过程、系统记录不备份
+    static var keepToolUse: Int { get { int("keepToolUse", 30) } set { d.set(newValue, forKey: "keepToolUse") } }
+    static var keepToolResult: Int { get { int("keepToolResult", 30) } set { d.set(newValue, forKey: "keepToolResult") } }
+    static var keepThinking: Int { get { int("keepThinking", 0) } set { d.set(newValue, forKey: "keepThinking") } }
+    static var keepSystem: Int { get { int("keepSystem", 0) } set { d.set(newValue, forKey: "keepSystem") } }
+    static var policy: EchoPolicy { EchoPolicy(toolUse: keepToolUse, toolResult: keepToolResult, thinking: keepThinking, system: keepSystem) }
+
+    /// 上次清理备份的时间；cleanRules 记清理规则的版本，升级后第一次把已有备份全部过一遍（连密钥打码）
+    static var lastClean: Date? { get { d.object(forKey: "lastClean") as? Date } set { d.set(newValue, forKey: "lastClean") } }
+    /// 多久备份一次（小时）：1、6、24（默认，每天第一次开机或唤醒后）
+    static var backupHours: Int { get { int("backupHours", 24) } set { d.set(newValue, forKey: "backupHours") } }
+    /// 来源卡片上的勾：备不备份 Claude Code 的会话
+    static var backupClaude: Bool { get { d.object(forKey: "backupClaude") == nil ? true : d.bool(forKey: "backupClaude") } set { d.set(newValue, forKey: "backupClaude") } }
+
+    /// 自动删除 Claude 里不活跃的会话（默认开，30 天）
+    static var autoDelete: Bool { get { d.object(forKey: "autoDelete") == nil ? true : d.bool(forKey: "autoDelete") } set { d.set(newValue, forKey: "autoDelete") } }
+    static var autoDeleteDays: Int { get { int("autoDeleteDays", 30) } set { d.set(newValue, forKey: "autoDeleteDays") } }
+
+    static let cleanRulesVersion = 1
+    static var cleanRules: Int { get { d.integer(forKey: "cleanRules") } set { d.set(newValue, forKey: "cleanRules") } }
 }
 
 // MARK: - 状态
@@ -93,7 +116,11 @@ final class EchoState: ObservableObject {
     }
 
     func backupIfNeeded() {
-        if let d = lastSuccess, Calendar.current.isDateInToday(d) { return }
+        guard EchoPrefs.backupClaude else { return }
+        if let d = lastSuccess {
+            let h = EchoPrefs.backupHours
+            if h >= 24 ? Calendar.current.isDateInToday(d) : Date().timeIntervalSince(d) < Double(h) * 3600 - 60 { return }
+        }
         backupNow()
     }
 
@@ -109,11 +136,15 @@ final class EchoState: ObservableObject {
         Task.detached(priority: .utility) {
             var last = Date.distantPast
             let r = Result {
-                try EchoBackup.run(source: EchoBackup.source, computerDir: dir) { n, t in
+                try EchoBackup.run(source: EchoBackup.source, computerDir: dir, policy: EchoPrefs.policy) { n, t in
                     guard n == t || Date().timeIntervalSince(last) > 0.3 else { return }
                     last = Date()
                     Task { @MainActor in EchoState.shared.done = n; EchoState.shared.total = t }
                 }
+            }
+            if case .success(let res) = r, res.failures.isEmpty {
+                EchoState.cleanIfDue(dir)
+                EchoState.autoDeleteIfOn(dir)
             }
             await MainActor.run {
                 let s = EchoState.shared
@@ -130,6 +161,33 @@ final class EchoState: ObservableObject {
                 s.reloadSessions()
             }
         }
+    }
+
+    /// 备份成功后清理备份：每天最多一次；升级后第一次全部过一遍。在后台线程调用
+    nonisolated static func cleanIfDue(_ dir: URL, now: Date = Date()) {
+        let first = EchoPrefs.cleanRules < EchoPrefs.cleanRulesVersion
+        if !first, let d = EchoPrefs.lastClean, Calendar.current.isDate(d, inSameDayAs: now) { return }
+        var policy = EchoPrefs.policy
+        policy.now = now
+        do {
+            let r = try EchoClean.run(computerDir: dir, policy: policy, force: first)
+            NSLog("回响清理：%d 个文件，重写 %d 个，释放 %.1fMB，失败 %d", r.files, r.rewritten, Double(r.freed) / 1e6, r.failures.count)
+            for f in r.failures { NSLog("回响清理失败：%@：%@", f.path, f.message) }
+            if r.failures.isEmpty, first { EchoPrefs.cleanRules = EchoPrefs.cleanRulesVersion }
+            EchoPrefs.lastClean = now
+        } catch {
+            NSLog("回响清理没跑起来：%@", error.localizedDescription)
+        }
+    }
+
+    /// 备份成功后删 Claude 里不活跃、已备份完整的会话（设置里打开时）。在后台线程调用
+    nonisolated static func autoDeleteIfOn(_ dir: URL) {
+        guard EchoPrefs.autoDelete else { return }
+        let list = EchoAutoDelete.candidates(source: EchoBackup.source, computerDir: dir, days: EchoPrefs.autoDeleteDays)
+        guard !list.isEmpty else { return }
+        let r = EchoAutoDelete.run(list)
+        NSLog("回响自动删除：%d 个会话移进废纸篓，腾出 %.1fMB，失败 %d", r.count, Double(r.bytes) / 1e6, r.failures.count)
+        for f in r.failures { NSLog("回响自动删除失败：%@：%@", f.path, f.message) }
     }
 
     func reloadSessions() {
@@ -274,9 +332,10 @@ enum EchoWindows {
 
     static func showSettings() {
         if settings == nil {
-            let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 480, height: 260),
+            let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 680, height: 720),
                              styleMask: [.titled, .closable, .fullSizeContentView], backing: .buffered, defer: false)
             w.title = "回响设置"
+            w.titleVisibility = .hidden
             w.titlebarAppearsTransparent = true
             w.isReleasedWhenClosed = false
             w.contentView = NSHostingView(rootView: EchoSettingsView())
@@ -308,11 +367,16 @@ final class EchoAppDelegate: NSObject, NSApplicationDelegate {
                 UserDefaults.standard.set(true, forKey: "loginItemAsked")
                 try? SMAppService.mainApp.register()
             }
-            EchoState.shared.start()
             // 备份出问题时程序坞图标加「!」
             badge = EchoState.shared.objectWillChange.sink { _ in
                 DispatchQueue.main.async { NSApp.dockTile.badgeLabel = EchoState.shared.needsAttention ? "!" : nil }
             }
+            // 第一次打开：先走首次设置，点「完成」才开始备份
+            if EchoOnboarding.needed {
+                EchoOnboarding.show { EchoState.shared.start(); EchoWindows.showBrowser() }
+                return
+            }
+            EchoState.shared.start()
             if !quietLaunch { EchoWindows.showBrowser() }
         }
     }
@@ -322,7 +386,7 @@ final class EchoAppDelegate: NSObject, NSApplicationDelegate {
 
     /// 点程序坞图标、再打开一次时弹出浏览窗口
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        if !flag { MainActor.assumeIsolated { EchoWindows.showBrowser() } }
+        if !flag { MainActor.assumeIsolated { if !EchoOnboarding.bringFront() { EchoWindows.showBrowser() } } }
         return true
     }
 

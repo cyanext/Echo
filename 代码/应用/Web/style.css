@@ -156,6 +156,10 @@
 .step .io { padding: 2px 0 10px; }
 .step .io .label { margin: 6px 0 2px; font-size: 12px; color: var(--fg-faint); }
 .step.thinking .io { padding: 4px 0 12px; color: var(--fg-muted); font-size: 14px; white-space: pre-wrap; }
+/* 备份里清理掉的内容：灰色小标签。思考过程整段清掉时不能展开，只写一行 */
+.cleaned { display: inline-block; padding: 0 6px; border-radius: 4px; background: var(--bg-subtle); color: var(--fg-faint);
+  font: 12px/18px -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif; white-space: nowrap; vertical-align: baseline; }
+.step > .static { display: flex; align-items: baseline; gap: 8px; padding: 3px 8px; margin-left: -8px; font-size: 13px; line-height: 24px; color: var(--fg-muted); }
 
 /* 命令、系统消息、日期和压缩点 */
 .event { display: flex; align-items: center; gap: 8px; margin: 18px 0; font-size: 13px; color: var(--fg-faint); }

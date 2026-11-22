@@ -245,3 +245,100 @@ enum EchoMoved {
         try enc.encode(all).write(to: url(computerDir), options: .atomic)
     }
 }
+
+/// 自动删除 Claude 里不活跃的会话（规则见 CLAUDE.md「数据安全」）：设置里打开时，备份成功后挑出
+/// 超过期限没改过、备份完整（备份记录里的大小和时间与原文件一致，同名目录里的文件也是）、没在 Claude 里开着、2 分钟内没写的，
+/// 把原会话文件和同名目录移进废纸篓。备份不动，回响里照样能看。
+enum EchoAutoDelete {
+    struct Candidate { let original: URL; let rel: String; let bytes: Int64 }
+
+    /// source 是 ~/.claude/projects，computerDir 是 备份/<电脑名>/。open 测试时替换
+    static func candidates(source: URL, computerDir: URL, days: Int, now: Date = Date(),
+                           open: (String) -> Bool = { EchoMove.isOpen($0) }) -> [Candidate] {
+        let fm = FileManager.default
+        let record = EchoBackupRecord.load(computerDir.appendingPathComponent("备份记录.json"))
+        let keys: [URLResourceKey] = [.isRegularFileKey, .fileSizeKey, .contentModificationDateKey]
+        func stamp(_ u: URL) -> (EchoFileStamp, Date)? {
+            guard let v = try? u.resourceValues(forKeys: Set(keys)), v.isRegularFile == true, let m = v.contentModificationDate else { return nil }
+            return (EchoFileStamp(size: Int64(v.fileSize ?? 0), mtime: m.timeIntervalSince1970), m)
+        }
+        func backedUp(_ u: URL, _ rel: String) -> Bool {
+            guard let (s, _) = stamp(u), record.files[rel] == s else { return false }
+            return fm.fileExists(atPath: computerDir.appendingPathComponent("projects").appendingPathComponent(rel).path)
+        }
+        var out: [Candidate] = []
+        for p in (try? fm.contentsOfDirectory(at: source, includingPropertiesForKeys: nil, options: .skipsHiddenFiles)) ?? [] {
+            for f in (try? fm.contentsOfDirectory(at: p, includingPropertiesForKeys: keys, options: .skipsHiddenFiles)) ?? [] where f.pathExtension == "jsonl" {
+                let rel = p.lastPathComponent + "/" + f.lastPathComponent
+                guard let (s, m) = stamp(f), now.timeIntervalSince(m) > Double(days) * 86400, !EchoRename.isActive(f), backedUp(f, rel) else { continue }
+                // 同名目录（子代理记录等）：要备份的文件也得都备份好了，也算没改过
+                var bytes = s.size, ok = true
+                let dir = f.deletingPathExtension()
+                if let en = fm.enumerator(at: dir, includingPropertiesForKeys: keys) {
+                    for case let x as URL in en {
+                        guard let (xs, xm) = stamp(x) else { continue }
+                        bytes += xs.size
+                        let xrel = rel.dropLast(6) + "/" + String(x.standardizedFileURL.path.dropFirst(dir.standardizedFileURL.path.count + 1))
+                        if now.timeIntervalSince(xm) <= Double(days) * 86400 { ok = false; break }
+                        if EchoBackupRule.action(for: String(xrel)) != .skip, !backedUp(x, String(xrel)) { ok = false; break }
+                    }
+                }
+                guard ok, !open(String(f.lastPathComponent.dropLast(6))) else { continue }
+                out.append(Candidate(original: f, rel: rel, bytes: bytes))
+            }
+        }
+        return out.sorted { $0.rel < $1.rel }
+    }
+
+    /// 移进废纸篓；remove 测试时换成移到临时目录。返回删了几个、腾出多少、哪些没删成
+    static func run(_ list: [Candidate], remove: (URL) throws -> Void = { try FileManager.default.trashItem(at: $0, resultingItemURL: nil) })
+        -> (count: Int, bytes: Int64, failures: [(path: String, message: String)]) {
+        let fm = FileManager.default
+        var count = 0, bytes: Int64 = 0, failures: [(String, String)] = []
+        for c in list {
+            do {
+                try remove(c.original)
+                let dir = c.original.deletingPathExtension()
+                if fm.fileExists(atPath: dir.path) { try remove(dir) }
+                count += 1
+                bytes += c.bytes
+            } catch {
+                failures.append((c.rel, error.localizedDescription))
+            }
+        }
+        return (count, bytes, failures)
+    }
+}
+
+/// Claude Code 自己的清理：~/.claude/settings.json 的 cleanupPeriodDays（没写是 30 天），到期直接删、不看回响备份好没有。
+/// 「关闭」就是改成 36500：只改这一项的数值（没有就加在开头），其余内容一字不动
+enum EchoClaudeSettings {
+    static var url: URL { EchoBackup.source.deletingLastPathComponent().appendingPathComponent("settings.json") }
+    static let off = 36500
+
+    static func cleanupDays(_ url: URL = url) -> Int {
+        let d = (try? Data(contentsOf: url)).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+        return (d?["cleanupPeriodDays"] as? NSNumber)?.intValue ?? 30
+    }
+
+    static func setCleanupDays(_ days: Int, url: URL = url) throws {
+        let fm = FileManager.default
+        var text = fm.fileExists(atPath: url.path) ? try String(contentsOf: url, encoding: .utf8) : ""
+        if text.trimmed.isEmpty { text = "{\n  \"cleanupPeriodDays\": \(days)\n}\n" }
+        else if let r = text.range(of: #""cleanupPeriodDays"\s*:\s*-?[0-9.]+"#, options: .regularExpression) {
+            text.replaceSubrange(r, with: "\"cleanupPeriodDays\": \(days)")
+        } else {
+            guard let open = text.firstIndex(of: "{") else { throw EchoMove.fail("settings.json 不是一个对象，没改") }
+            let rest = text[text.index(after: open)...]
+            let empty = rest.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("}")
+            // 照下一行的缩进写；对象是空的就不加逗号
+            let indent = rest.hasPrefix("\n") ? String(rest.dropFirst().prefix { $0 == " " || $0 == "\t" }) : ""
+            let item = rest.hasPrefix("\n") ? "\n\(indent.isEmpty ? "  " : indent)\"cleanupPeriodDays\": \(days)" : "\"cleanupPeriodDays\": \(days)"
+            text.insert(contentsOf: item + (empty ? "" : (rest.hasPrefix("\n") ? "," : ", ")), at: text.index(after: open))
+        }
+        // 改完必须还是合法的 JSON、值对了才写
+        guard let o = try? JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any],
+              (o["cleanupPeriodDays"] as? NSNumber)?.intValue == days else { throw EchoMove.fail("settings.json 改完不是合法的 JSON，没改") }
+        try Data(text.utf8).write(to: url, options: .atomic)
+    }
+}

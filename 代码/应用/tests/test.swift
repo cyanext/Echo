@@ -2,6 +2,8 @@
 // 由 tests/run.sh 编译运行：test <会话.jsonl> <原型瘦身结果> <原型 data.js>；test --rules <假会话>
 // 手动验收全量备份：test --backup <临时目录>（把本机会话备份到临时目录，跑两遍看耗时）
 import Foundation
+import AppKit
+import SwiftUI
 
 @main
 enum EchoTests {
@@ -13,7 +15,7 @@ enum EchoTests {
 
     static func main() throws {
         let a = CommandLine.arguments
-        if a.count == 3, a[1] == "--rules" { rules(); try renameTest(fixture: URL(fileURLWithPath: a[2])); try statsTest() }
+        if a.count == 3, a[1] == "--rules" { rules(); try renameTest(fixture: URL(fileURLWithPath: a[2])); try statsTest(); try cleanTest(); try autoDeleteTest(); try claudeSettingsTest() }
         else if a.count == 4, a[1] == "--overview" {   // 手动排查：按应用的方式整理总览数据，写到文件，看用了多久
             let t0 = Date()
             let list = EchoLibrary.scan(backupRoot: URL(fileURLWithPath: a[2]))
@@ -36,6 +38,24 @@ enum EchoTests {
         }
         else if a.count == 3, a[1] == "--backup" { try backup(URL(fileURLWithPath: a[2])) }
         else if a.count == 3, a[1] == "--time" { try timeExport(URL(fileURLWithPath: a[2])) }
+        else if a.count == 3, a[1] == "--clean-estimate" {   // 手动排查：按默认保留期限估算一台电脑的备份能释放多少（只算不改）
+            let t0 = Date()
+            let r = try EchoClean.run(computerDir: URL(fileURLWithPath: a[2]), policy: EchoPolicy(), dryRun: true)
+            print(String(format: "  %d 个文件，%.0fMB → %.0fMB，%.1f 秒", r.files, Double(r.bytesBefore) / 1e6, Double(r.bytesAfter) / 1e6, Date().timeIntervalSince(t0)))
+        }
+        else if a.count == 4, a[1] == "--autodelete-preview" {   // 手动排查：按期限列出会被自动删除的会话（只列不删）：test --autodelete-preview <电脑备份目录> <天数>
+            let list = EchoAutoDelete.candidates(source: EchoBackup.source, computerDir: URL(fileURLWithPath: a[2]), days: Int(a[3]) ?? 30)
+            for c in list { print(String(format: "  %@  %.1fMB", c.rel, Double(c.bytes) / 1e6)) }
+            print(String(format: "  共 %d 个，%.0fMB", list.count, Double(list.reduce(0) { $0 + $1.bytes }) / 1e6))
+        }
+        else if a.count >= 4, a[1] == "--shot" {   // 离屏截图界面，不弹窗口：test --shot <settings-general|settings-storage|onboarding-N> <输出.png> [dark] [等几秒]
+            try MainActor.assumeIsolated { try shot(a[2], to: URL(fileURLWithPath: a[3]), dark: a.contains("dark"), wait: Double(a.last!) ?? 3) }
+        }
+        else if a.count == 4, a[1] == "--slim" {   // 手动排查：按默认保留期限瘦身一个文件，看用时和改了多少
+            let t0 = Date()
+            let s = try EchoSlim.slimFile(URL(fileURLWithPath: a[2]), to: URL(fileURLWithPath: a[3]))
+            print(String(format: "  %.0fMB → %.0fMB，去掉 %d 行，改写 %d 行，%.1f 秒", Double(s.bytesIn) / 1e6, Double(s.bytesOut) / 1e6, s.droppedLines, s.changedLines, Date().timeIntervalSince(t0)))
+        }
         else if a.count == 4, a[1] == "--scan" {   // 手动排查：按应用的方式扫备份目录，看某个会话在不在、归到哪
             let list = EchoLibrary.scan(backupRoot: URL(fileURLWithPath: a[2]))
             print("  扫到 \(list.count) 个会话")
@@ -50,6 +70,7 @@ enum EchoTests {
             }
             for s in list where s.url.lastPathComponent.hasPrefix(a[3]) { print("  \(s.url.lastPathComponent)：标题「\(s.meta.title)」，项目 \(s.projectPath)，开始 \(s.meta.start)") }
         }
+        else if a.count == 4, a[1] == "--export" { try compareExport(URL(fileURLWithPath: a[2]), dataJS: URL(fileURLWithPath: a[3])) }
         else if a.count == 4 { try compare(URL(fileURLWithPath: a[1]), slimmed: URL(fileURLWithPath: a[2]), dataJS: URL(fileURLWithPath: a[3])) }
         else { print("用法：test <会话.jsonl> <原型瘦身结果> <原型 data.js> 或 test --rules"); exit(2) }
         if failed > 0 { print("失败 \(failed) 项"); exit(1) }
@@ -109,6 +130,140 @@ enum EchoTests {
         print("  总览统计：\(failed == 0 ? "通过" : "有失败")")
     }
 
+    /// 清理备份：到期的换成占位、行数不变；旧文件进废纸篓（这里换成临时目录）；再跑一遍不动；没到门槛不重写，第一次（force）照样重写；估算不改文件
+    static func cleanTest() throws {
+        let fm = FileManager.default
+        let dir = fm.temporaryDirectory.appendingPathComponent("echo-clean-\(getpid())")
+        defer { try? fm.removeItem(at: dir) }
+        let proj = dir.appendingPathComponent("projects/-p")
+        let bin = dir.appendingPathComponent("废纸篓")
+        try fm.createDirectory(at: proj, withIntermediateDirectories: true)
+        try fm.createDirectory(at: bin, withIntermediateDirectories: true)
+        func line(_ o: [String: Any]) -> String { String(data: try! JSONSerialization.data(withJSONObject: o, options: [.sortedKeys]), encoding: .utf8)! + "\n" }
+        let big = String(repeating: "旧参数", count: 2000)
+        let a = line(["type": "assistant", "uuid": "a", "timestamp": "2026-09-01T00:00:00Z", "message": ["id": "m", "content": [["type": "tool_use", "id": "t", "name": "Read", "input": ["x": big]]]]])
+            + line(["type": "user", "uuid": "b", "timestamp": "2026-11-20T00:00:00Z", "message": ["role": "user", "content": "新消息"]])
+        let f = proj.appendingPathComponent("a.jsonl")
+        try a.write(to: f, atomically: true, encoding: .utf8)
+        // 门槛：大文件里只有一小块能清，不重写；force 时重写
+        let small = line(["type": "assistant", "uuid": "c", "timestamp": "2026-09-01T00:00:00Z", "message": ["id": "m2", "content": [["type": "tool_use", "id": "t2", "name": "Read", "input": ["x": "小"]]]]])
+            + String(repeating: line(["type": "user", "uuid": "d", "timestamp": "2026-11-20T00:00:00Z", "message": ["role": "user", "content": String(repeating: "很多消息", count: 50)]]), count: 400)
+        let g = proj.appendingPathComponent("b.jsonl")
+        try small.write(to: g, atomically: true, encoding: .utf8)
+        let gBefore = try Data(contentsOf: g)
+        var policy = EchoPolicy()
+        policy.now = EchoTime.parse("2026-11-21T00:00:00Z")!
+        var n = 0
+        let move: (URL) throws -> URL? = { u in n += 1; let t = bin.appendingPathComponent("\(n)-" + u.lastPathComponent); try fm.moveItem(at: u, to: t); return t }
+
+        let est = try EchoClean.run(computerDir: dir, policy: policy, dryRun: true, remove: move)
+        let fNow = try Data(contentsOf: f)
+        check(est.freed > 0 && n == 0 && fNow == Data(a.utf8), "清理：估算应算出能释放、不动文件，实际释放 \(est.freed)，移走 \(n)")
+        let r1 = try EchoClean.run(computerDir: dir, policy: policy, remove: move)
+        let after = try String(contentsOf: f, encoding: .utf8)
+        check(r1.rewritten == 1 && after.contains("已清理") && !after.contains("旧参数") && after.components(separatedBy: "\n").count == a.components(separatedBy: "\n").count,
+              "清理：到期的工具参数应换成占位、行数不变，实际重写 \(r1.rewritten)")
+        check(n == 1 && (try? Data(contentsOf: bin.appendingPathComponent("1-a.jsonl"))) == Data(a.utf8), "清理：旧文件应原样进废纸篓")
+        let gNow = try Data(contentsOf: g)
+        check(gNow == gBefore, "清理：没到门槛的文件不应重写")
+        let r2 = try EchoClean.run(computerDir: dir, policy: policy, remove: move)
+        check(r2.rewritten == 0 && n == 1, "清理：再跑一遍不应再动，实际重写 \(r2.rewritten)")
+        let r3 = try EchoClean.run(computerDir: dir, policy: policy, force: true, remove: move)
+        let gText = try String(contentsOf: g, encoding: .utf8)
+        check(r3.rewritten == 1 && gText.contains("已清理"), "清理：第一次全部过一遍时没到门槛的也重写，实际 \(r3.rewritten)")
+        check(EchoSlim.sizeText(512) == "512 B" && EchoSlim.sizeText(3482) == "3.4 KB" && EchoSlim.sizeText(130 << 20) == "130 MB" && EchoSlim.sizeText(1288490189) == "1.2 GB", "大小写法不对")
+        print("  清理 7 项")
+    }
+
+    /// 自动删除：只挑超过期限、备份完整（连同名目录）、没开着的；只删原会话，备份不动
+    static func autoDeleteTest() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent("echo-autodel-\(getpid())")
+        defer { try? fm.removeItem(at: root) }
+        let src = root.appendingPathComponent("claude/projects"), comp = root.appendingPathComponent("备份/机")
+        let bin = root.appendingPathComponent("废纸篓")
+        for d in [src.appendingPathComponent("-p/s4/subagents"), comp.appendingPathComponent("projects/-p"), bin] { try fm.createDirectory(at: d, withIntermediateDirectories: true) }
+        let old = Date(timeIntervalSinceNow: -40 * 86400)
+        var record = EchoBackupRecord()
+        func make(_ rel: String, backed: Bool = true, at: Date = old) throws {
+            let f = src.appendingPathComponent(rel)
+            try Data("x\n".utf8).write(to: f)
+            try fm.setAttributes([.modificationDate: at], ofItemAtPath: f.path)
+            if backed {
+                let b = comp.appendingPathComponent("projects").appendingPathComponent(rel)
+                try fm.createDirectory(at: b.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try Data("x\n".utf8).write(to: b)
+                let v = try f.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
+                record.files[rel] = EchoFileStamp(size: Int64(v.fileSize!), mtime: v.contentModificationDate!.timeIntervalSince1970)
+            }
+        }
+        try make("-p/s1.jsonl")                                  // 该删
+        try make("-p/s2.jsonl", backed: false)                   // 没备份
+        try make("-p/s3.jsonl", at: Date(timeIntervalSinceNow: -5 * 86400))   // 最近用过
+        try make("-p/s4.jsonl"); try make("-p/s4/subagents/a.jsonl", backed: false)   // 子代理记录没备份
+        try make("-p/s5.jsonl")                                  // 正开着
+        try record.save(comp.appendingPathComponent("备份记录.json"))
+        let list = EchoAutoDelete.candidates(source: src, computerDir: comp, days: 30, open: { $0 == "s5" })
+        check(list.map(\.rel) == ["-p/s1.jsonl"], "自动删除：只该挑 s1，实际 \(list.map(\.rel))")
+        let r = EchoAutoDelete.run(list, remove: { try fm.moveItem(at: $0, to: bin.appendingPathComponent($0.lastPathComponent)) })
+        check(r.count == 1 && !fm.fileExists(atPath: src.appendingPathComponent("-p/s1.jsonl").path), "自动删除：s1 应移走")
+        check(fm.fileExists(atPath: comp.appendingPathComponent("projects/-p/s1.jsonl").path), "自动删除：备份不应动")
+        print("  自动删除 3 项")
+    }
+
+    /// 关闭 Claude 的自动清理：只改 cleanupPeriodDays，其余一字不动；没有就加上；坏文件不改
+    static func claudeSettingsTest() throws {
+        let fm = FileManager.default
+        let f = fm.temporaryDirectory.appendingPathComponent("echo-settings-\(getpid()).json")
+        defer { try? fm.removeItem(at: f) }
+        let cases: [(String, String)] = [
+            ("{\n  \"model\": \"opus\",\n  \"cleanupPeriodDays\": 30,\n  \"x\": [1, 2]\n}\n", "{\n  \"model\": \"opus\",\n  \"cleanupPeriodDays\": 36500,\n  \"x\": [1, 2]\n}\n"),
+            ("{\n    \"model\": \"opus\"\n}\n", "{\n    \"cleanupPeriodDays\": 36500,\n    \"model\": \"opus\"\n}\n"),
+            ("{\"model\":\"opus\"}", "{\"cleanupPeriodDays\": 36500, \"model\":\"opus\"}"),
+            ("{}", "{\"cleanupPeriodDays\": 36500}"),
+        ]
+        for (before, want) in cases {
+            try before.write(to: f, atomically: true, encoding: .utf8)
+            try EchoClaudeSettings.setCleanupDays(36500, url: f)
+            let got = try String(contentsOf: f, encoding: .utf8)
+            check(got == want, "改 settings.json 不对：\(before.debugDescription) → \(got.debugDescription)")
+        }
+        try? fm.removeItem(at: f)
+        try EchoClaudeSettings.setCleanupDays(36500, url: f)
+        check(EchoClaudeSettings.cleanupDays(f) == 36500, "没有 settings.json 时应新建")
+        try "{ 坏的".write(to: f, atomically: true, encoding: .utf8)
+        let failed = (try? EchoClaudeSettings.setCleanupDays(36500, url: f)) == nil
+        let still = try String(contentsOf: f, encoding: .utf8)
+        check(failed && still == "{ 坏的", "坏文件不应改")
+        print("  改 Claude 设置 6 项")
+    }
+
+    /// 用不显示的窗口画界面再存图：不切屏幕、不装应用就能看设置页、首次设置
+    @MainActor static func shot(_ what: String, to out: URL, dark: Bool, wait: Double) throws {
+        _ = NSApplication.shared
+        NSApp.setActivationPolicy(.prohibited)
+        NSApp.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
+        let view: AnyView
+        switch what {
+        case "settings-general": view = AnyView(EchoSettingsView(start: .general))
+        case let x where x.hasPrefix("onboarding-"): view = AnyView(EchoOnboardingView(start: Int(x.dropFirst(11)) ?? 0) {})
+        default: view = AnyView(EchoSettingsView(start: .storage))
+        }
+        let host = NSHostingView(rootView: view)
+        let w = NSWindow(contentRect: NSRect(x: -4000, y: -4000, width: 680, height: 760), styleMask: [.titled, .fullSizeContentView], backing: .buffered, defer: false)
+        w.titlebarAppearsTransparent = true
+        w.appearance = NSApp.appearance
+        w.contentView = host
+        let end = Date(timeIntervalSinceNow: wait)
+        while Date() < end { RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.1)) }
+        host.setFrameSize(host.fittingSize)
+        host.layoutSubtreeIfNeeded()
+        guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { return }
+        host.cacheDisplay(in: host.bounds, to: rep)
+        try rep.representation(using: .png, properties: [:])?.write(to: out)
+        print("  截图 \(out.lastPathComponent)")
+    }
+
     static func lines(_ url: URL) throws -> [Data] {
         var out: [Data] = []
         try EchoLines.each(url) { out.append(Data(buffer: $0)) }
@@ -120,7 +275,9 @@ enum EchoTests {
         // 瘦身：行数一样；原型原样写出的行逐字节一样，改写过的行解析后一样
         let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("echo-test-\(getpid()).jsonl")
         defer { try? FileManager.default.removeItem(at: tmp) }
-        let stats = try EchoSlim.slimFile(src, to: tmp)
+        var policy = EchoPolicy()
+        if let n = ProcessInfo.processInfo.environment["ECHO_NOW"], let d = EchoTime.parse(n) { policy.now = d }
+        let stats = try EchoSlim.slimFile(src, to: tmp, policy: policy)
         let mine = try lines(tmp), theirs = try lines(slimmed), orig = try lines(src)
         check(mine.count == theirs.count, "\(name) 瘦身后行数 \(mine.count)，原型 \(theirs.count)")
         for (n, (m, t)) in zip(mine, theirs).enumerated() where m != t {
@@ -134,7 +291,12 @@ enum EchoTests {
         check(kept >= raw, "\(name) 原样保留的行 \(kept)，原型 \(raw)")
         print("  瘦身 \(name)：\(orig.count) 行 → \(mine.count) 行，去掉请求记录 \(stats.droppedLines) 行，改写 \(stats.changedLines) 行")
 
-        // 消息显示：整理结果和原型完全一样
+        try compareExport(src, dataJS: dataJS)
+    }
+
+    /// 消息显示：整理结果和原型完全一样
+    static func compareExport(_ src: URL, dataJS: URL) throws {
+        let name = src.lastPathComponent
         var js = try String(contentsOf: dataJS, encoding: .utf8)
         js = String(js.dropFirst("window.SESSION = ".count))
         js = String(js.dropLast(2))
