@@ -158,7 +158,7 @@ h2.sec { margin: var(--space-4) var(--space-1) 0; }
 /* 版本：只有标签图标和版本号，不加底色（「去掉外部便签」）；悬停变淡 */
 .vers { display: flex; flex-wrap: wrap; gap: 2px var(--space-3); margin: 4px 0 2px; }
 .ver { display: inline-flex; align-items: center; gap: 3px; height: 20px; color: var(--accent-text); font: 600 var(--text-xs)/20px var(--font-mono); cursor: pointer; }
-.ver svg { width: 11px; height: 11px; }
+.ver svg { width: 11px; height: 11px; transform: translateY(-.5px); }   /* 重心对齐：图标中心对数字中线（WKWebView 实测居中时低半像素，「偏下了」） */
 .ver:hover, .link:hover { opacity: .6; }   /* 版本号、Git 提交悬停变淡，不变黑、不加下划线 */
 .more-ver { align-self: center; font-size: var(--text-xs); color: var(--fg-faint); }
 .num { text-align: right; font-size: var(--text-xs); line-height: var(--lh-sm); color: var(--fg-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
