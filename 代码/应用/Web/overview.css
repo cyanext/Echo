@@ -207,12 +207,13 @@ h2.sec { margin: var(--space-4) var(--space-1) 0; }
 .mini { display: flex; flex-wrap: wrap; gap: 0 var(--space-3); }
 .mini span { display: inline-flex; align-items: center; gap: 4px; }
 .mini i { width: 6px; height: 6px; border-radius: 2px; }
-/* 应用的颜色：主色深浅两档区分（Claude 深、Codex 浅），不用各家品牌色，和整页一个色系（用应用色有些割裂） */
-.a-claude { background: var(--q4); } .a-codex { background: var(--q2); } .a-workbuddy { background: var(--q1); }
+/* 应用的颜色：低饱和的橙（Claude）、蓝（Codex），浅色深色各一套，dataviz 校验过（色度刚过 0.1 的下限，不发灰；色盲可分）。
+   品牌色割裂，主色深浅又奇怪 */
+.a-claude { background: #C57A56; } .a-codex { background: #5B79BD; } .a-workbuddy { background: #4E9C86; }
+@media (prefers-color-scheme: dark) { .a-claude { background: #BA7650; } .a-codex { background: #6680C0; } }
 .legend.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
 .use-name.gap { margin-top: var(--space-6); }
-.tbar i.a-claude { color: #fff; } .tbar i.a-codex, .tbar i.a-workbuddy { color: var(--fg); }
-@media (prefers-color-scheme: dark) { .tbar i.a-claude { color: #10292a; } .tbar i.a-codex { color: #fff; } }
+.tbar i.a-claude, .tbar i.a-codex, .tbar i.a-workbuddy { color: #fff; }
 /* 备份趋势：近 30 天每天一根，宽不过 24，按应用堆起来，段间 2 的缝，顶端圆角 4；柱顶写数 */
 .wkcols { display: flex; align-items: flex-end; gap: 4px; height: 160px; padding-top: 18px; border-bottom: 1px solid var(--line); }
 .wc { flex: 1; display: flex; align-items: flex-end; justify-content: center; height: 100%; }
