@@ -143,6 +143,9 @@ h2.sec { margin: var(--space-4) var(--space-1) 0; }
 .row.sess.gone:hover { background: none; }
 .row.sess.gone .title { color: var(--fg-muted); }
 .gone-tag { flex: none; font-size: var(--text-xs); color: var(--fg-faint); }
+.forget { flex: none; display: none; font-size: var(--text-xs); color: var(--fg-muted); cursor: pointer; }   /* 已删除会话悬停时出现「删统计」 */
+.row.sess.gone:hover .forget { display: inline; }
+.forget:hover { color: var(--down); }
 .name { min-width: 0; }
 .name .line { display: flex; align-items: baseline; gap: var(--space-2); white-space: nowrap; overflow: hidden; }
 .name .title { flex: none; max-width: 60%; overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
@@ -204,16 +207,18 @@ h2.sec { margin: var(--space-4) var(--space-1) 0; }
 .mini { display: flex; flex-wrap: wrap; gap: 0 var(--space-3); }
 .mini span { display: inline-flex; align-items: center; gap: 4px; }
 .mini i { width: 6px; height: 6px; border-radius: 2px; }
-/* 应用的颜色：两家品牌色，浅色深色各一套（dataviz 校验过：亮度、色盲区分、对比度） */
-.a-claude { background: #D97757; } .a-codex { background: #5B6CF0; } .a-workbuddy { background: #19B48A; }
-@media (prefers-color-scheme: dark) { .a-claude { background: #D07454; } .a-codex { background: #6B79F0; } }
+/* 应用的颜色：主色深浅两档区分（Claude 深、Codex 浅），不用各家品牌色，和整页一个色系（用应用色有些割裂） */
+.a-claude { background: var(--q4); } .a-codex { background: var(--q2); } .a-workbuddy { background: var(--q1); }
 .legend.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
 .use-name.gap { margin-top: var(--space-6); }
-.tbar i.a-claude, .tbar i.a-codex, .tbar i.a-workbuddy { color: #fff; }
-/* 备份趋势：每周一根，宽不过 24，按应用堆起来，段间 2 的缝，顶端圆角 4 */
-.wkcols { display: flex; align-items: flex-end; gap: 4px; height: 140px; border-bottom: 1px solid var(--line); }
+.tbar i.a-claude { color: #fff; } .tbar i.a-codex, .tbar i.a-workbuddy { color: var(--fg); }
+@media (prefers-color-scheme: dark) { .tbar i.a-claude { color: #10292a; } .tbar i.a-codex { color: #fff; } }
+/* 备份趋势：近 30 天每天一根，宽不过 24，按应用堆起来，段间 2 的缝，顶端圆角 4；柱顶写数 */
+.wkcols { display: flex; align-items: flex-end; gap: 4px; height: 160px; padding-top: 18px; border-bottom: 1px solid var(--line); }
 .wc { flex: 1; display: flex; align-items: flex-end; justify-content: center; height: 100%; }
-.wc .st { display: flex; flex-direction: column; gap: 2px; width: 100%; max-width: 24px; min-height: 0; }
+.wc .st { position: relative; display: flex; flex-direction: column; gap: 2px; width: 100%; max-width: 24px; min-height: 0; }
+.wc .st b { position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); padding-bottom: 2px; font-size: 10px; line-height: 14px; font-weight: 400; color: var(--fg-muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.wc .st b + i { border-radius: 4px 4px 0 0; }
 .wc .st i { display: block; min-height: 2px; }
 .wc .st i:first-child { border-radius: 4px 4px 0 0; }
 .wc:hover .st { opacity: .8; }

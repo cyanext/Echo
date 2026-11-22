@@ -327,7 +327,7 @@ struct EchoSourcesBlock: View {
         Group {
             if let a = count {
                 (Text("按当前设置将清理 ") + Text("\(a.count) 个会话").fontWeight(.semibold) + Text("，释放 \(EchoStorage.size(a.bytes))"))
-            } else { Text("正在统计会清理几个…") }
+            } else { Text("正在统计…") }
         }
         .font(.system(size: 12)).foregroundStyle(EchoColor.fg2).padding(.vertical, 4)
         .opacity(on.wrappedValue ? 1 : 0.4)
@@ -354,15 +354,15 @@ struct EchoSourcesBlock: View {
                 }
             }
         } else if let closeClaude {
-            EchoSettingRow(title: "关闭 Claude 的自动清理（推荐）", note: "它会直接删除 \(model.claudeCleanupDays) 天未使用的会话，不等回响备份完") {
+            EchoSettingRow(title: "关闭 Claude 的自动清理（推荐）", note: "Claude 会直接删除 \(model.claudeCleanupDays) 天未使用的会话，不确认是否已备份") {
                 Toggle("", isOn: closeClaude).toggleStyle(.switch).labelsHidden()
             }
         } else {
             HStack(spacing: 16) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("建议关闭 Claude 的自动清理").font(.system(size: 13)).foregroundStyle(EchoColor.fg)
-                    Text("它会直接删除 \(model.claudeCleanupDays) 天未使用的会话，不等回响备份完").font(.system(size: 12)).foregroundStyle(EchoColor.fg2)
-                    Text("关闭后由回响清理：确认已备份，再移到废纸篓").font(.system(size: 12)).foregroundStyle(EchoColor.fg2)
+                    Text("Claude 会直接删除 \(model.claudeCleanupDays) 天未使用的会话，不确认是否已备份").font(.system(size: 12)).foregroundStyle(EchoColor.fg2)
+                    Text("关闭后由回响清理：确认备份完整后再移到废纸篓").font(.system(size: 12)).foregroundStyle(EchoColor.fg2)
                 }
                 Spacer(minLength: 0)
                 Button("关闭自动清理") { model.turnOffClaudeCleanup() }

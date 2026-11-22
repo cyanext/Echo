@@ -233,7 +233,7 @@ final class EchoState: ObservableObject {
         let list = EchoAutoDelete.candidates(source: EchoBackup.source, computerDir: dir, days: EchoPrefs.autoDeleteDays)
         guard !list.isEmpty else { return nil }
         let r = EchoAutoDelete.run(list)
-        NSLog("回响自动删除：%d 个会话移进废纸篓，腾出 %.1fMB，失败 %d", r.count, Double(r.bytes) / 1e6, r.failures.count)
+        NSLog("回响自动清理：%d 个会话移到废纸篓，释放 %.1fMB，失败 %d", r.count, Double(r.bytes) / 1e6, r.failures.count)
         for f in r.failures { NSLog("回响自动删除失败：%@：%@", f.path, f.message) }
         return r.count > 0 ? (r.count, r.bytes) : nil
     }
@@ -245,7 +245,7 @@ final class EchoState: ObservableObject {
         let list = EchoAutoDelete.codexCandidates(source: EchoBackup.codexSource, dir: dir, days: EchoPrefs.autoDeleteCodexDays)
         guard !list.isEmpty else { return nil }
         let r = EchoAutoDelete.run(list)
-        NSLog("回响自动清理 Codex：%d 个会话移进废纸篓，腾出 %.1fMB，失败 %d", r.count, Double(r.bytes) / 1e6, r.failures.count)
+        NSLog("回响自动清理 Codex：%d 个会话移到废纸篓，释放 %.1fMB，失败 %d", r.count, Double(r.bytes) / 1e6, r.failures.count)
         for f in r.failures { NSLog("回响自动清理 Codex 失败：%@：%@", f.path, f.message) }
         return r.count > 0 ? (r.count, r.bytes) : nil
     }
@@ -286,29 +286,39 @@ final class EchoState: ObservableObject {
 
     /// 写回原会话后立刻增量备份，列表里马上看到新名字
     func rename(_ s: EchoSession, to title: String) throws {
-        guard s.app == .claude else { throw CocoaError(.fileWriteNoPermission, userInfo: [NSLocalizedDescriptionKey: "Codex 的会话在 Codex 里改名"]) }
+        guard s.app == .claude else { throw CocoaError(.fileWriteNoPermission, userInfo: [NSLocalizedDescriptionKey: "Codex 会话请在 Codex 中改名"]) }
         guard let u = EchoRename.originalURL(for: s) else {
-            throw CocoaError(.fileWriteNoPermission, userInfo: [NSLocalizedDescriptionKey: "这个会话在 \(s.computer) 上，到那台电脑上改"])
+            throw CocoaError(.fileWriteNoPermission, userInfo: [NSLocalizedDescriptionKey: "此会话在 \(s.computer) 上，请在该电脑上改名"])
         }
         try EchoRename.appendTitle(to: u, sessionId: s.sessionId, title: title)
         lastSuccess = nil
         backupNow()
     }
 
-    /// 先把要删的会话按天的数记进「已删除统计」，总览照算；记不下来就不删。再一个个删，出错的跳过，最后报第一个错
-    func delete(_ list: [EchoSession]) throws {
-        try EchoDeleted.add(list.filter { EchoDelete.paths(for: $0) != nil }.map { try EchoDeleted.make($0) }, EchoPrefs.computerDir)
+    /// 删会话：原会话在就和备份一起移到废纸篓，不在（清理了、在另一台电脑上）就只移备份。
+    /// keepStats：先把按天的数记进「已删除统计」，总览照算（记不下来就不删）；不保留时连统计一起删。一个个删，出错的跳过，最后报第一个错
+    func delete(_ list: [EchoSession], keepStats: Bool = true) throws {
+        if keepStats { try EchoDeleted.add(list.map { try EchoDeleted.make($0) }, EchoPrefs.computerDir) }
+        else { EchoDeleted.forget(Set(list.map { $0.computer + "/" + $0.sessionId }), EchoPrefs.backupRoot) }
         var firstError: Error?
         for s in list {
-            do {
-                guard let p = EchoDelete.paths(for: s) else {
-                    throw CocoaError(.fileWriteNoPermission, userInfo: [NSLocalizedDescriptionKey: "「\(s.meta.title)」在 \(s.computer) 上，到那台电脑上删"])
-                }
-                try EchoDelete.trash(p)
-            } catch { firstError = firstError ?? error }
+            do { try EchoDelete.trash(EchoDelete.paths(for: s)) } catch { firstError = firstError ?? error }
         }
         reloadSessions()
         if let e = firstError { throw e }
+    }
+
+    /// 总览里点了已删除会话的「删除统计」：先确认（网页里的 confirm 在 WKWebView 弹不出来，由这里弹）
+    func forgetStats(_ id: String) {
+        let a = NSAlert()
+        a.messageText = "删除此会话的统计数据？"
+        a.informativeText = "删除后，总览将不再计入该会话的消息数、Token 和时长。此操作无法撤销。"
+        a.addButton(withTitle: "删除")
+        a.addButton(withTitle: "取消")
+        a.buttons[0].hasDestructiveAction = true
+        guard a.runModal() == .alertFirstButtonReturn else { return }
+        EchoDeleted.forget([id], EchoPrefs.backupRoot)
+        rebuildOverview()
     }
 
     /// 挪到 dir：一个个挪，出错的跳过。挪成的记进移动记录、合集成员换成新路径。返回挪成的和第一个错
@@ -318,7 +328,7 @@ final class EchoState: ObservableObject {
         for s in list {
             do {
                 guard let p = EchoMove.paths(for: s, to: dir) else {
-                    throw EchoMove.fail("「\(s.meta.title)」在 \(s.computer) 上，到那台电脑上挪")
+                    throw EchoMove.fail("「\(s.meta.title)」在 \(s.computer) 上，请在该电脑上移动")
                 }
                 try EchoMove.move(p, sessionId: s.sessionId)
                 moves[s.sessionId] = dir

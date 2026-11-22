@@ -114,7 +114,7 @@ struct EchoOnboardingView: View {
                         HStack {
                             VStack(alignment: .leading, spacing: 2) {
                                 if let f = firstBackup { Text("首次备份约 ") + Text(EchoStorage.size(f)).fontWeight(.semibold) }
-                                else { Text("正在估算首次备份多大…") }
+                                else { Text("正在估算首次备份大小…") }
                                 Text("完成后开始备份，进度显示在左栏底部").font(.system(size: 12)).foregroundStyle(EchoColor.fg3)
                             }
                             .font(.system(size: 13)).foregroundStyle(EchoColor.fg)

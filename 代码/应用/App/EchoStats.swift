@@ -50,6 +50,19 @@ enum EchoDeleted {
         try enc.encode(File(sessions: all)).write(to: url(computerDir), options: .atomic)
     }
 
+    /// 删掉某些会话的统计（总览里就不算了）：每台电脑的已删除统计里都找，id 是「电脑/会话 ID」
+    static func forget(_ ids: Set<String>, _ backupRoot: URL) {
+        let dirs = (try? FileManager.default.contentsOfDirectory(at: backupRoot, includingPropertiesForKeys: nil, options: .skipsHiddenFiles)) ?? []
+        for d in dirs {
+            let all = load(d)
+            let kept = all.filter { !ids.contains($0.c + "/" + $0.sid) }
+            guard kept.count != all.count else { continue }
+            let enc = JSONEncoder()
+            enc.outputFormatting = [.sortedKeys]
+            try? enc.encode(File(sessions: kept)).write(to: url(d), options: .atomic)
+        }
+    }
+
     /// 从备份读出这个会话按天的数
     static func make(_ s: EchoSession, at date: Date = Date()) throws -> EchoDeletedSession {
         let (days, g) = try EchoStats.readAll(s.url)
