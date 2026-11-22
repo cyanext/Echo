@@ -255,7 +255,7 @@ enum EchoTests {
         check(EchoPath.real(t + "/桌面/客户文档/已删/乙") == t + "/NAS/客户文档/已删/乙", "查不到的部分应原样接上")
         check(EchoPath.real(t + "/没有/丙") == t + "/没有/丙", "不存在的路径应原样返回")
         let home = NSHomeDirectory()
-        check(EchoPath.parts(home + "/.claude/jobs/d219103f/tmp/codex-x").comps == ["Claude 后台任务"], "Claude 后台任务没归组")
+        check(EchoPath.parts(home + "/.claude/jobs/d219103f/tmp/codex-x").comps == ["Codex 后台任务"], "Codex 后台任务没归组")
         check(EchoPath.parts(home + "/Documents/Codex/2026-09-25/ni-k").comps == ["Codex 临时对话"], "Codex 临时对话没归组")
         check(EchoPath.parts("/private/tmp/claude-501/x/scratchpad").comps == ["临时文件夹"], "临时文件夹没归组")
         check(EchoStats.project(home + "/Documents/New project") == "Codex 默认项目", "New project 没换名字")

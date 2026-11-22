@@ -48,18 +48,18 @@ enum EchoPath {
     }
 
     /// 看着抽象的文件夹归成一个好懂的目录，下面不再分级（「codex 的路径都有点抽象」）：
-    /// Claude 后台任务调 Codex（codex exec）时在 ~/.claude/jobs/<编号>/tmp 下；Codex 桌面版不选项目时在 ~/Documents/Codex/<日期>/<名字>；
+    /// Claude 的后台任务调 Codex（codex exec）时在 ~/.claude/jobs/<编号>/tmp 下；Codex 桌面版不选项目时在 ~/Documents/Codex/<日期>/<名字>；
     /// 各种临时目录（/tmp、/var/folders、Claude 的 scratchpad）
     static func group(_ path: String) -> String? {
         let home = NSHomeDirectory()
-        if path.hasPrefix(home + "/.claude/jobs/") { return "Claude 后台任务" }
+        if path.hasPrefix(home + "/.claude/jobs/") { return "Codex 后台任务" }
         if path.hasPrefix(home + "/Documents/Codex/") { return "Codex 临时对话" }
         if ["/private/tmp/", "/tmp/", "/private/var/folders/", "/var/folders/"].contains(where: { path.hasPrefix($0) }) || path == "/private/tmp" { return "临时文件夹" }
         return nil
     }
 
     /// 左栏里归出来的目录（不是真的文件夹）：路径是「/」加名字
-    static func isGroup(_ path: String) -> Bool { ["/Claude 后台任务", "/Codex 临时对话", "/临时文件夹"].contains(path) }
+    static func isGroup(_ path: String) -> Bool { ["/Codex 后台任务", "/Codex 临时对话", "/临时文件夹"].contains(path) }
 
     /// 真实存在、但名字看不出是什么的文件夹，左栏和总览换个名字显示，路径不变：Codex 默认建的「New project」
     static let alias = [NSHomeDirectory() + "/Documents/New project": "Codex 默认项目"]
