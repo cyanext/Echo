@@ -15,7 +15,7 @@ enum EchoTests {
 
     static func main() throws {
         let a = CommandLine.arguments
-        if a.count == 3, a[1] == "--rules" { rules(); try renameTest(fixture: URL(fileURLWithPath: a[2])); try statsTest(); timeTest(); try cleanTest(); try layoutTest(); try autoDeleteTest(); try claudeSettingsTest() }
+        if a.count == 3, a[1] == "--rules" { rules(); try renameTest(fixture: URL(fileURLWithPath: a[2])); try statsTest(); try commitMatchTest(); timeTest(); try cleanTest(); try layoutTest(); try autoDeleteTest(); try claudeSettingsTest() }
         else if a.count == 4, a[1] == "--overview" {   // 手动排查：按应用的方式整理总览数据，写到文件，看用了多久
             let t0 = Date()
             let list = EchoLibrary.scan(backupRoot: URL(fileURLWithPath: a[2]))
@@ -151,6 +151,29 @@ enum EchoTests {
         }
         check(EchoTime.fastEpoch("2026-11-04 11:41:10") == nil && EchoTime.parse("2026-11-04T11:41:10+08:00") != nil, "认不出的格式应退回格式器")
         print("  时间解析 11 项")
+    }
+
+    /// 总览把提交挂到会话：从会话里的 git commit 命令取说明（-m、-qm、单引号、heredoc），从输出取提交号
+    static func commitMatchTest() throws {
+        let fm = FileManager.default
+        let f = fm.temporaryDirectory.appendingPathComponent("echo-commit-\(getpid()).jsonl")
+        defer { try? fm.removeItem(at: f) }
+        func bash(_ cmd: String) -> String {
+            let o: [String: Any] = ["type": "assistant", "timestamp": "2026-11-20T00:00:00Z", "message": ["id": "m", "content": [["type": "tool_use", "id": "t", "name": "Bash", "input": ["command": cmd]]]]]
+            return String(data: try! JSONSerialization.data(withJSONObject: o), encoding: .utf8)! + "\n"
+        }
+        let result: [String: Any] = ["type": "user", "timestamp": "2026-11-20T00:00:00Z", "message": ["role": "user", "content": [["type": "tool_result", "tool_use_id": "t", "content": "[main 9affe6e] 改了点东西\n 2 files changed, 3 insertions(+)"]]]]
+        let text = bash("cd /x && git add -A && git commit -qm \"总览：合计行不铺底，「合计」两个字用主色\n\nCo-Authored-By: x\"")
+            + bash("git -C /y commit -m 'v0.7.1 整体提速'")
+            + bash("git commit -m \"$(cat <<'EOF'\n修复 \\\"引号\\\" 的说明\n\n正文\nEOF\n)\"")
+            + bash("echo git commit 不算")
+            + String(data: try JSONSerialization.data(withJSONObject: result), encoding: .utf8)! + "\n"
+        try text.write(to: f, atomically: true, encoding: .utf8)
+        let g = try EchoStats.readAll(f).g
+        let want: Set<String> = ["m:总览：合计行不铺底，「合计」两个字用主色", "m:v0.7.1 整体提速", "m:修复 \\\"引号\\\" 的说明", "9affe6e"]
+        check(g == want, "提交挂会话：应取出 \(want.sorted())，实际 \(g.sorted())")
+        check(EchoStats.commitKey("  一二三四五六七八九十一二三四五六七八九十一二三四五六七八九十多出来\n正文") == "一二三四五六七八九十一二三四五六七八九十一二三四五六七八九十", "提交说明取第一行前 30 字")
+        print("  提交挂会话 2 项")
     }
 
     static func cleanTest() throws {

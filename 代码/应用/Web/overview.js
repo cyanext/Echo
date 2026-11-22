@@ -6,7 +6,6 @@
   const WD = "日一二三四五六";
   const IC = {
     tag: '<svg viewBox="0 0 24 24"><path d="M4 12.6V5.5A1.5 1.5 0 0 1 5.5 4h7.1l7.4 7.4a1.5 1.5 0 0 1 0 2.1l-6.5 6.5a1.5 1.5 0 0 1-2.1 0z"/><circle cx="8.5" cy="8.5" r="1.4"/></svg>',
-    commit: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.5"/><path d="M3 12h5.5M15.5 12H21"/></svg>',
   };
   const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
   const fmtN = (n) => Math.round(n).toLocaleString("en-US");
@@ -67,14 +66,19 @@
     }
     for (const c of data.commits) {
       const dt = new Date(c.d), m = VER.exec(c.s);
-      day(key(dt)).commits.push({ p: c.p, s: m ? c.s.slice(m[0].length) || c.s : c.s, ver: m ? m[1] : "", a: c.a, r: c.r, f: c.f, time: +dt });
+      day(key(dt)).commits.push({ h: c.h || "", full: c.s, p: c.p, s: m ? c.s.slice(m[0].length) || c.s : c.s, ver: m ? m[1] : "", a: c.a, r: c.r, f: c.f, time: +dt });
     }
-    // 提交归到会话：同一项目、提交时间落在会话这天的起止之间（前后各放宽 10 分钟），几个都对得上取 Token 多的；对不上的算「其他提交」
+    // 提交归到会话：先看哪个会话里做了这次提交（会话的 g：git commit 输出里的提交号前 7 位，和「m:」加 git commit 命令里说明的第一行前 30 字），
+    // 在别的文件夹里提交的也对得上；没有的，同一项目、提交时间落在会话这天的起止之间（前后各放宽 10 分钟），几个都对得上取 Token 多的；
+    // 都对不上的只算进当天的提交次数（不单独列）
+    const owner = new Map(), msgKey = (m) => "m:" + Array.from((m.split("\n")[0] || "").trim()).slice(0, 30).join("");
+    for (const s of data.sessions) for (const h of s.g || []) owner.set(h.startsWith("m:") ? h : h.slice(0, 7), s.id);
     for (const d of days.values()) {
-      d.other = [];
       for (const c of d.commits) {
-        const hit = d.sess.filter((s) => s.p === c.p && c.time >= s.a - 6e5 && c.time <= s.b + 6e5).sort((a, b) => b.tot - a.tot)[0];
-        (hit ? hit.commits : d.other).push(c);
+        const sid = owner.get(c.h.slice(0, 7)) || owner.get(msgKey(c.full));
+        const hit = (sid && d.sess.find((s) => s.id === sid))
+          || d.sess.filter((s) => s.p === c.p && c.time >= s.a - 6e5 && c.time <= s.b + 6e5).sort((a, b) => b.tot - a.tot)[0];
+        if (hit) hit.commits.push(c);
       }
     }
     // 从第一个有会话的周起，到这周
@@ -85,7 +89,7 @@
     for (let st = mon(first), wi = 0; st <= TODAY; st = addDays(st, 7), wi++) {
       const w = { wi, start: st, days: [], tot: 0, out: 0, usd: 0, msg: 0, ms: 0, lg: 0, commits: 0, add: 0, del: 0, files: new Set(), sids: new Set(), projs: new Set(), parts: [0, 0, 0, 0], models: {} };
       for (let i = 0; i < 7; i++) {
-        const date = addDays(st, i), k = key(date), d = days.get(k) || { tot: 0, out: 0, usd: 0, msg: 0, ms: 0, lg: 0, sess: [], parts: [0, 0, 0, 0], models: {}, commits: [], other: [] };
+        const date = addDays(st, i), k = key(date), d = days.get(k) || { tot: 0, out: 0, usd: 0, msg: 0, ms: 0, lg: 0, sess: [], parts: [0, 0, 0, 0], models: {}, commits: [] };
         const x = { ...d, date, fut: date > TODAY };
         x.sess = [...d.sess].sort((a, b) => b.tot - a.tot);
         w.days.push(x);
@@ -156,15 +160,6 @@
     $("cal").innerHTML = h + `</div></div>`;
   }
 
-  // 对不上会话的提交：一个项目并成一行，有版本写版本号（最多 3 个），说明取发版那条或最近一条
-  function commitLine(list, label) {
-    const cs = [...list].sort((a, b) => b.time - a.time), ver = [];
-    let msg = "";
-    cs.forEach((c) => { if (c.ver && !ver.includes(c.ver)) { ver.push(c.ver); if (ver.length === 1) msg = c.s; } });
-    if (!msg) msg = cs[0].s;
-    return `<div class="other">${IC.commit}<span class="t">${ver.length ? `<b data-tip="${ver.join("、")}">${ver.slice(0, 3).join(" · ")}${ver.length > 3 ? ` 等 ${ver.length} 个版本` : ""}</b>` : ""}${esc(msg)}</span><span class="x">${esc(label)} · ${cs.length} 次提交</span></div>`;
-  }
-
   // 会话表一行：会话（标题、灰字项目路径，有发版的第二行放版本标签）、Token、我的消息、AI 时长、时间、Git 提交
   const COLS = `<div class="row cols"><span>会话</span><span>Token</span><span>我的消息</span><span>AI 时长</span><span>时间</span><span>Git 提交</span></div>`;
   function sessRow(s) {
@@ -181,7 +176,7 @@
   }
 
   // 本周：从今天往前一天一张卡。卡头日期（点了展开或收起）和当天的量；下面会话表，按 Token 先列 4 个，
-  // 「还有 N 个会话」点开就地展开；对不上会话的提交放在卡底。点日历某天也是展开那天
+  // 「还有 N 个会话」点开就地展开；对不上会话的提交不单独列，只算进合计。点日历某天也是展开那天
   const hm = (t) => { const d = new Date(t); return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`; };
   const dur = (ms) => ms >= 3.6e6 ? (ms / 3.6e6).toFixed(1) + " 小时" : Math.max(1, Math.round(ms / 6e4)) + " 分钟";
   function week() {
@@ -190,7 +185,7 @@
     if (!w.sids.size) { el.innerHTML = h + `<div class="card"><div class="empty">这周没有会话</div></div>`; return; }
     w.days.slice().reverse().forEach((x) => {
       if (x.fut) return;
-      const t = +x.date, isToday = t === +TODAY, other = x.other || [], all = open.has(t);
+      const t = +x.date, isToday = t === +TODAY, all = open.has(t);
       // 卡头只写日期；当天的合计放在会话表底下一行「合计」，对齐各列（合计挤在卡头右边太丑，放卡头按列对齐也怪）
       const has = x.tot || x.msg, ms = x.sess.reduce((a, s) => a + (s.ms || 0), 0);
       h += `<section class="card day" data-t="${t}"><div class="day-head"><b class="date" data-t="${t}">${md(x.date)} 周${WD[x.date.getDay()]}</b>${isToday ? `<span class="today">今天</span>` : ""}${has ? "" : `<span class="cnt">没有会话</span>`}</div>`;
@@ -198,11 +193,6 @@
         const list = all ? x.sess : x.sess.slice(0, 4), rest = x.sess.length - 4;
         h += `<div class="table">${COLS}${list.map(sessRow).join("")}</div>` + (rest > 0 ? `<div class="toggle" data-t="${t}">${all ? "收起" : `还有 ${rest} 个会话`}</div>` : "")
           + `<div class="row sum"><div class="name"><b>合计</b><span class="cnt">${x.sess.length} 个会话</span></div><span class="num strong" data-tip="折合 ${fmtU(x.usd)}">${fmtM(x.tot)}</span><span class="num">${x.msg} 条</span><span class="num">${ms ? dur(ms) : ""}</span><span></span><span class="num">${x.commits.length ? `${x.commits.length} 次` : ""}</span></div>`;
-      }
-      if (other.length) {
-        const byP = new Map();
-        other.forEach((c) => byP.set(c.p, [...(byP.get(c.p) || []), c]));
-        h += `<div class="others">${[...byP.entries()].map(([p, cs]) => commitLine(cs, p)).join("")}</div>`;
       }
       h += `</section>`;
     });
@@ -283,6 +273,6 @@
     const s = e.target.closest(".sess[data-id]");                  // 会话：打开
     if (s) post({ open: s.dataset.id });
   };
-  Tip.init(".name .title, .name .path, .other .t");   // 被省略的会话名、路径、提交说明，悬停看全文
+  Tip.init(".name .title, .name .path");   // 被省略的会话名、路径，悬停看全文
   load(false);
 })();

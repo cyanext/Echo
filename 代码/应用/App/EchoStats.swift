@@ -21,6 +21,7 @@ struct EchoDeletedSession: Codable, Equatable {
     var c: String                     // 电脑
     var deleted: String               // 删除时间（ISO 8601）
     var days: [String: EchoDayStat]
+    var g: [String]? = nil            // 会话里 git commit 输出的提交号（前 7 位），总览按它把提交挂到会话上
 }
 
 /// 已删除统计：每台电脑一个文件 <备份目录>/<电脑名>/已删除统计.json，只有这台电脑写（只能删本机的会话），读的时候各台合起来
@@ -51,8 +52,9 @@ enum EchoDeleted {
 
     /// 从备份读出这个会话按天的数
     static func make(_ s: EchoSession, at date: Date = Date()) throws -> EchoDeletedSession {
-        EchoDeletedSession(sid: s.sessionId, t: s.meta.title == s.sessionId ? "未命名会话" : s.meta.title, cwd: s.projectPath,
-                           c: s.computer, deleted: ISO8601DateFormatter().string(from: date), days: try EchoStats.read(s.url))
+        let (days, g) = try EchoStats.readAll(s.url)
+        return EchoDeletedSession(sid: s.sessionId, t: s.meta.title == s.sessionId ? "未命名会话" : s.meta.title, cwd: s.projectPath,
+                                  c: s.computer, deleted: ISO8601DateFormatter().string(from: date), days: days, g: g.isEmpty ? nil : g.sorted())
     }
 }
 
@@ -60,7 +62,7 @@ enum EchoDeleted {
 struct GitLogCache: Codable { var key: String; var log: String }
 
 private struct EchoStatsCache: Codable {
-    struct Entry: Codable { var stamp: EchoFileStamp; var days: [String: EchoDayStat] }
+    struct Entry: Codable { var stamp: EchoFileStamp; var days: [String: EchoDayStat]; var g: [String]? }
     var entries: [String: Entry] = [:]
 }
 
@@ -105,10 +107,51 @@ enum EchoStats {
     private static let kId = RawJSON.quoted("id"), kSubtype = RawJSON.quoted("subtype"), kDuration = RawJSON.quoted("durationMs")
     private static let kCacheCreation = RawJSON.quoted("cache_creation")
 
-    /// 读一个会话文件，按天汇总。同一次回复拆成几行记录，按 requestId 去重。
+    static func read(_ url: URL) throws -> [String: EchoDayStat] { try readAll(url).days }
+
+    private static let needleChanged = [" file changed", " files changed"].map { Array($0.utf8) }
+    /// git commit 的输出第一行「[分支 提交号] 说明」
+    private static let commitOut = try! NSRegularExpression(pattern: #"\[[^\]\\]{1,120} ([0-9a-f]{7,40})\]"#)
+
+    /// 会话里 git commit 跑出的提交号（前 7 位）：只看带工具结果、又有「file(s) changed」的行
+    static func commitHashes(_ b: UnsafeBufferPointer<UInt8>, into g: inout Set<String>) {
+        guard needleChanged.contains(where: { EchoLines.has(b, $0) }) else { return }
+        let s = String(decoding: b, as: UTF8.self), ns = s as NSString
+        for m in commitOut.matches(in: s, range: NSRange(location: 0, length: ns.length)) { g.insert(String(ns.substring(with: m.range(at: 1)).prefix(7))) }
+    }
+
+    private static let needleBash = Array("\"name\":\"Bash\"".utf8), needleCommit = Array("commit".utf8)
+    /// git commit -m "说明"、-qm '说明'、-m "$(cat <<'EOF' 说明 …"：取说明
+    private static let commitMsg = try! NSRegularExpression(pattern: #"git\b[^\n]*?\scommit\b[^\n]*?\s-[a-zA-Z]*m\s*(?:"\$\(cat <<'?(\w+)'?\n([^\n]*)|"((?:[^"\\]|\\.)*)"|'([^']*)')"#)
+
+    /// 提交说明的第一行、去掉首尾空白后的前 30 个字：会话里的 git commit 命令和 git log 的说明都按这个对
+    static func commitKey(_ msg: String) -> String {
+        String((msg.split(separator: "\n", omittingEmptySubsequences: false).first.map(String.init) ?? "").trimmed.prefix(30))
+    }
+
+    /// 会话里跑过的 git commit 命令的说明（commitKey）。用 -q 提交时没有「[分支 提交号]」输出，只能按说明对
+    static func commitMessages(_ b: UnsafeBufferPointer<UInt8>, into g: inout Set<String>) {
+        guard EchoLines.has(b, needleBash), EchoLines.has(b, needleCommit),
+              let d = try? JSONSerialization.jsonObject(with: Data(buffer: b)) as? [String: Any],
+              let content = (d["message"] as? [String: Any])?["content"] as? [[String: Any]] else { return }
+        for c in content where c["type"] as? String == "tool_use" && c["name"] as? String == "Bash" {
+            guard let cmd = (c["input"] as? [String: Any])?["command"] as? String, cmd.contains("commit") else { continue }
+            let ns = cmd as NSString
+            for m in commitMsg.matches(in: cmd, range: NSRange(location: 0, length: ns.length)) {
+                let r = (2...4).map { m.range(at: $0) }.first { $0.location != NSNotFound }
+                guard let r else { continue }
+                var msg = ns.substring(with: r)
+                if m.range(at: 3).location != NSNotFound { msg = msg.replacingOccurrences(of: "\\\"", with: "\"") }
+                let k = commitKey(msg)
+                if !k.isEmpty { g.insert("m:" + k) }
+            }
+        }
+    }
+
+    /// 读一个会话文件，按天汇总；顺带收 git commit 跑出的提交号。同一次回复拆成几行记录，按 requestId 去重。
     /// 只取要用的几个字段：用保留原文的解析器（RawJSON，不建字典），只有不带工具结果的用户消息才完整解析，判断是不是人打的字
-    static func read(_ url: URL) throws -> [String: EchoDayStat] {
-        var days: [String: EchoDayStat] = [:], seen = Set<String>(), offsets: [Int: Int] = [:]
+    static func readAll(_ url: URL) throws -> (days: [String: EchoDayStat], g: Set<String>) {
+        var days: [String: EchoDayStat] = [:], seen = Set<String>(), offsets: [Int: Int] = [:], g = Set<String>()
         func str(_ v: RawJSON?) -> String? { v?.stringRaw.flatMap { EchoSlim.decode($0) } }
         func num(_ v: RawJSON?) -> Double {
             guard case .scalar(let b)? = v else { return 0 }
@@ -119,6 +162,8 @@ enum EchoStats {
             let isUser = EchoLines.has(b, needleUser)
             let isUsage = !isUser && EchoLines.has(b, needleAsst) && EchoLines.has(b, needleUsage)
             let isTurn = !isUser && !isUsage && EchoLines.has(b, needleTurn)
+            if isUser, EchoLines.has(b, needleToolResult) { commitHashes(b, into: &g) }
+            else if !isUser, EchoLines.has(b, needleAsst) { commitMessages(b, into: &g) }
             guard isUser || isUsage || isTurn, let j = RawJSON.parse(b),
                   let ts = str(j[kTs]), let t = epoch(ts) else { return }
             let day = localDay(t, &offsets)
@@ -157,7 +202,7 @@ enum EchoStats {
                 days[day] = s
             }
         }
-        return days
+        return (days, g)
     }
 
     /// 会话归到哪个项目：和左栏目录树同一套路径，取大目录下面那一级（~/Desktop/项目代码/NAS/伙伴云NAS应用 → NAS）；
@@ -175,7 +220,7 @@ enum EchoStats {
 
     // MARK: Git
 
-    struct Commit: Codable { var p: String; var d: String; var s: String; var a: Int; var r: Int; var f: [String] }
+    struct Commit: Codable { var h: String; var p: String; var d: String; var s: String; var a: Int; var r: Int; var f: [String] }
 
     /// 跑一条 git 命令（只读），出错返回空
     private static func git(_ args: [String]) -> String {
@@ -258,7 +303,7 @@ enum EchoStats {
                 guard let head = lines.first else { continue }
                 let f = head.split(separator: "\u{1f}", omittingEmptySubsequences: false).map(String.init)
                 guard f.count >= 3, seen.insert(f[0]).inserted else { continue }
-                var c = Commit(p: project(r), d: f[1], s: f[2], a: 0, r: 0, f: [])
+                var c = Commit(h: f[0], p: project(r), d: f[1], s: f[2], a: 0, r: 0, f: [])
                 for l in lines.dropFirst() {
                     let n = l.split(separator: "\t", maxSplits: 2).map(String.init)
                     guard n.count == 3 else { continue }
@@ -276,7 +321,7 @@ enum EchoStats {
 
     /// 整理成 overview.js 要的 JSON。同步执行，放在后台线程调用
     static func build(_ sessions: [EchoSession], deleted: [EchoDeletedSession] = []) -> Data {
-        let cacheURL = EchoLibrary.supportDir.appendingPathComponent("总览缓存2.json")   // 2：加了每天的起止时间
+        let cacheURL = EchoLibrary.supportDir.appendingPathComponent("总览缓存3.json")   // 2：加了每天的起止时间；3：加了提交号
         let cache = (try? Data(contentsOf: cacheURL)).flatMap { try? JSONDecoder().decode(EchoStatsCache.self, from: $0) } ?? EchoStatsCache()
         var fresh = EchoStatsCache()
         var list: [[String: Any]] = []
@@ -286,22 +331,24 @@ enum EchoStats {
             guard let v = try? s.url.resourceValues(forKeys: keys) else { return nil }
             return EchoFileStamp(size: Int64(v.fileSize ?? 0), mtime: v.contentModificationDate?.timeIntervalSince1970 ?? 0)
         }
-        var read = [[String: EchoDayStat]?](repeating: nil, count: sessions.count)
+        var read = [(days: [String: EchoDayStat], g: Set<String>)?](repeating: nil, count: sessions.count)
         let todo = sessions.indices.filter { i in stamps[i] != nil && cache.entries[sessions[i].url.path]?.stamp != stamps[i] }
         read.withUnsafeMutableBufferPointer { buf in
-            DispatchQueue.concurrentPerform(iterations: todo.count) { n in buf[todo[n]] = try? self.read(sessions[todo[n]].url) }
+            DispatchQueue.concurrentPerform(iterations: todo.count) { n in buf[todo[n]] = try? self.readAll(sessions[todo[n]].url) }
         }
         for (i, s) in sessions.enumerated() {
             guard let stamp = stamps[i] else { continue }
-            let days: [String: EchoDayStat]
-            if let e = cache.entries[s.url.path], e.stamp == stamp { days = e.days }
-            else if let d = read[i] { days = d }
+            let days: [String: EchoDayStat], g: [String]
+            if let e = cache.entries[s.url.path], e.stamp == stamp { days = e.days; g = e.g ?? [] }
+            else if let d = read[i] { days = d.days; g = d.g.sorted() }
             else { continue }
-            fresh.entries[s.url.path] = .init(stamp: stamp, days: days)
+            fresh.entries[s.url.path] = .init(stamp: stamp, days: days, g: g.isEmpty ? nil : g)
             guard !days.isEmpty else { continue }
             let dict = days.mapValues { d -> [String: Any] in ["m": d.m, "ms": d.ms, "lg": d.lg, "k": d.k, "a": d.a, "b": d.b] }
-            list.append(["id": s.id, "t": s.meta.title == s.sessionId ? "未命名会话" : s.meta.title,
-                         "p": project(s.projectPath), "d": projectPath(s.projectPath), "c": s.computer, "days": dict])
+            var one: [String: Any] = ["id": s.id, "t": s.meta.title == s.sessionId ? "未命名会话" : s.meta.title,
+                                      "p": project(s.projectPath), "d": projectPath(s.projectPath), "c": s.computer, "days": dict]
+            if !g.isEmpty { one["g"] = g }
+            list.append(one)
         }
         if let d = try? JSONEncoder().encode(fresh) { try? d.write(to: cacheURL, options: .atomic) }
         // 删掉的会话照算；从废纸篓放回来的（同一台电脑、同一个会话 ID 又读到了）用读到的，不算两遍
@@ -309,7 +356,9 @@ enum EchoStats {
         let gone = deleted.filter { !live.contains($0.c + "/" + $0.sid) && !$0.days.isEmpty }
         for g in gone {
             let dict = g.days.mapValues { d -> [String: Any] in ["m": d.m, "ms": d.ms, "lg": d.lg, "k": d.k, "a": d.a, "b": d.b] }
-            list.append(["id": "deleted:" + g.c + "/" + g.sid, "x": 1, "t": g.t, "p": project(g.cwd), "d": projectPath(g.cwd), "c": g.c, "days": dict])
+            var one: [String: Any] = ["id": "deleted:" + g.c + "/" + g.sid, "x": 1, "t": g.t, "p": project(g.cwd), "d": projectPath(g.cwd), "c": g.c, "days": dict]
+            if let h = g.g, !h.isEmpty { one["g"] = h }
+            list.append(one)
         }
 
         // Git：只看本机会话的目录，从最早有会话的那天起，最多半年
@@ -319,7 +368,7 @@ enum EchoStats {
         let cwds = Set(sessions.filter { $0.computer == EchoPrefs.computerName }.map(\.meta.cwd).filter { !$0.isEmpty }
                        + gone.filter { $0.c == EchoPrefs.computerName }.map(\.cwd))
         let commits = first.isEmpty ? [] : self.commits(cwds: cwds, since: since)
-        let gitList = commits.map { ["p": $0.p, "d": $0.d, "s": $0.s, "a": $0.a, "r": $0.r, "f": $0.f] as [String: Any] }
+        let gitList = commits.map { ["h": $0.h, "p": $0.p, "d": $0.d, "s": $0.s, "a": $0.a, "r": $0.r, "f": $0.f] as [String: Any] }
 
         let out: [String: Any] = ["today": EchoTime.formatted(Date(), "yyyy-MM-dd"), "sessions": list, "commits": gitList]
         let data = (try? JSONSerialization.data(withJSONObject: out)) ?? Data("{}".utf8)
