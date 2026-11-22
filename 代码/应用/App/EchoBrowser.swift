@@ -8,7 +8,8 @@ struct EchoBrowserView: View {
     @EnvironmentObject var state: EchoState
     @AppStorage("filterComputer") private var computer = ""           // 空表示全部电脑
     @AppStorage("filterApp") private var appFilter = ""               // 空表示全部应用（EchoSource 的 rawValue）
-    @State private var days = 0                                       // 日期筛选：最近几天用过的会话，0 表示全部时间；不记住，每次打开窗口都是全部（会话少了容易以为丢了）
+    @State private var dateFilter = ""                                // 日期筛选：空是全部时间，「d7」最近 7 天，「m2026-11」某个月；不记住，每次打开窗口都是全部（会话少了容易以为丢了）
+    @State private var months: [String] = []                          // 有会话的月份「2026-11」，新的在前，最多 12 个（日期菜单用），数据变了算一次
     @State private var pickMenu: String? = ProcessInfo.processInfo.environment["ECHO_SHOT_MENU"]   // 左栏右上角展开的筛选菜单：computer、app、date（环境变量只给截图用）
     @State private var multiApp = false                               // 有几个应用的会话，才显示应用筛选和会话行图标
     @AppStorage("dirState") private var dirStateRaw = ""               // 用户点过的目录：一行「路径\t1」展开、「路径\t0」收起
@@ -123,7 +124,7 @@ struct EchoBrowserView: View {
         .onChange(of: state.sessions) { _, _ in regroup() }
         .onChange(of: computer) { _, _ in regroup() }
         .onChange(of: appFilter) { _, _ in regroup() }
-        .onChange(of: days) { _, _ in regroup() }
+        .onChange(of: dateFilter) { _, _ in regroup() }
         .onChange(of: orderRaw) { _, _ in
             orderMap = decodeOrder()
             if orderSaving { orderSaving = false } else { tree = EchoOrder.arrange(baseTree, orderMap) }   // 别处改了顺序：只套顺序，不重建树
@@ -343,11 +344,12 @@ struct EchoBrowserView: View {
     }
 
     private func regroup() {
-        let since = days > 0 ? Calendar.current.date(byAdding: .day, value: 1 - days, to: Calendar.current.startOfDay(for: Date())) : nil
+        let range = Self.dateRange(dateFilter)
         baseTree = EchoLibrary.dirTree(state.sessions.filter {
             (computer.isEmpty || $0.computer == computer) && (appFilter.isEmpty || $0.app.rawValue == appFilter)
-                && (since == nil || ($0.endDate ?? .distantPast) >= since!)
+                && (range == nil || range!.contains($0.endDate ?? .distantPast))
         })
+        months = Array(Set(state.sessions.compactMap { $0.endDate.map(Self.monthKey) }).sorted(by: >).prefix(12))
         multiApp = Set(state.sessions.map(\.app)).count > 1
         tree = EchoOrder.arrange(baseTree, orderMap)
         multiComputer = Set(state.sessions.map(\.computer)).count > 1
@@ -396,7 +398,7 @@ struct EchoBrowserView: View {
                         }
                     } action: { pickMenu = pickMenu == "app" ? nil : "app" }
                 }
-                EchoPickButton(on: days > 0, help: Self.dayTitle(days)) {
+                EchoPickButton(on: !dateFilter.isEmpty, help: Self.dateTitle(dateFilter)) {
                     Image(systemName: "calendar").font(.system(size: 13))
                 } action: { pickMenu = pickMenu == "date" ? nil : "date" }
             }
@@ -414,7 +416,7 @@ struct EchoBrowserView: View {
                         collectionSection
                         ForEach(tree) { d in dirSection(d, level: 0, group: "/") }
                         if tree.isEmpty {
-                            Text(days > 0 ? "\(Self.dayTitle(days))没有用过的会话" : "没有符合筛选条件的会话")
+                            Text(dateFilter.isEmpty ? "没有符合筛选条件的会话" : "\(Self.dateTitle(dateFilter))没有用过的会话")
                                 .font(.system(size: 12)).foregroundStyle(EchoColor.fg3).padding(.leading, 10).padding(.top, 14)
                         }
                     }
@@ -632,9 +634,35 @@ struct EchoBrowserView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    /// 日期筛选的几档：按会话最后用过的时间，「今天」从今天 0 点起，「最近 7 天」含今天共 7 天
-    static let dayChoices = [0, 1, 7, 30, 90]
-    static func dayTitle(_ n: Int) -> String { n == 0 ? "全部时间" : n == 1 ? "今天" : "最近 \(n) 天" }
+    /// 日期筛选：按会话最后用过的时间。「今天」从今天 0 点起，「最近 7 天」含今天共 7 天；月份是那个月 1 号 0 点到下个月 1 号
+    static func dateRange(_ key: String) -> Range<Date>? {
+        let cal = Calendar.current
+        if key.hasPrefix("d"), let n = Int(key.dropFirst()), let from = cal.date(byAdding: .day, value: 1 - n, to: cal.startOfDay(for: Date())) {
+            return from..<Date.distantFuture
+        }
+        if key.hasPrefix("m") {
+            let p = key.dropFirst().split(separator: "-").compactMap { Int($0) }
+            guard p.count == 2, let from = cal.date(from: DateComponents(year: p[0], month: p[1], day: 1)),
+                  let to = cal.date(byAdding: .month, value: 1, to: from) else { return nil }
+            return from..<to
+        }
+        return nil
+    }
+
+    static func monthKey(_ d: Date) -> String {
+        let c = Calendar.current.dateComponents([.year, .month], from: d)
+        return String(format: "%04d-%02d", c.year ?? 0, c.month ?? 0)
+    }
+
+    /// 今年的月份写「11月」，往年的写「2025年12月」
+    static func dateTitle(_ key: String) -> String {
+        if key.isEmpty { return "全部时间" }
+        if key == "d1" { return "今天" }
+        if key.hasPrefix("d") { return "最近 \(key.dropFirst()) 天" }
+        let p = key.dropFirst().split(separator: "-").compactMap { Int($0) }
+        guard p.count == 2 else { return key }
+        return p[0] == Calendar.current.component(.year, from: Date()) ? "\(p[1])月" : "\(p[0])年\(p[1])月"
+    }
 
     /// 筛选菜单：白底细框，一项一行（图标、名字），选中的文字用主色、右边一个小勾（设计稿 设计/多应用/）。点外面收起
     @ViewBuilder
@@ -648,8 +676,8 @@ struct EchoBrowserView: View {
                          + apps.map { a in (a.rawValue, AnyView(Group { if let i = EchoSettingsStyle.appIcon(a) { EchoAppLogo(app: a, image: i, size: 16) } }), a.title) },
                          selected: appFilter) { appFilter = $0; pickMenu = nil }
         } else if pickMenu == "date" {
-            EchoPickMenu(width: 148, items: Self.dayChoices.map { ("\($0)", AnyView(EmptyView()), Self.dayTitle($0)) },
-                         selected: "\(days)", icons: false) { days = Int($0) ?? 0; pickMenu = nil }
+            EchoPickMenu(width: 148, items: (["", "d1", "d7", "d30", "d90"] + months.map { "m" + $0 }).map { ($0, AnyView(EmptyView()), Self.dateTitle($0)) },
+                         selected: dateFilter, icons: false) { dateFilter = $0; pickMenu = nil }
         }
     }
 
