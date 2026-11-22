@@ -198,8 +198,7 @@ h2.sec { margin: var(--space-4) var(--space-1) 0; }
 @media (max-width: 900px) { .kpis.bkstats { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 440px) { .kpis.bkstats { grid-template-columns: minmax(0, 1fr); } }
 .bks .s { white-space: normal; }   /* 备份页的小字能换行，窄了不截断 */
-/* 累计节省：这页的成果，数字用主色 */
-.bks.win .v { color: var(--accent-text); }   /* 主色太亮，用主色文字色 */
+
 /* 已备份：各应用一根细分段条加小字 */
 .thin { display: flex; gap: 2px; height: 6px; margin: var(--space-2) 0 var(--space-1); }
 .thin i { min-width: 3px; border-radius: 3px; }
