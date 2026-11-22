@@ -392,6 +392,8 @@ enum EchoCLI {
             let id = s["id"] as? String ?? ""
             let m = days.values.reduce(0) { $0 + ($1["m"] as? Int ?? 0) }
             if m == 0, tok(s, from, to) == 0, byS[id] == nil { continue }   // 空会话不列
+            // AI 一次都没回复的 Claude 会话（测试、开了就关）不列；Claude 每次回复都记 Token，Codex 的旧会话不记，不按这条筛
+            if (s["a"] as? String ?? "claude") == "claude", tok(s, "", "9") == 0, byS[id] == nil { continue }
             rows.append(Row(last: days.keys.max()!, proj: s["d"] as? String ?? "", title: s["t"] as? String ?? "", m: m, tok: tok(s, from, to),
                             commits: byS[id] ?? [], sid: sessionID(id), app: s["a"] as? String ?? "claude", computer: s["c"] as? String ?? ""))
         }
