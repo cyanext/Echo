@@ -152,17 +152,16 @@ h2.sec { margin: var(--space-4) var(--space-1) 0; }
 .name .line { display: flex; align-items: baseline; gap: var(--space-2); white-space: nowrap; overflow: hidden; }
 .name .title { flex: none; max-width: 60%; overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
 .name .path { flex: none; font-size: var(--text-xs); color: var(--fg-faint); }
-/* 版本：只有标签图标和版本号，不加底色（「去掉外部便签」）；悬停变色 */
+/* 版本：只有标签图标和版本号，不加底色（「去掉外部便签」）；悬停变淡 */
 .vers { display: flex; flex-wrap: wrap; gap: 2px var(--space-3); margin: 4px 0 2px; }
 .ver { display: inline-flex; align-items: center; gap: 3px; height: 20px; color: var(--accent-text); font: 600 var(--text-xs)/20px var(--font-mono); cursor: pointer; }
 .ver svg { width: 11px; height: 11px; }
-.ver:hover { color: var(--fg); }   /* 悬停变色，不加下划线 */
+.ver:hover, .link:hover { opacity: .6; }   /* 版本号、Git 提交悬停变淡，不变黑、不加下划线 */
 .more-ver { align-self: center; font-size: var(--text-xs); color: var(--fg-faint); }
 .num { text-align: right; font-size: var(--text-xs); line-height: var(--lh-sm); color: var(--fg-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .num.strong { color: var(--fg); font-weight: 600; }
 .num.faint { color: var(--fg-faint); }
 .link { color: var(--accent-text); cursor: pointer; }
-.link:hover { text-decoration: underline; }
 .toggle { padding: var(--space-1) 0 var(--space-2); font-size: var(--text-xs); color: var(--accent-text); cursor: pointer; }
 
 /* 用量：两根分段条拉满整宽，图例在条下；按用途金额多的深，按模型主色深浅加灰 */
@@ -200,7 +199,7 @@ h2.sec { margin: var(--space-4) var(--space-1) 0; }
 @media (max-width: 440px) { .kpis.bkstats { grid-template-columns: minmax(0, 1fr); } }
 .bks .s { white-space: normal; }   /* 备份页的小字能换行，窄了不截断 */
 /* 累计节省：这页的成果，数字用主色 */
-.bks.win .v { color: var(--accent); }
+.bks.win .v { color: var(--accent-text); }   /* 主色太亮，用主色文字色 */
 /* 已备份：各应用一根细分段条加小字 */
 .thin { display: flex; gap: 2px; height: 6px; margin: var(--space-2) 0 var(--space-1); }
 .thin i { min-width: 3px; border-radius: 3px; }

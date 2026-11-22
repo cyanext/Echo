@@ -3,21 +3,21 @@
 /* 滚动条（照 NAS 网站公共层 lib/base.css v0.9.16–17）：Mac 接着鼠标时系统画带灰槽的老式滚动条。
    改成不画槽、细的圆角滑块，四周留 3px 透明边；平时不显示，滚动时显示、停 1 秒藏起来（base.js 给正在滚的元素加 .scrolling），鼠标停在滑块上也显示 */
 /* 颜色令牌：对话页、总览共用，页面规则里只引用变量名，不写色值（「不要写死，都 token 化」）。
-   主色青绿 11-22 调亮一档；小字用 accent-text（浅色深一档，对白底 4.8:1）；应用色是低饱和的橙、蓝（dataviz 校验过）；
+   主色青绿 11-22 调亮一档（B：#00898A / #4ccaca）；小字用 accent-text（浅色深一档，对白底 4.8:1）；应用色是低饱和的橙、蓝（dataviz 校验过）；
    on-dark、on-light：深色块、浅色块上的文字 */
 :root {
-  --accent: #009293; --accent-text: #008081; --accent-soft: rgba(0, 146, 147, .10);
+  --accent: #00898A; --accent-text: #008081; --accent-soft: rgba(0, 137, 138, .10);
   --app-claude: #D4896A; --app-codex: #6E8BCC; --app-workbuddy: #4E9C86;
   --on-dark: #ffffff; --on-light: #10292a;
 }
 @media (prefers-color-scheme: dark) {
   :root:not(.light) {
-    --accent: #5ad3d2; --accent-text: #5ad3d2; --accent-soft: rgba(90, 211, 210, .16);
+    --accent: #4ccaca; --accent-text: #3fc0c0; --accent-soft: rgba(76, 202, 202, .16);
     --app-claude: #C5805A; --app-codex: #6E87CB;
   }
 }
 :root.dark {   /* 设计稿里手动切深色 */
-  --accent: #5ad3d2; --accent-text: #5ad3d2; --accent-soft: rgba(90, 211, 210, .16);
+  --accent: #4ccaca; --accent-text: #3fc0c0; --accent-soft: rgba(76, 202, 202, .16);
   --app-claude: #C5805A; --app-codex: #6E87CB;
 }
 :root { --scroll-thumb: rgba(15, 18, 34, .2); --scroll-thumb-hover: rgba(15, 18, 34, .36); --tip-bg: #1f2a2b; --tip-fg: #f2f5f5; }

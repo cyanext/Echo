@@ -13,8 +13,7 @@ enum EchoColor {
         })
     }
     // 颜色令牌：界面里只引用这些名字，不写色值；和网页的 Web/base.css、overview.css 同名同值
-    static let side = dyn(0xedf0f0, 0x222627)
-    static let sideTop = dyn(0xe2efee, 0x1e2c2c)        // 左栏顶部：灰里掺一点主色青，往下渐变回 side（目录有点发灰）
+    static let side = dyn(0xf2f5f5, 0x222627)           // 左栏：纯色，浅色从 #edf0f0 提亮、压一点灰（渐变太丑，不要）
     static let sideOn = dyn(0xffffff, 0x34353b)
     static let sideFg = dyn(0x4b5468, 0xb4b9c5)
     static let sideLine = dyn(0xe1e6e6, 0x2d3233)
@@ -23,13 +22,13 @@ enum EchoColor {
     static let fg2 = dyn(0x646a73, 0x9aa0ab)
     static let fg3 = dyn(0x8f959e, 0x6f7581)
     static let line = dyn(0xe3e5ec, 0x2c2e35)
-    static let accent = dyn(0x009293, 0x5ad3d2)          // 回响主色青绿（11-21 定，和 NAS 的靛蓝分开；11-22 调亮一档）
-    static let accentText = dyn(0x008081, 0x5ad3d2)      // 主色写小字：浅色深一档，对白底 4.8:1（主色本身 3.8:1，小字偏淡）
-    static let sel = dyn(0x009293, 0x5ad3d2, 0.10, 0.16)
+    static let accent = dyn(0x00898a, 0x4ccaca)          // 回响主色青绿（11-21 定，和 NAS 的靛蓝分开；11-22 调亮一档，选 B）
+    static let accentText = dyn(0x008081, 0x3fc0c0)      // 主色写字：深一档，浅色对白底 4.8:1（主色本身 3.8:1 偏淡），深色也收一点亮度
+    static let sel = dyn(0x00898a, 0x4ccaca, 0.10, 0.16)
     static let hover = dyn(0x1f2329, 0xffffff, 0.05, 0.06)
     static let sideHover = dyn(0xffffff, 0xffffff, 0.6, 0.06)      // 左栏行悬停：灰底上的半透明白，照 NAS 网站 --bg-side-hover
     static let onSideHover = dyn(0x1f2329, 0xffffff, 0.08, 0.08)   // 左栏里小按钮（目录展开箭头）的悬停，照 NAS 网站 --bg-on-side-hover
-    static let accentSoft = dyn(0x009293, 0x5ad3d2, 0.08, 0.14)
+    static let accentSoft = dyn(0x00898a, 0x4ccaca, 0.08, 0.14)
     static let chrome = dyn(0xf6f7f7, 0x232529)
     static let subtle = dyn(0xf2f4f4, 0x292e2f)
     // 主色由浅到深的色阶（深色模式反过来，q4 最亮），和网页 overview.css 的 --q1…--q4 一致；mute 两档灰
