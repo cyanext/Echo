@@ -314,8 +314,15 @@ def slim_file(src_path, dst_path, policy=DEFAULT_POLICY, now=None):
     now = now or now_from_env()
     git_ids = set()
     total_in = total_out = 0
-    with open(src_path, encoding="utf-8", errors="surrogateescape") as fin, \
-         open(dst_path, "w", encoding="utf-8", errors="surrogateescape") as fout:
+    # Codex 压过的旧会话（.jsonl.zst）用 zstd 命令边解压边读
+    if src_path.endswith(".zst"):
+        import io, subprocess
+        proc = subprocess.Popen(["zstd", "-dcq", src_path], stdout=subprocess.PIPE)
+        fin_ctx = io.TextIOWrapper(proc.stdout, encoding="utf-8", errors="surrogateescape", newline="")
+    else:
+        fin_ctx = open(src_path, encoding="utf-8", errors="surrogateescape", newline="")
+    with fin_ctx as fin, \
+         open(dst_path, "w", encoding="utf-8", errors="surrogateescape", newline="") as fout:
         for line in fin:
             total_in += len(line.encode("utf-8", "surrogateescape"))
             out = slim_line(line, policy, now, git_ids)

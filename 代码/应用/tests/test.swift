@@ -74,6 +74,7 @@ enum EchoTests {
             }
             for s in list where s.url.lastPathComponent.hasPrefix(a[3]) { print("  \(s.url.lastPathComponent)：标题「\(s.meta.title)」，项目 \(s.projectPath)，开始 \(s.meta.start)") }
         }
+        else if a.count == 4, a[1] == "--slim-compare" { try compare(URL(fileURLWithPath: a[2]), slimmed: URL(fileURLWithPath: a[3]), dataJS: nil) }   // 只比瘦身（Codex 会话等）
         else if a.count == 4, a[1] == "--export" { try compareExport(URL(fileURLWithPath: a[2]), dataJS: URL(fileURLWithPath: a[3])) }
         else if a.count == 4 { try compare(URL(fileURLWithPath: a[1]), slimmed: URL(fileURLWithPath: a[2]), dataJS: URL(fileURLWithPath: a[3])) }
         else { print("用法：test <会话.jsonl> <原型瘦身结果> <原型 data.js> 或 test --rules"); exit(2) }
@@ -364,7 +365,7 @@ enum EchoTests {
         return out
     }
 
-    static func compare(_ src: URL, slimmed: URL, dataJS: URL) throws {
+    static func compare(_ src: URL, slimmed: URL, dataJS: URL?) throws {
         let name = src.lastPathComponent
         // 瘦身：行数一样；原型原样写出的行逐字节一样，改写过的行解析后一样
         let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("echo-test-\(getpid()).jsonl")
@@ -385,7 +386,7 @@ enum EchoTests {
         check(kept >= raw, "\(name) 原样保留的行 \(kept)，原型 \(raw)")
         print("  瘦身 \(name)：\(orig.count) 行 → \(mine.count) 行，去掉请求记录 \(stats.droppedLines) 行，改写 \(stats.changedLines) 行")
 
-        try compareExport(src, dataJS: dataJS)
+        if let dataJS { try compareExport(src, dataJS: dataJS) }
     }
 
     /// 消息显示：整理结果和原型完全一样
