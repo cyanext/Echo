@@ -1,0 +1,524 @@
+// 命令行工具 ech（需求 需求文档/版本需求/待定-ech命令和skill.html）：和应用同一个程序，用 ech 这个名字调用时走这里，不开窗口。
+// 查询命令只读备份、本机索引和总览数据；backup 和回响的「立即备份」同一套。输出纯文本，给 Claude 读，--json 给脚本用。
+import Foundation
+
+enum EchoCLI {
+    /// 用 ech 这个名字调用（~/.local/bin/ech 指向应用里的程序）
+    static var isCLI: Bool { (CommandLine.arguments.first.map { ($0 as NSString).lastPathComponent } ?? "") == "ech" }
+
+    /// 一次输出最多多少字，超出分页
+    static let pageChars = 8000
+
+    struct Args {
+        var cmd = ""
+        var pos: [String] = []
+        var opt: [String: String] = [:]
+        var flags = Set<String>()
+        init(_ a: [String]) {
+            var i = 0
+            while i < a.count {
+                let x = a[i]
+                if x.hasPrefix("--") {
+                    let k = String(x.dropFirst(2))
+                    if let eq = k.firstIndex(of: "=") { opt[String(k[..<eq])] = String(k[k.index(after: eq)...]) }
+                    else if ["json", "tools", "dry-run", "help"].contains(k) { flags.insert(k) }
+                    else if i + 1 < a.count { opt[k] = a[i + 1]; i += 1 }
+                } else if x == "-h" { flags.insert("help") }
+                else if cmd.isEmpty { cmd = x } else { pos.append(x) }
+                i += 1
+            }
+        }
+        var page: Int { max(1, Int(opt["page"] ?? "1") ?? 1) }
+    }
+
+    struct Fail: Error { let text: String }
+
+    /// 返回退出码；输出写到标准输出，出错写到标准错误
+    static func main(_ argv: [String]) -> Int32 {
+        let a = Args(argv)
+        do {
+            var out: String
+            switch a.cmd {
+            case "", "help": out = help
+            case "version", "-v": out = "ech \(appVersion ?? "开发版")"
+            case "find": out = try find(a)
+            case "list": out = try list(a)
+            case "segs": out = try segs(a)
+            case "read": out = try read(a)
+            case "backup": out = try backup(a)
+            case "index": out = try index()
+            case "schema": out = try schema(a)
+            case "install-skill": out = try installSkill()
+            default: throw Fail(text: "没有「\(a.cmd)」这个命令，运行 ech help 查看用法")
+            }
+            if a.flags.contains("help") { out = help }
+            if !a.flags.contains("json"), let n = skillNotice() { out += "\n\n" + n }
+            print(out)
+            return 0
+        } catch let e as Fail {
+            FileHandle.standardError.write((e.text + "\n").data(using: .utf8)!)
+            return 1
+        } catch {
+            FileHandle.standardError.write((error.localizedDescription + "\n").data(using: .utf8)!)
+            return 1
+        }
+    }
+
+    static let help = """
+    ech：查回响备份里的会话（只读），和备份
+      ech find <关键词> [--app claude|codex] [--since 日期] [--project 词] [--limit 20]   按关键词找会话和段
+      ech list [--since 7d|本周|上周|日期] [--until 日期] [--project 词] [--app 名]       按时间列会话、消息、Token、提交
+      ech segs <会话>                                列一个会话的分段（每段一个引用，如 ce57ce36#3）
+      ech read <引用> [--tools]                       把一段读成对话文字：ce57ce36#3 第 3 段，ce57ce36#L1200-1500 这几行，只写会话读最后一段
+      ech backup                                     备份并更新索引（和回响的「立即备份」一样）
+      ech index                                      只更新索引和总览数据，不备份
+      ech schema [命令]                              各命令的参数（JSON）
+      ech install-skill                              把 ech skill 装到 ~/.claude/skills/ech
+    <会话> 写会话 ID（前 8 位就够）或备份文件路径；find、segs、list 的每一条都带引用，复制给 read 就行。输出超过 \(pageChars) 字时分页，加 --page 2 看下一页；加 --json 输出 JSON。
+    """
+
+    // MARK: 公共
+
+    /// 应用的包：ech 是指向应用里程序的替身，顺着找回去
+    static var appBundle: URL? {
+        guard let exe = Bundle.main.executableURL?.resolvingSymlinksInPath() else { return nil }
+        let app = exe.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        return app.pathExtension == "app" ? app : nil
+    }
+
+    static var appVersion: String? {
+        guard let app = appBundle, let d = NSDictionary(contentsOf: app.appendingPathComponent("Contents/Info.plist")) else { return nil }
+        return d["CFBundleShortVersionString"] as? String
+    }
+
+    static func openIndex() throws -> EchoDB {
+        guard FileManager.default.fileExists(atPath: EchoIndex.url.path) else {
+            throw Fail(text: "还没有索引：先运行 ech backup（或打开回响备份一次）")
+        }
+        return try EchoIndex.open(readonly: true)
+    }
+
+    /// 11-22 14:03（北京时间）
+    static func hm(_ ts: String) -> String {
+        guard let t = EchoTime.fastEpoch(ts) else { return "" }
+        return bj(Date(timeIntervalSince1970: t), "MM-dd HH:mm")
+    }
+
+    static func bj(_ d: Date, _ fmt: String) -> String {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "zh_CN"); f.timeZone = TimeZone(identifier: "Asia/Shanghai"); f.dateFormat = fmt
+        return f.string(from: d)
+    }
+
+    static func indexHead(_ db: EchoDB) -> String {
+        EchoIndex.updated(db).map { "索引更新于 " + bj($0, "M月d日 HH:mm") } ?? "索引还没建好"
+    }
+
+    /// 超过一页的切开：按行切，最后一行写还剩多少、下一页怎么看
+    static func paged(_ text: String, _ a: Args, _ again: String) -> String {
+        var pages: [String] = [], cur = ""
+        for line in text.split(separator: "\n", omittingEmptySubsequences: false) {
+            if cur.count + line.count + 1 > pageChars, !cur.isEmpty { pages.append(cur); cur = "" }
+            cur += (cur.isEmpty ? "" : "\n") + line
+        }
+        pages.append(cur)
+        let p = min(a.page, pages.count)
+        var out = pages[p - 1]
+        if p < pages.count {
+            let rest = pages[p...].reduce(0) { $0 + $1.count }
+            out += "\n\n（第 \(p)/\(pages.count) 页，还有 \(rest) 字：\(again) --page \(p + 1)）"
+        }
+        return out
+    }
+
+    static func json(_ v: Any) -> String {
+        guard let d = try? JSONSerialization.data(withJSONObject: v, options: [.prettyPrinted, .sortedKeys]) else { return "{}" }
+        return String(decoding: d, as: UTF8.self)
+    }
+
+    static func shell(_ args: [String]) -> String {
+        args.map { $0.contains(where: { " \"'".contains($0) }) ? "\"\($0)\"" : $0 }.joined(separator: " ")
+    }
+
+    /// 截一句：命中处前后各留一些字，换行换成空格
+    static func snippet(_ text: String, around q: String, width: Int = 60) -> String {
+        let flat = text.replacingOccurrences(of: "\n", with: " ")
+        guard let r = flat.range(of: q, options: .caseInsensitive) else { return String(flat.prefix(width * 2)) }
+        let s = flat.index(r.lowerBound, offsetBy: -width, limitedBy: flat.startIndex) ?? flat.startIndex
+        let e = flat.index(r.upperBound, offsetBy: width, limitedBy: flat.endIndex) ?? flat.endIndex
+        return (s > flat.startIndex ? "…" : "") + flat[s..<e] + (e < flat.endIndex ? "…" : "")
+    }
+
+    // MARK: 日期参数
+
+    /// 「本周」「上周」「今天」「7d」「2026-11-16」→ 北京时间的日期范围（含两头）
+    static func dayRange(_ since: String?, _ until: String?) throws -> (String, String) {
+        var cal = Calendar(identifier: .gregorian); cal.timeZone = TimeZone(identifier: "Asia/Shanghai")!; cal.firstWeekday = 2
+        let today = cal.startOfDay(for: Date())
+        func key(_ d: Date) -> String { bj(d, "yyyy-MM-dd") }
+        func monday(_ d: Date) -> Date { cal.dateInterval(of: .weekOfYear, for: d)!.start }
+        var from = cal.date(byAdding: .day, value: -6, to: today)!, to = today
+        if let s = since {
+            switch s {
+            case "本周": from = monday(today)
+            case "上周": from = cal.date(byAdding: .day, value: -7, to: monday(today))!; to = cal.date(byAdding: .day, value: -1, to: monday(today))!
+            case "今天": from = today
+            case "昨天": from = cal.date(byAdding: .day, value: -1, to: today)!; to = from
+            default:
+                if s.hasSuffix("d"), let n = Int(s.dropLast()) { from = cal.date(byAdding: .day, value: 1 - n, to: today)! }
+                else if let d = parseDay(s, cal) { from = d }
+                else { throw Fail(text: "看不懂日期「\(s)」：写 2026-11-16、7d、本周、上周、今天") }
+            }
+        }
+        if let u = until {
+            guard let d = parseDay(u, cal) else { throw Fail(text: "看不懂日期「\(u)」：写 2026-11-22") }
+            to = d
+        }
+        return (key(from), key(to))
+    }
+
+    static func parseDay(_ s: String, _ cal: Calendar) -> Date? {
+        let p = s.split(separator: "-").compactMap { Int($0) }
+        guard p.count == 3 else { return nil }
+        return cal.date(from: DateComponents(year: p[0], month: p[1], day: p[2]))
+    }
+
+    // MARK: find
+
+    static func find(_ a: Args) throws -> String {
+        let q = a.pos.joined(separator: " ").trimmed
+        guard !q.isEmpty else { throw Fail(text: "用法：ech find <关键词>") }
+        let db = try openIndex()
+        let limit = Int(a.opt["limit"] ?? "20") ?? 20
+        let terms = q.split(whereSeparator: { $0 == " " || $0 == "　" }).map(String.init)
+        let long = terms.filter { $0.count >= 3 }, shortTerms = terms.filter { $0.count < 3 }
+        var sql = "SELECT l.fid, l.line, l.role, l.ts, l.text, f.title, f.computer, f.app, f.sid, f.path FROM "
+        var args: [Any?] = []
+        if long.isEmpty {
+            sql += "lines l JOIN files f ON f.id = l.fid WHERE 1"
+        } else {
+            sql += "fts JOIN lines l ON l.id = fts.rowid JOIN files f ON f.id = l.fid WHERE fts MATCH ?"
+            args.append(long.map { "\"" + $0.replacingOccurrences(of: "\"", with: "\"\"") + "\"" }.joined(separator: " "))
+        }
+        for t in shortTerms { sql += " AND l.text LIKE ?"; args.append("%" + t + "%") }
+        if let app = a.opt["app"] { sql += " AND f.app = ?"; args.append(app) }
+        if let p = a.opt["project"] { sql += " AND f.cwd LIKE ?"; args.append("%" + p + "%") }
+        if let s = a.opt["since"] { sql += " AND l.ts >= ?"; args.append(try dayRange(s, nil).0) }
+        sql += " ORDER BY l.ts DESC LIMIT ?"
+        args.append(limit)
+        struct Hit { var fid: Int; var line: Int; var role: String; var ts: String; var text: String; var title: String; var computer: String; var app: String; var sid: String }
+        var hits: [Hit] = []
+        try db.rows(sql, args) { s in
+            hits.append(Hit(fid: s.int(0), line: s.int(1), role: s.text(2), ts: s.text(3), text: s.text(4), title: s.text(5), computer: s.text(6), app: s.text(7), sid: s.text(8)))
+        }
+        let segQ = try db.prepare("SELECT n, vers FROM segs WHERE fid=? AND l0<=? ORDER BY n DESC LIMIT 1")
+        let near = try db.prepare("SELECT role, text FROM lines WHERE fid=? AND line<? ORDER BY line DESC LIMIT 1")
+        let after = try db.prepare("SELECT role, text FROM lines WHERE fid=? AND line>? ORDER BY line LIMIT 1")
+        func seg(_ h: Hit) throws -> (Int, String) {
+            try segQ.bind([h.fid, h.line]); return try segQ.step() ? (segQ.int(0), segQ.text(1)) : (1, "")
+        }
+        func around(_ st: EchoStmt, _ h: Hit) throws -> String? {
+            try st.bind([h.fid, h.line]); return try st.step() ? "\(st.text(0))：" + snippet(st.text(1), around: "", width: 30) : nil
+        }
+        if a.flags.contains("json") {
+            return json(try hits.map { h -> [String: Any] in
+                let (n, v) = try seg(h)
+                return ["ref": "\(short(h.sid))#\(n)", "session": h.sid, "title": h.title, "computer": h.computer, "app": h.app, "seg": n, "versions": v, "line": h.line, "role": h.role, "ts": h.ts, "text": snippet(h.text, around: long.first ?? shortTerms.first ?? q)]
+            })
+        }
+        guard !hits.isEmpty else { return indexHead(db) + "\n没有找到「\(q)」。今天刚聊的内容要先运行 ech backup。" }
+        var out = [indexHead(db) + "，找到 \(hits.count) 处" + (hits.count == limit ? "（只列最近 \(limit) 处，加 --limit 看更多）" : "")]
+        var order: [Int] = [], groups: [Int: [Hit]] = [:]
+        for h in hits { if groups[h.fid] == nil { order.append(h.fid) }; groups[h.fid, default: []].append(h) }
+        for fid in order {
+            let g = groups[fid]!, f = g[0]
+            out.append("\n■ \(f.title) · \(f.computer) · \(f.app == "codex" ? "Codex" : "Claude Code") · \(short(f.sid))")
+            for h in g {
+                let (n, v) = try seg(h)
+                out.append("  \(short(h.sid))#\(n)\(v.isEmpty ? "" : "（\(v)）") \(hm(h.ts)) 第 \(h.line) 行")
+                if let b = try around(near, h) { out.append("    · " + b) }
+                out.append("    ▶ \(h.role)：" + snippet(h.text, around: long.first ?? shortTerms.first ?? q))
+                if let b = try around(after, h) { out.append("    · " + b) }
+            }
+        }
+        out.append("\n读某一段：ech read <会话>#<段号>，比如 ech read \(short(hits[0].sid))#\(try seg(hits[0]).0)")
+        return paged(out.joined(separator: "\n"), a, shell(["ech", "find"] + a.pos))
+    }
+
+    // MARK: 会话
+
+    /// 引用：「会话 ID 前 8 位」「会话#段号」「会话#L起-止」，会话也可以写备份文件路径。拆成会话和后半截
+    static func splitRef(_ ref: String) -> (String, String?) {
+        guard let i = ref.lastIndex(of: "#") else { return (ref, nil) }
+        return (String(ref[..<i]), String(ref[ref.index(after: i)...]))
+    }
+
+    /// 会话 ID 前缀或备份文件路径 → 索引里的文件
+    static func resolve(_ db: EchoDB, _ key: String) throws -> (fid: Int, path: String, title: String, sid: String, computer: String) {
+        var found: [(Int, String, String, String, String)] = []
+        let k = splitRef(key).0
+        try db.rows("SELECT id, path, title, sid, computer FROM files WHERE sid LIKE ? OR path = ? LIMIT 10", [k + "%", (k as NSString).expandingTildeInPath]) {
+            found.append(($0.int(0), $0.text(1), $0.text(2), $0.text(3), $0.text(4)))
+        }
+        if found.isEmpty { throw Fail(text: "没找到会话「\(key)」：写会话 ID（前 8 位就够）或备份文件路径；今天新开的会话要先 ech backup") }
+        if found.count > 1 { throw Fail(text: "「\(key)」对上了几个会话，写长一点：\n" + found.map { "  \($0.3)  \($0.2)" }.joined(separator: "\n")) }
+        return found[0]
+    }
+
+    static func segs(_ a: Args) throws -> String {
+        guard let key = a.pos.first else { throw Fail(text: "用法：ech segs <会话>") }
+        let db = try openIndex()
+        let f = try resolve(db, key)
+        var list: [[String: Any]] = []
+        try db.rows("SELECT n, l0, l1, t0, t1, vers, head, kind FROM segs WHERE fid=? ORDER BY n", [f.fid]) { s in
+            list.append(["n": s.int(0), "l0": s.int(1), "l1": s.int(2), "t0": s.text(3), "t1": s.text(4), "versions": s.text(5), "head": s.text(6), "kind": s.text(7)])
+        }
+        if a.flags.contains("json") { return json(["session": f.sid, "title": f.title, "segs": list]) }
+        var out = ["\(f.title) · \(f.computer) · \(short(f.sid))，\(list.count) 段（\(indexHead(db))）"]
+        for s in list {
+            let v = s["versions"] as! String
+            out.append("  \(short(f.sid))#\(s["n"]!)  第 \(s["l0"]!)–\(s["l1"]!) 行  \(hm(s["t0"] as! String)) 至 \(hm(s["t1"] as! String))  \(s["kind"]!)\(v.isEmpty ? "" : "  版本 " + v)")
+            if let h = s["head"] as? String, !h.isEmpty { out.append("    " + h) }
+        }
+        out.append("\n读某一段：ech read \(short(f.sid))#<段号>")
+        return paged(out.joined(separator: "\n"), a, shell(["ech", "segs", key]))
+    }
+
+    // MARK: read
+
+    static func read(_ a: Args) throws -> String {
+        guard let key = a.pos.first else { throw Fail(text: "用法：ech read <会话>[#段号 | #L起-止]") }
+        let db = try openIndex()
+        let f = try resolve(db, key)
+        var lo = 0, hi = Int.max, label = ""
+        // 段号、行号可以写在引用里（ce57ce36#21、ce57ce36#L1200-1500），也可以写成第二个参数
+        var which = splitRef(key).1 ?? (a.pos.count > 1 ? a.pos[1] : nil)
+        if let w = which, w.hasPrefix("L") { which = String(w.dropFirst()) }
+        if let w = which, w.contains("-") {
+            let p = w.split(separator: "-").compactMap { Int($0) }
+            guard p.count == 2 else { throw Fail(text: "行号写成 起-止，比如 1200-1500") }
+            (lo, hi, label) = (p[0], p[1], "第 \(p[0])–\(p[1]) 行")
+        } else {
+            let st = try db.prepare(which == nil ? "SELECT n, l0, l1 FROM segs WHERE fid=? ORDER BY n DESC LIMIT 1" : "SELECT n, l0, l1 FROM segs WHERE fid=? AND n=?")
+            try st.bind(which == nil ? [f.fid] : [f.fid, Int(which!) ?? -1])
+            guard try st.step() else { throw Fail(text: "没有第 \(which ?? "") 段：ech segs \(short(f.sid)) 看有几段") }
+            lo = st.int(1)
+            label = "第 \(st.int(0)) 段"
+            // 段的终点延到下一段开始前，段尾的工具输出、回复都带上
+            let nx = try db.prepare("SELECT l0 FROM segs WHERE fid=? AND n=?")
+            try nx.bind([f.fid, st.int(0) + 1])
+            hi = try nx.step() ? nx.int(0) - 1 : Int.max
+        }
+        let d = try EchoExport.export(URL(fileURLWithPath: f.path), computer: f.computer, withLines: true)
+        let tools = a.flags.contains("tools")
+        var out = ["\(f.title) · \(f.computer) · \(short(f.sid)) · \(label)" + (lo > 0 ? "（第 \(lo) 行起）" : "")]
+        var items: [[String: Any]] = []
+        func inRange(_ l: Int) -> Bool { l >= lo && l <= hi }
+        for t in d["turns"] as? [[String: Any]] ?? [] {
+            let role = t["role"] as? String ?? "", ts = t["ts"] as? String ?? "", line = t["line"] as? Int ?? 0
+            if role == "assistant" {
+                for b in t["blocks"] as? [[String: Any]] ?? [] {
+                    let bl = b["line"] as? Int ?? line
+                    guard inRange(bl) else { continue }
+                    switch b["kind"] as? String {
+                    case "text":
+                        out.append("\n[\(hm(ts))] AI：" + (b["text"] as? String ?? "").trimmed)
+                        items.append(["line": bl, "ts": ts, "role": "AI", "text": b["text"] ?? ""])
+                    case "tool":
+                        let one = EchoIndex.toolLine(b["name"] as? String ?? "", b["input"])
+                        out.append("  · 工具 " + String(one.replacingOccurrences(of: "\n", with: " ").prefix(300)))
+                        var it: [String: Any] = ["line": bl, "ts": ts, "role": "工具", "text": one]
+                        if tools, let r = b["result"] as? String, !r.isEmpty {
+                            let cut = String(r.prefix(2000))
+                            out.append(cut.split(separator: "\n", omittingEmptySubsequences: false).map { "    │ " + $0 }.joined(separator: "\n") + (r.count > 2000 ? "\n    │ …（共 \(r.count) 字）" : ""))
+                            it["result"] = cut
+                        }
+                        items.append(it)
+                    default: break
+                    }
+                }
+                continue
+            }
+            guard inRange(line) else { continue }
+            let text = (t["text"] as? String ?? "").trimmed
+            switch role {
+            case "user": out.append("\n[\(hm(ts))] 我：" + text); items.append(["line": line, "ts": ts, "role": "我", "text": text])
+            case "summary": out.append("\n[\(hm(ts))] 阶段总结：" + text); items.append(["line": line, "ts": ts, "role": "总结", "text": text])
+            case "command": out.append("\n[\(hm(ts))] 命令：" + text)
+            default: break
+            }
+        }
+        if a.flags.contains("json") { return json(["session": f.sid, "title": f.title, "range": label, "items": items]) }
+        if out.count == 1 { out.append("（这一段没有对话）") }
+        return paged(out.joined(separator: "\n"), a, shell(["ech", "read"] + a.pos + (tools ? ["--tools"] : [])))
+    }
+
+    // MARK: list
+
+    static func list(_ a: Args) throws -> String {
+        guard let data = EchoStats.loadLast(), let d = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw Fail(text: "还没有总览数据：先运行 ech backup（或打开回响看一次总览）")
+        }
+        let (from, to) = try dayRange(a.opt["since"], a.opt["until"])
+        let sessions = d["sessions"] as? [[String: Any]] ?? [], commits = d["commits"] as? [[String: Any]] ?? []
+        // 提交归到哪个会话：生成总览数据时算好的 o（EchoStats.owner），和总览一致
+        var byS: [String: [[String: Any]]] = [:]
+        for c in commits {
+            let day = String((c["d"] as? String ?? "").prefix(10))
+            guard day >= from, day <= to, let o = c["o"] as? String else { continue }
+            byS[o, default: []].append(c)
+        }
+        struct Row { var last: String; var proj: String; var title: String; var m: Int; var tok: Double; var commits: [[String: Any]]; var sid: String; var app: String; var computer: String }
+        var rows: [Row] = []
+        for s in sessions {
+            let days = (s["days"] as? [String: [String: Any]] ?? [:]).filter { $0.key >= from && $0.key <= to }
+            guard !days.isEmpty else { continue }
+            if let app = a.opt["app"], (s["a"] as? String ?? "claude") != app { continue }
+            if let p = a.opt["project"], !(s["d"] as? String ?? "").contains(p), !(s["p"] as? String ?? "").contains(p) { continue }
+            let id = s["id"] as? String ?? ""
+            let m = days.values.reduce(0) { $0 + ($1["m"] as? Int ?? 0) }
+            if m == 0, tok(s, from, to) == 0, byS[id] == nil { continue }   // 空会话不列
+            rows.append(Row(last: days.keys.max()!, proj: s["d"] as? String ?? "", title: s["t"] as? String ?? "", m: m, tok: tok(s, from, to),
+                            commits: byS[id] ?? [], sid: sessionID(id), app: s["a"] as? String ?? "claude", computer: s["c"] as? String ?? ""))
+        }
+        rows.sort { $0.last != $1.last ? $0.last > $1.last : $0.tok > $1.tok }
+        func vers(_ cs: [[String: Any]]) -> [String] {
+            var v: [String] = []
+            for c in cs.sorted(by: { ($0["d"] as? String ?? "") < ($1["d"] as? String ?? "") }) {
+                if let k = EchoIndex.versionKey(c["s"] as? String ?? ""), !v.contains(k) { v.append(k) }
+            }
+            return v
+        }
+        if a.flags.contains("json") {
+            return json(["from": from, "to": to, "sessions": rows.map { r -> [String: Any] in
+                ["last": r.last, "project": r.proj, "title": r.title, "messages": r.m, "tokens": Int(r.tok), "session": r.sid, "app": r.app, "computer": r.computer,
+                 "versions": vers(r.commits), "commits": r.commits.map { ["hash": String(($0["h"] as? String ?? "").prefix(7)), "time": $0["d"] ?? "", "subject": $0["s"] ?? ""] }]
+            }])
+        }
+        let tm = rows.reduce(0) { $0 + $1.m }, tt = rows.reduce(0.0) { $0 + $1.tok }, tc = rows.reduce(0) { $0 + $1.commits.count }
+        var out = ["\(from) 至 \(to)：\(rows.count) 个会话，我的消息 \(tm) 条，Token \(fmtTok(tt))，提交 \(tc) 次（总览数据）"]
+        for r in rows {
+            let v = vers(r.commits)
+            var line = "\(r.last.dropFirst(5)) \(r.proj) · \(r.title) · \(r.m) 条 · \(fmtTok(r.tok))"
+            if !r.commits.isEmpty { line += " · 提交 \(r.commits.count)" + (v.isEmpty ? "" : "（\(versText(v))）") }
+            line += " · \(short(r.sid))"
+            out.append(line)
+        }
+        if rows.isEmpty { out.append("这段时间没有会话") }
+        return paged(out.joined(separator: "\n"), a, shell(["ech", "list"] + a.opt.filter { $0.key != "page" }.flatMap { ["--" + $0.key, $0.value] }))
+    }
+
+    /// 会话 ID 的短写法，用在引用里：Claude Code 的取前 8 位；Codex 的是按时间排的 UUIDv7，前 8 位约一分钟才变，取前 13 位
+    static func short(_ sid: String) -> String {
+        let c = Array(sid)
+        return c.count >= 36 && c[14] == "7" ? String(c.prefix(13)) : String(c.prefix(8))
+    }
+
+    /// 备份文件路径 → 会话 ID（Codex 的文件名是 rollout-时间-会话ID）
+    static func sessionID(_ path: String) -> String {
+        let name = ((path as NSString).lastPathComponent as NSString).deletingPathExtension
+        return name.hasPrefix("rollout-") ? String(name.suffix(36)) : name
+    }
+
+    /// 版本号多了只写头尾：0.1.0 至 0.8.2 共 14 个版本
+    static func versText(_ v: [String]) -> String {
+        v.count <= 4 ? v.joined(separator: "、") : "\(v.first!) 至 \(v.last!) 共 \(v.count) 个版本"
+    }
+
+    /// 一个会话在日期范围里的 Token 合计（各模型的输入、输出、读缓存、写缓存加起来）
+    static func tok(_ s: [String: Any], _ from: String, _ to: String) -> Double {
+        var t = 0.0
+        for (k, v) in s["days"] as? [String: [String: Any]] ?? [:] where k >= from && k <= to {
+            for (_, arr) in v["k"] as? [String: [Double]] ?? [:] { t += arr.reduce(0, +) }
+        }
+        return t
+    }
+
+    static func fmtTok(_ t: Double) -> String { t >= 1e6 ? String(format: "%.1fM", t / 1e6) : String(format: "%.0fK", t / 1e3) }
+
+    // MARK: backup
+
+    static func backup(_ a: Args) throws -> String {
+        let r = EchoBackupJob.run()
+        var out: [String] = []
+        switch r.result {
+        case .success(let res):
+            out.append(String(format: "备份完成：%d 个文件，写入 %d，失败 %d，%.1f 秒", res.total, res.copied, res.failures.count, res.seconds))
+            for f in res.failures.prefix(5) { out.append("  备份失败：\(f.path)：\(f.message)") }
+        case .failure(let e):
+            throw Fail(text: "备份失败：" + e.localizedDescription)
+        }
+        let root = EchoPrefs.backupRoot
+        let sessions = EchoLibrary.scan(backupRoot: root)
+        let ix = try EchoIndex.update(backupRoot: root, sessions: sessions)
+        out.append(String(format: "索引：%d 个会话，更新 %d 个，%.1f 秒", ix.total, ix.changed, ix.seconds))
+        _ = EchoStats.build(sessions, deleted: EchoDeleted.loadAll(root))
+        out.append("总览数据已更新")
+        return out.joined(separator: "\n")
+    }
+
+    /// 只更新索引和总览数据，不备份（索引坏了、刚升级时用）
+    static func index() throws -> String {
+        let root = EchoPrefs.backupRoot, sessions = EchoLibrary.scan(backupRoot: root)
+        let ix = try EchoIndex.update(backupRoot: root, sessions: sessions)
+        _ = EchoStats.build(sessions, deleted: EchoDeleted.loadAll(root))
+        return String(format: "索引：%d 个会话，更新 %d 个，删掉 %d 个，%.1f 秒；总览数据已更新", ix.total, ix.changed, ix.removed, ix.seconds)
+    }
+
+    // MARK: schema、skill
+
+    static let commands: [[String: Any]] = [
+        ["command": "find", "summary": "按关键词找会话和段（只读）", "args": [["name": "关键词", "required": true, "desc": "空格分开的几个词都要有；3 个字以上走全文索引"]],
+         "options": [["name": "--app", "values": "claude | codex"], ["name": "--since", "values": "2026-11-16 | 7d | 本周 | 上周 | 今天"], ["name": "--project", "desc": "项目路径里的词"], ["name": "--limit", "default": 20], ["name": "--page"], ["name": "--json"]]],
+        ["command": "list", "summary": "按时间列会话、我的消息、Token、提交和版本（只读，取总览数据）",
+         "options": [["name": "--since", "default": "7d", "values": "2026-11-16 | 7d | 本周 | 上周 | 今天 | 昨天"], ["name": "--until", "values": "2026-11-22"], ["name": "--project"], ["name": "--app"], ["name": "--page"], ["name": "--json"]]],
+        ["command": "segs", "summary": "列一个会话的分段：段号、起止行、时间、版本、第一句（只读）", "args": [["name": "会话", "required": true, "desc": "会话 ID 前 8 位或备份文件路径"]], "options": [["name": "--json"]]],
+        ["command": "read", "summary": "把一段读成对话文字（只读）", "args": [["name": "引用", "required": true, "desc": "会话#段号（ce57ce36#3）、会话#L起-止（ce57ce36#L1200-1500），只写会话读最后一段"]],
+         "options": [["name": "--tools", "desc": "带上工具输出，每条前 2000 字"], ["name": "--page"], ["name": "--json"]]],
+        ["command": "backup", "summary": "备份、更新索引和总览数据（和回响的「立即备份」一样，会写备份目录）"],
+        ["command": "index", "summary": "只更新索引和总览数据，不备份"],
+        ["command": "schema", "summary": "各命令的参数", "args": [["name": "命令", "required": false]]],
+        ["command": "install-skill", "summary": "把 ech skill 装到 ~/.claude/skills/ech（同名的先删再装）"],
+    ]
+
+    static func schema(_ a: Args) throws -> String {
+        if let c = a.pos.first {
+            guard let one = commands.first(where: { $0["command"] as? String == c }) else { throw Fail(text: "没有「\(c)」这个命令") }
+            return json(one)
+        }
+        return json(["version": appVersion ?? "", "commands": commands])
+    }
+
+    static var skillDir: URL { URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".claude/skills/ech") }
+
+    /// 应用里带的 skill：Contents/Resources/skills/ech
+    static var bundledSkill: URL? {
+        let u = (appBundle ?? Bundle.main.bundleURL).appendingPathComponent("Contents/Resources/skills/ech")
+        return FileManager.default.fileExists(atPath: u.appendingPathComponent("SKILL.md").path) ? u : nil
+    }
+
+    static func skillVersion(_ dir: URL) -> String? {
+        guard let s = try? String(contentsOf: dir.appendingPathComponent("SKILL.md"), encoding: .utf8) else { return nil }
+        for line in s.split(separator: "\n").prefix(20) where line.hasPrefix("version:") {
+            return line.dropFirst(8).trimmingCharacters(in: CharacterSet(charactersIn: " \"'"))
+        }
+        return nil
+    }
+
+    static func installSkill() throws -> String {
+        guard let src = bundledSkill else { throw Fail(text: "应用里没有带 skill，请从装好的回响里运行 ech") }
+        let fm = FileManager.default
+        try fm.createDirectory(at: skillDir.deletingLastPathComponent(), withIntermediateDirectories: true)
+        if fm.fileExists(atPath: skillDir.path) { try fm.removeItem(at: skillDir) }
+        try fm.copyItem(at: src, to: skillDir)
+        return "已安装 ech skill \(skillVersion(skillDir) ?? "") 到 \(skillDir.path)"
+    }
+
+    /// 装的 skill 比应用旧时提醒一句（照 hac 的版本提示）
+    static func skillNotice() -> String? {
+        guard let app = appVersion, let bundled = bundledSkill.flatMap(skillVersion) else { return nil }
+        let installed = skillVersion(skillDir)
+        guard installed != bundled else { return nil }
+        return installed == nil ? "（还没装 ech skill：运行 ech install-skill）" : "（ech skill 是 \(installed!)，回响是 \(app)：运行 ech install-skill 更新）"
+    }
+}

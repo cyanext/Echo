@@ -12,13 +12,15 @@ enum EchoExport {
 
     private static let needles = ["\"type\":\"user\"", "\"type\":\"assistant\"", "\"type\":\"custom-title\"", "\"type\":\"ai-title\"", "\"compact_boundary\""].map { Array($0.utf8) }
 
-    /// 逐条回调可能相关的记录（user、assistant、标题），其余 20 多种类型连解析都省掉
-    static func records(_ url: URL, _ body: ([String: Any]) -> Void) throws {
+    /// 逐条回调可能相关的记录（user、assistant、标题），其余 20 多种类型连解析都省掉；第二个参数是行号（从 1 起）
+    static func records(_ url: URL, _ body: ([String: Any], Int) -> Void) throws {
+        var n = 0
         try EchoLines.each(url) { line in
+            n += 1
             let b = EchoLines.trim(line)
             guard needles.contains(where: { EchoLines.has(b, $0) }) else { return }
             guard let d = try? JSONSerialization.jsonObject(with: Data(buffer: b)) as? [String: Any] else { return }
-            body(d)
+            body(d, n)
         }
     }
 
@@ -72,27 +74,35 @@ enum EchoExport {
     private final class Block {
         var kind: String, text = "", name = "", input: Any = [String: Any](), result: Any = NSNull(), isError = false
         var cleaned: String?   // 备份里清理掉的思考过程：原来多大
-        init(kind: String) { self.kind = kind }
-        var dict: [String: Any] {
-            if kind == "tool" { return ["kind": kind, "name": name, "input": input, "result": result, "isError": isError] }
-            if let cleaned { return ["kind": kind, "text": text, "cleaned": cleaned] }
-            return ["kind": kind, "text": text]
+        var line = 0           // 在会话文件里第几行（ech 用）
+        init(kind: String, line: Int = 0) { self.kind = kind; self.line = line }
+        func dict(_ lines: Bool) -> [String: Any] {
+            var d: [String: Any]
+            if kind == "tool" { d = ["kind": kind, "name": name, "input": input, "result": result, "isError": isError] }
+            else if let cleaned { d = ["kind": kind, "text": text, "cleaned": cleaned] }
+            else { d = ["kind": kind, "text": text] }
+            if lines { d["line"] = line }
+            return d
         }
     }
 
     private final class Turn {
         let role: String, ts: String
-        var text = "", msgId: String?, blocks: [Block] = [], trigger: String?
-        init(role: String, ts: String) { self.role = role; self.ts = ts }
-        var dict: [String: Any] {
-            if role == "assistant" { return ["role": role, "ts": ts, "blocks": blocks.map(\.dict)] }
-            if let trigger { return ["role": role, "ts": ts, "text": text, "trigger": trigger] }
-            return ["role": role, "ts": ts, "text": text]
+        var text = "", msgId: String?, blocks: [Block] = [], trigger: String?, line = 0
+        init(role: String, ts: String, line: Int = 0) { self.role = role; self.ts = ts; self.line = line }
+        func dict(_ lines: Bool) -> [String: Any] {
+            var d: [String: Any]
+            if role == "assistant" { d = ["role": role, "ts": ts, "blocks": blocks.map { $0.dict(lines) }] }
+            else if let trigger { d = ["role": role, "ts": ts, "text": text, "trigger": trigger] }
+            else { d = ["role": role, "ts": ts, "text": text] }
+            if lines { d["line"] = line }
+            return d
         }
     }
 
-    static func export(_ url: URL, computer: String) throws -> [String: Any] {
-        if try isCodexFile(url) { return try exportCodex(url, computer: computer) }
+    /// withLines：每条消息、每个块带上在会话文件里的行号（ech 分段、读几行时用；浏览窗口不要，和原型的结果逐项比对）
+    static func export(_ url: URL, computer: String, withLines: Bool = false) throws -> [String: Any] {
+        if try isCodexFile(url) { return try exportCodex(url, computer: computer, withLines: withLines) }
         var meta: [String: Any] = ["id": String(url.lastPathComponent.dropLast(6)), "title": "", "aiTitle": "", "cwd": "",
                                    "gitBranch": "", "start": "", "end": "", "computer": computer]
         var turns: [Turn] = []
@@ -100,7 +110,7 @@ enum EchoExport {
         var seen = Set<String>(), seenNil = false   // 已处理的 uuid，去重（和原型一样，没有 uuid 的只留第一条）
         var trigger = ""                            // 上一条压缩记录的触发方式（auto、manual），记到紧跟着的阶段总结上
 
-        try records(url) { d in
+        try records(url) { d, ln in
             let t = d["type"] as? String
             if t == "system", d["subtype"] as? String == "compact_boundary" {
                 trigger = (d["compactMetadata"] as? [String: Any])?["trigger"] as? String ?? ""
@@ -129,7 +139,7 @@ enum EchoExport {
                 let turn: Turn
                 if let last = turns.last, last.role == "assistant", last.msgId == msgId { turn = last }
                 else {
-                    turn = Turn(role: "assistant", ts: ts)
+                    turn = Turn(role: "assistant", ts: ts, line: ln)
                     turn.msgId = msgId
                     turns.append(turn)
                 }
@@ -137,12 +147,12 @@ enum EchoExport {
                     switch b["type"] as? String {
                     case "text":
                         guard let s = b["text"] as? String else { break }
-                        if let size = thinkingCleaned(s) { let x = Block(kind: "thinking"); x.cleaned = size; turn.blocks.append(x) }
-                        else if !s.trimmed.isEmpty { let x = Block(kind: "text"); x.text = s; turn.blocks.append(x) }
+                        if let size = thinkingCleaned(s) { let x = Block(kind: "thinking", line: ln); x.cleaned = size; turn.blocks.append(x) }
+                        else if !s.trimmed.isEmpty { let x = Block(kind: "text", line: ln); x.text = s; turn.blocks.append(x) }
                     case "thinking":
-                        if let s = b["thinking"] as? String, !s.trimmed.isEmpty { let x = Block(kind: "thinking"); x.text = s; turn.blocks.append(x) }
+                        if let s = b["thinking"] as? String, !s.trimmed.isEmpty { let x = Block(kind: "thinking", line: ln); x.text = s; turn.blocks.append(x) }
                     case "tool_use":
-                        let x = Block(kind: "tool")
+                        let x = Block(kind: "tool", line: ln)
                         x.name = b["name"] as? String ?? ""
                         x.input = b["input"] ?? [String: Any]()
                         if let id = b["id"] as? String { tools[id] = x }
@@ -164,7 +174,7 @@ enum EchoExport {
                 return
             }
             guard let (role, text) = userRole(d) else { return }
-            let turn = Turn(role: role, ts: ts)
+            let turn = Turn(role: role, ts: ts, line: ln)
             turn.text = text
             if role == "summary" { turn.trigger = trigger; trigger = "" }
             turns.append(turn)
@@ -175,7 +185,7 @@ enum EchoExport {
             let ai = meta["aiTitle"] as! String
             meta["title"] = !ai.isEmpty ? ai : turns.first(where: { $0.role == "user" }).map { $0.text.prefix40 } ?? meta["id"]!
         }
-        return ["meta": meta, "turns": turns.map(\.dict)]
+        return ["meta": meta, "turns": turns.map { $0.dict(withLines) }]
     }
 
     /// 和 Python 的真值判断一致：nil、false、0、空字符串都算假
@@ -284,29 +294,34 @@ extension EchoExport {
 
     private final class CBlock {
         let kind: String
-        var text = "", name = "", input: Any = [String: Any](), result: Any = NSNull(), cleaned: String?
-        init(_ kind: String) { self.kind = kind }
-        var dict: [String: Any] {
-            if kind == "tool" { return ["kind": kind, "name": name, "input": input, "result": result, "isError": false] }
-            if let cleaned { return ["kind": kind, "text": text, "cleaned": cleaned] }
-            return ["kind": kind, "text": text]
+        var text = "", name = "", input: Any = [String: Any](), result: Any = NSNull(), cleaned: String?, line = 0
+        init(_ kind: String, line: Int = 0) { self.kind = kind; self.line = line }
+        func dict(_ lines: Bool) -> [String: Any] {
+            var d: [String: Any]
+            if kind == "tool" { d = ["kind": kind, "name": name, "input": input, "result": result, "isError": false] }
+            else if let cleaned { d = ["kind": kind, "text": text, "cleaned": cleaned] }
+            else { d = ["kind": kind, "text": text] }
+            if lines { d["line"] = line }
+            return d
         }
     }
 
-    static func exportCodex(_ url: URL, computer: String) throws -> [String: Any] {
+    static func exportCodex(_ url: URL, computer: String, withLines: Bool = false) throws -> [String: Any] {
         var meta: [String: Any] = ["id": "", "title": "", "aiTitle": "", "cwd": "", "gitBranch": "", "start": "", "end": "", "computer": computer, "app": "codex"]
-        var turns: [(role: String, ts: String, text: String, blocks: [CBlock], trigger: String?)] = []
+        var turns: [(role: String, ts: String, text: String, blocks: [CBlock], trigger: String?, line: Int)] = []
+        var ln = 0
         var tools: [String: CBlock] = [:]
         var cur: Int?   // 正在拼的这一轮回复在 turns 里的位置
         func reply(_ ts: String) -> Int {
             if let cur { return cur }
-            turns.append(("assistant", ts, "", [], nil))
+            turns.append(("assistant", ts, "", [], nil, ln))
             cur = turns.count - 1
             return cur!
         }
         func str(_ k: String) -> String { meta[k] as? String ?? "" }
         let needles = ["\"type\":\"response_item\"", "\"type\":\"session_meta\"", "\"type\":\"compacted\""].map { Array($0.utf8) }
         try EchoLines.each(url) { line in
+            ln += 1
             let b = EchoLines.trim(line)
             guard needles.contains(where: { EchoLines.has(b, $0) }),
                   let d = (try? JSONSerialization.jsonObject(with: Data(buffer: b))) as? [String: Any],
@@ -320,15 +335,15 @@ extension EchoExport {
             }
             if t == "compacted" {
                 let m = (p["message"] as? String ?? "").trimmed
-                if !m.isEmpty { turns.append(("summary", ts, m, [], "auto")); cur = nil }
+                if !m.isEmpty { turns.append(("summary", ts, m, [], "auto", ln)); cur = nil }
                 return
             }
             guard t == "response_item" else { return }
             let pt = p["type"] as? String
             if pt == "message", p["role"] as? String == "user" {
                 let (human, system) = codexUserParts(p)
-                if !system.isEmpty { turns.append(("system", ts, system, [], nil)) }
-                if !human.isEmpty { turns.append(("user", ts, human, [], nil)) }
+                if !system.isEmpty { turns.append(("system", ts, system, [], nil, ln)) }
+                if !human.isEmpty { turns.append(("user", ts, human, [], nil, ln)) }
                 if !human.isEmpty || !system.isEmpty {
                     if str("start").isEmpty { meta["start"] = ts }
                     meta["end"] = ts
@@ -340,20 +355,20 @@ extension EchoExport {
             case "message" where p["role"] as? String == "assistant":
                 for c in p["content"] as? [Any] ?? [] {
                     guard let c = c as? [String: Any], c["type"] as? String == "output_text", let x = c["text"] as? String, !x.trimmed.isEmpty else { continue }
-                    let blk = CBlock("text"); blk.text = x
+                    let blk = CBlock("text", line: ln); blk.text = x
                     turns[reply(ts)].blocks.append(blk)
                 }
                 if !ts.isEmpty { meta["end"] = ts }
             case "reasoning":
                 if let enc = p["encrypted_content"] as? String, let inner = cleanedInner(enc), inner.hasPrefix("思考过程，原 ") {
-                    let blk = CBlock("thinking"); blk.cleaned = String(inner.dropFirst("思考过程，原 ".count))
+                    let blk = CBlock("thinking", line: ln); blk.cleaned = String(inner.dropFirst("思考过程，原 ".count))
                     turns[reply(ts)].blocks.append(blk)
                 } else {
                     let text = (p["summary"] as? [Any] ?? []).compactMap { ($0 as? [String: Any]).map { $0["text"] as? String ?? "" } }.joined(separator: "\n\n")
-                    if !text.trimmed.isEmpty { let blk = CBlock("thinking"); blk.text = text; turns[reply(ts)].blocks.append(blk) }
+                    if !text.trimmed.isEmpty { let blk = CBlock("thinking", line: ln); blk.text = text; turns[reply(ts)].blocks.append(blk) }
                 }
             case "function_call", "custom_tool_call", "web_search_call", "tool_search_call":
-                let blk = CBlock("tool")
+                let blk = CBlock("tool", line: ln)
                 if pt == "function_call" { blk.name = p["name"] as? String ?? ""; blk.input = codexInput(p["arguments"]) }
                 else if pt == "custom_tool_call" { blk.name = p["name"] as? String ?? ""; blk.input = codexInput(p["input"]) }
                 else {
@@ -373,9 +388,12 @@ extension EchoExport {
         let title = codexTitle(url, sid)
         meta["title"] = !title.isEmpty ? title : kept.first(where: { $0.role == "user" }).map { $0.text.prefix40 } ?? sid
         let out: [[String: Any]] = kept.map { x in
-            if x.role == "assistant" { return ["role": x.role, "ts": x.ts, "blocks": x.blocks.map(\.dict)] }
-            if let tr = x.trigger { return ["role": x.role, "ts": x.ts, "text": x.text, "trigger": tr] }
-            return ["role": x.role, "ts": x.ts, "text": x.text]
+            var d: [String: Any]
+            if x.role == "assistant" { d = ["role": x.role, "ts": x.ts, "blocks": x.blocks.map { $0.dict(withLines) }] }
+            else if let tr = x.trigger { d = ["role": x.role, "ts": x.ts, "text": x.text, "trigger": tr] }
+            else { d = ["role": x.role, "ts": x.ts, "text": x.text] }
+            if withLines { d["line"] = x.line }
+            return d
         }
         return ["meta": meta, "turns": out]
     }

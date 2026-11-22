@@ -8,7 +8,14 @@ import SwiftUI
 // MARK: - 设置项
 
 enum EchoPrefs {
-    private static let d = UserDefaults.standard
+    /// 应用里是自己的设置；ech 从终端调用时没有应用的包身份，显式读回响的设置（备份目录等）
+    private static let d: UserDefaults = {
+        #if TEST
+        return .standard
+        #else
+        return Bundle.main.bundleIdentifier == "com.cyanext.echo" ? .standard : (UserDefaults(suiteName: "com.cyanext.echo") ?? .standard)
+        #endif
+    }()
 
     static var defaultComputerName: String {
         (Host.current().localizedName ?? "本机").replacingOccurrences(of: "/", with: "-")
@@ -152,43 +159,16 @@ final class EchoState: ObservableObject {
         done = 0
         total = 0
         cleanupDays = EchoBackup.cleanupDays()
-        let dir = EchoPrefs.computerDir, claudeDir = EchoPrefs.claudeDir, sources = EchoPrefs.enabledSources
         Task.detached(priority: .utility) {
             var last = Date.distantPast
-            // 勾选的应用一个个备份，进度合在一起算；结果合并
-            let started = ISO8601DateFormatter().string(from: Date())
-            var logs: [[String: Any]] = []
-            let r = Result { () -> EchoBackupResult in
-                let lists = try sources.map { s, d -> (EchoSource, [EchoBackup.Item], URL) in
-                    (s, s == .claude ? try EchoBackup.claudeItems(EchoBackup.source) : EchoBackup.codexItems(EchoBackup.codexSource), d)
-                }
-                let total = lists.reduce(0) { $0 + $1.1.count }
-                var all = EchoBackupResult(), before = 0
-                for (src, items, d) in lists {
-                    let one = try EchoBackup.run(items: items, computerDir: d, policy: EchoPrefs.policy) { n, _ in
-                        guard before + n == total || Date().timeIntervalSince(last) > 0.3 else { return }
-                        last = Date()
-                        let done = before + n
-                        Task { @MainActor in EchoState.shared.done = done; EchoState.shared.total = total }
-                    }
-                    before += items.count
-                    logs.append(EchoBackupLog.entry(started, src, one))
-                    all.copied += one.copied; all.skipped += one.skipped; all.total += one.total
-                    all.bytesIn += one.bytesIn; all.bytesOut += one.bytesOut; all.failures += one.failures; all.seconds += one.seconds
-                }
-                return all
+            let job = EchoBackupJob.run { done, total in
+                guard done == total || Date().timeIntervalSince(last) > 0.3 else { return }
+                last = Date()
+                Task { @MainActor in EchoState.shared.done = done; EchoState.shared.total = total }
             }
-            if case .success(let res) = r, res.failures.isEmpty {
-                if let c = EchoState.cleanIfDue(dir) { logs.append(["t": started, "app": "", "cleanFiles": c.rewritten, "cleanFreed": c.freed]) }
-                if sources.contains(where: { $0.0 == .claude }), let a = EchoState.autoDeleteIfOn(claudeDir) {
-                    logs.append(["t": started, "app": "claude", "autoDel": a.count, "autoDelBytes": a.bytes])
-                }
-                if let (_, codexDir) = sources.first(where: { $0.0 == .codex }), let a = EchoState.autoDeleteCodexIfOn(codexDir) {
-                    logs.append(["t": started, "app": "codex", "autoDel": a.count, "autoDelBytes": a.bytes])
-                }
-            }
-            if case .failure(let e) = r { logs.append(["t": started, "app": "", "error": e.localizedDescription]) }
-            EchoBackupLog.append(dir, logs)
+            let r = job.result
+            // 备份完更新 ech 的索引（只处理变了的备份文件）
+            if case .success = r { do { try EchoIndex.update(backupRoot: EchoPrefs.backupRoot) } catch { NSLog("回响：更新索引失败：%@", error.localizedDescription) } }
             await MainActor.run {
                 let s = EchoState.shared
                 s.running = false
@@ -507,12 +487,54 @@ final class EchoAction: NSObject {
     }
 }
 
+/// 回响的备份一次：勾选的应用一个个备份，成功后清理到期内容、自动清理非活跃会话，写备份日志。
+/// 应用的「立即备份」和 ech backup 共用；两边同时跑时，后来的等先来的跑完（备份.lock 文件锁）
+enum EchoBackupJob {
+    static func run(progress: @escaping (Int, Int) -> Void = { _, _ in }) -> (result: Result<EchoBackupResult, Error>, logs: [[String: Any]]) {
+        let lock = open(EchoLibrary.supportDir.appendingPathComponent("备份.lock").path, O_CREAT | O_RDWR, 0o644)
+        if lock >= 0 { flock(lock, LOCK_EX) }
+        defer { if lock >= 0 { flock(lock, LOCK_UN); close(lock) } }
+        let dir = EchoPrefs.computerDir, claudeDir = EchoPrefs.claudeDir, sources = EchoPrefs.enabledSources
+        let started = ISO8601DateFormatter().string(from: Date())
+        var logs: [[String: Any]] = []
+        let r = Result { () -> EchoBackupResult in
+            let lists = try sources.map { s, d -> (EchoSource, [EchoBackup.Item], URL) in
+                (s, s == .claude ? try EchoBackup.claudeItems(EchoBackup.source) : EchoBackup.codexItems(EchoBackup.codexSource), d)
+            }
+            let total = lists.reduce(0) { $0 + $1.1.count }
+            var all = EchoBackupResult(), before = 0
+            for (src, items, d) in lists {
+                let one = try EchoBackup.run(items: items, computerDir: d, policy: EchoPrefs.policy) { n, _ in progress(before + n, total) }
+                before += items.count
+                logs.append(EchoBackupLog.entry(started, src, one))
+                all.copied += one.copied; all.skipped += one.skipped; all.total += one.total
+                all.bytesIn += one.bytesIn; all.bytesOut += one.bytesOut; all.failures += one.failures; all.seconds += one.seconds
+            }
+            return all
+        }
+        if case .success(let res) = r, res.failures.isEmpty {
+            if let c = EchoState.cleanIfDue(dir) { logs.append(["t": started, "app": "", "cleanFiles": c.rewritten, "cleanFreed": c.freed]) }
+            if sources.contains(where: { $0.0 == .claude }), let a = EchoState.autoDeleteIfOn(claudeDir) {
+                logs.append(["t": started, "app": "claude", "autoDel": a.count, "autoDelBytes": a.bytes])
+            }
+            if let (_, codexDir) = sources.first(where: { $0.0 == .codex }), let a = EchoState.autoDeleteCodexIfOn(codexDir) {
+                logs.append(["t": started, "app": "codex", "autoDel": a.count, "autoDelBytes": a.bytes])
+            }
+        }
+        if case .failure(let e) = r { logs.append(["t": started, "app": "", "error": e.localizedDescription]) }
+        EchoBackupLog.append(dir, logs)
+        return (r, logs)
+    }
+}
+
 #if !TEST
 @main
 enum EchoMain {
     static let delegate = EchoAppDelegate()
 
     static func main() {
+        // 用 ech 这个名字调用：命令行模式，不开窗口
+        if EchoCLI.isCLI { exit(EchoCLI.main(Array(CommandLine.arguments.dropFirst()))) }
         let app = NSApplication.shared
         app.delegate = delegate
         app.setActivationPolicy(.regular)
