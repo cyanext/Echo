@@ -308,3 +308,53 @@ enum EchoIndex {
         return v.map { Date(timeIntervalSince1970: $0) }
     }
 }
+
+// MARK: 按关键词找（ech find 和左栏的搜索共用）
+
+extension EchoIndex {
+    struct Hit {
+        var fid: Int, line: Int
+        var role: String, ts: String, text: String
+        var title: String, computer: String, app: String, sid: String, path: String
+    }
+
+    /// 关键词拆成几个词（空格、全角空格分开，几个都要有）
+    static func terms(_ q: String) -> [String] {
+        q.split(whereSeparator: { $0 == " " || $0 == "　" }).map(String.init)
+    }
+
+    /// 摘句时围着哪个词：先取 3 个字以上的（走全文索引的），没有就取第一个
+    static func anchor(_ q: String) -> String {
+        let t = terms(q)
+        return t.first { $0.count >= 3 } ?? t.first ?? q
+    }
+
+    /// 找含这几个词的行，按时间从近到远。3 个字以上的词走全文索引（trigram 至少 3 个字），短的逐行比对（全表扫，约 1 秒）
+    /// roles 只找这几种行（我、AI、总结…），nil 是全部
+    static func search(_ db: EchoDB, _ q: String, limit: Int, app: String? = nil, project: String? = nil, since: String? = nil, roles: [String]? = nil) throws -> [Hit] {
+        let ts = terms(q)
+        let long = ts.filter { $0.count >= 3 }, short = ts.filter { $0.count < 3 }
+        guard !ts.isEmpty else { return [] }
+        var sql = "SELECT l.fid, l.line, l.role, l.ts, l.text, f.title, f.computer, f.app, f.sid, f.path FROM "
+        var args: [Any?] = []
+        if long.isEmpty {
+            sql += "lines l JOIN files f ON f.id = l.fid WHERE 1"
+        } else {
+            sql += "fts JOIN lines l ON l.id = fts.rowid JOIN files f ON f.id = l.fid WHERE fts MATCH ?"
+            args.append(long.map { "\"" + $0.replacingOccurrences(of: "\"", with: "\"\"") + "\"" }.joined(separator: " "))
+        }
+        for t in short { sql += " AND l.text LIKE ?"; args.append("%" + t + "%") }
+        if let app { sql += " AND f.app = ?"; args.append(app) }
+        if let project { sql += " AND f.cwd LIKE ?"; args.append("%" + project + "%") }
+        if let since { sql += " AND l.ts >= ?"; args.append(since) }
+        if let roles, !roles.isEmpty { sql += " AND l.role IN (" + roles.map { _ in "?" }.joined(separator: ",") + ")"; args += roles.map { $0 } }
+        sql += " ORDER BY l.ts DESC LIMIT ?"
+        args.append(limit)
+        var hits: [Hit] = []
+        try db.rows(sql, args) { s in
+            hits.append(Hit(fid: s.int(0), line: s.int(1), role: s.text(2), ts: s.text(3), text: s.text(4),
+                            title: s.text(5), computer: s.text(6), app: s.text(7), sid: s.text(8), path: s.text(9)))
+        }
+        return hits
+    }
+}

@@ -224,10 +224,13 @@
     const out = [];
     let run = [];
     const flush = () => { if (run.length) out.push(renderSteps(run)); run = []; };
-    blocks.forEach((b) => { if (b.kind === "text") { flush(); out.push(md(b.text)); } else run.push(b); });
+    // 文字块前放一个空的时间标记（不占位置），左栏搜索结果进来时按时间找到这一条
+    blocks.forEach((b) => { if (b.kind === "text") { flush(); out.push(tsMark(b._ts) + md(b.text)); } else run.push(b); });
     flush();
     return `<div class="msg ai">${out.join("")}</div>`;
   }
+
+  const tsMark = (ts) => (ts ? `<i class="ts" data-ts="${esc(ts)}"></i>` : "");
 
   // 每段一个 HTML 片段：日期线、一条消息、一段回复
   function render(turns, partOf) {
@@ -243,19 +246,24 @@
       partOf[i] = out.length;
       if (t.role === "assistant") {
         // 连着的几条回复合成一段
+        t.blocks.forEach((b) => { b._ts = t.ts; });
         let blocks = t.blocks.slice();
-        while (turns[i + 1] && turns[i + 1].role === "assistant") { blocks = blocks.concat(turns[++i].blocks); partOf[i] = out.length; }
+        while (turns[i + 1] && turns[i + 1].role === "assistant") {
+          const n = turns[++i];
+          n.blocks.forEach((b) => { b._ts = n.ts; });
+          blocks = blocks.concat(n.blocks); partOf[i] = out.length;
+        }
         out.push(renderAI(blocks));
       } else if (t.role === "user") {
         const long = t.text.length > 1200 || t.text.split("\n").length > 16;
-        out.push(`<div class="msg user${long ? " long" : ""}"${t._uid ? ` id="${t._uid}"` : ""}><div class="bubble">${esc(t.text)}</div>${long ? '<button class="more" type="button">展开全部</button>' : ""}<div class="stamp">${d ? hm(d) : ""}</div></div>`);
+        out.push(tsMark(t.ts) + `<div class="msg user${long ? " long" : ""}"${t._uid ? ` id="${t._uid}"` : ""}><div class="bubble">${esc(t.text)}</div>${long ? '<button class="more" type="button">展开全部</button>' : ""}<div class="stamp">${d ? hm(d) : ""}</div></div>`);
       } else if (t.role === "session") {
         // 合集里每个会话的开头
         out.push(`<div class="divider part" id="${t._kid}"><span><b>${esc(t.text)}</b>${t.computer ? "　" + esc(t.computer) : ""}</span></div>`);
       } else if (t.role === "command") {
         out.push(`<div class="event">${ICON.cmd}<code>${esc(t.text)}</code></div>`);
       } else if (t.role === "summary") {
-        out.push(`<details class="compact"${t._kid ? ` id="${t._kid}"` : ""}><summary><div class="divider"><span>会话在这里压缩过，点开看摘要</span></div></summary>${md(t.text)}</details>`);
+        out.push(tsMark(t.ts) + `<details class="compact"${t._kid ? ` id="${t._kid}"` : ""}><summary><div class="divider"><span>会话在这里压缩过，点开看摘要</span></div></summary>${md(t.text)}</details>`);
       } else {
         out.push(`<div class="event system">${ICON.sys}<span>${esc(t.text.slice(0, 300))}</span></div>`);
       }
@@ -673,12 +681,31 @@
       S.turns.forEach((t, j) => { if (t.ts && new Date(t.ts) <= at) i = j; });
       if (i >= 0) goTo(partOf[i], "p" + partOf[i]);
     };
-    const at0 = +new URLSearchParams(location.search).get("at");
-    if (at0) setTimeout(() => window.echoJump(at0), 0);
 
-    // 从全局搜索跳进来时带 ?q=关键词，打开就定位到第一个命中
-    const q0 = new URLSearchParams(location.search).get("q");
-    if (q0) { $("search").value = q0; $("search").parentElement.classList.add("has"); search(q0); }
+    // 从左栏搜索结果进来：查找关键词，停在 at（命中那一条的时间）那条消息里的第一个命中。
+    // 左栏只搜对话，工具调用和思考过程里的命中跳过；找不到时退到那一段之后的第一个
+    window.echoFind = (q, at) => {
+      $("search").value = q;
+      $("search").parentElement.classList.toggle("has", !!q);
+      search(q);
+      if (!at || !marks.length) return;
+      const after = (a) => (mk) => a.compareDocumentPosition(mk) & Node.DOCUMENT_POSITION_FOLLOWING;
+      const said = (mk) => !mk.closest(".step");
+      const tm = [...all("#turns i.ts")].find((x) => Date.parse(x.dataset.ts) >= at - 2);
+      let k = tm ? marks.findIndex((mk) => after(tm)(mk) && said(mk)) : -1;
+      if (k < 0) {
+        let i = -1;
+        S.turns.forEach((t, j) => { if (t.ts && new Date(t.ts) <= at) i = j; });
+        const a = i >= 0 && $("p" + partOf[i]);
+        k = a ? marks.findIndex(after(a)) : -1;
+      }
+      if (k > 0) { marks[cur].classList.remove("current"); cur = k - 1; next(); }
+    };
+
+    const params = new URLSearchParams(location.search);
+    const at0 = +params.get("at"), q0 = params.get("q");
+    if (q0) setTimeout(() => window.echoFind(q0, at0), 0);
+    else if (at0) setTimeout(() => window.echoJump(at0), 0);
   }
 
   // 回归测试（tests/timeline_test.js）在 node 里加载本文件，取时间轴的规则

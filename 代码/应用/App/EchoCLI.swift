@@ -189,27 +189,10 @@ enum EchoCLI {
         guard !q.isEmpty else { throw Fail(text: "用法：ech find <关键词>") }
         let db = try openIndex()
         let limit = Int(a.opt["limit"] ?? "20") ?? 20
-        let terms = q.split(whereSeparator: { $0 == " " || $0 == "　" }).map(String.init)
-        let long = terms.filter { $0.count >= 3 }, shortTerms = terms.filter { $0.count < 3 }
-        var sql = "SELECT l.fid, l.line, l.role, l.ts, l.text, f.title, f.computer, f.app, f.sid, f.path FROM "
-        var args: [Any?] = []
-        if long.isEmpty {
-            sql += "lines l JOIN files f ON f.id = l.fid WHERE 1"
-        } else {
-            sql += "fts JOIN lines l ON l.id = fts.rowid JOIN files f ON f.id = l.fid WHERE fts MATCH ?"
-            args.append(long.map { "\"" + $0.replacingOccurrences(of: "\"", with: "\"\"") + "\"" }.joined(separator: " "))
-        }
-        for t in shortTerms { sql += " AND l.text LIKE ?"; args.append("%" + t + "%") }
-        if let app = a.opt["app"] { sql += " AND f.app = ?"; args.append(app) }
-        if let p = a.opt["project"] { sql += " AND f.cwd LIKE ?"; args.append("%" + p + "%") }
-        if let s = a.opt["since"] { sql += " AND l.ts >= ?"; args.append(try dayRange(s, nil).0) }
-        sql += " ORDER BY l.ts DESC LIMIT ?"
-        args.append(limit)
-        struct Hit { var fid: Int; var line: Int; var role: String; var ts: String; var text: String; var title: String; var computer: String; var app: String; var sid: String }
-        var hits: [Hit] = []
-        try db.rows(sql, args) { s in
-            hits.append(Hit(fid: s.int(0), line: s.int(1), role: s.text(2), ts: s.text(3), text: s.text(4), title: s.text(5), computer: s.text(6), app: s.text(7), sid: s.text(8)))
-        }
+        let since = try a.opt["since"].map { try dayRange($0, nil).0 }
+        let hits = try EchoIndex.search(db, q, limit: limit, app: a.opt["app"], project: a.opt["project"], since: since)
+        let anchor = EchoIndex.anchor(q)
+        typealias Hit = EchoIndex.Hit
         let segQ = try db.prepare("SELECT n, vers FROM segs WHERE fid=? AND l0<=? ORDER BY n DESC LIMIT 1")
         let near = try db.prepare("SELECT role, text FROM lines WHERE fid=? AND line<? ORDER BY line DESC LIMIT 1")
         let after = try db.prepare("SELECT role, text FROM lines WHERE fid=? AND line>? ORDER BY line LIMIT 1")
@@ -222,7 +205,7 @@ enum EchoCLI {
         if a.flags.contains("json") {
             return json(try hits.map { h -> [String: Any] in
                 let (n, v) = try seg(h)
-                return ["ref": "\(short(h.sid))#\(n)", "session": h.sid, "title": h.title, "computer": h.computer, "app": h.app, "seg": n, "versions": v, "line": h.line, "role": h.role, "ts": h.ts, "text": snippet(h.text, around: long.first ?? shortTerms.first ?? q)]
+                return ["ref": "\(short(h.sid))#\(n)", "session": h.sid, "title": h.title, "computer": h.computer, "app": h.app, "seg": n, "versions": v, "line": h.line, "role": h.role, "ts": h.ts, "text": snippet(h.text, around: anchor)]
             })
         }
         guard !hits.isEmpty else { return indexHead(db) + "\n没有找到「\(q)」。今天刚聊的内容要先运行 ech backup。" }
@@ -236,7 +219,7 @@ enum EchoCLI {
                 let (n, v) = try seg(h)
                 out.append("  \(short(h.sid))#\(n)\(v.isEmpty ? "" : "（\(v)）") \(hm(h.ts)) 第 \(h.line) 行")
                 if let b = try around(near, h) { out.append("    · " + b) }
-                out.append("    ▶ \(h.role)：" + snippet(h.text, around: long.first ?? shortTerms.first ?? q))
+                out.append("    ▶ \(h.role)：" + snippet(h.text, around: anchor))
                 if let b = try around(after, h) { out.append("    · " + b) }
             }
         }
