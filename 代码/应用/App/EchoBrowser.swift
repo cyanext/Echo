@@ -607,12 +607,14 @@ struct EchoBrowserView: View {
                 HStack(spacing: 6) {
                     // 展开按钮：照 NAS 网站目录树，收起朝右、展开朝下，自己有悬停底
                     EchoTwist(open: open) { toggle(d, level: level) }
-                    Text(d.name).foregroundStyle(EchoColor.fg)
+                    let gone = missingDirs.contains(d.path)
+                    // 文件夹已不存在：名字灰掉，后面一个小图标，悬停写原路径和怎么处理（文字标签占地方）
+                    Text(d.name).foregroundStyle(gone ? EchoColor.fg3 : EchoColor.fg)
                         .font(.system(size: 13)).lineLimit(1)
-                    // 顶层有同名目录（~/伙伴云NAS/客户文档 和 ~/Desktop/客户文档）：名字后面用灰色小字写上一级文件夹
-                    if missingDirs.contains(d.path) {
-                        Text("已不存在").font(.system(size: 12)).foregroundStyle(EchoColor.fg3).lineLimit(1)
+                    if gone {
+                        Image(systemName: "exclamationmark.circle").font(.system(size: 12)).foregroundStyle(EchoColor.fg3)
                     }
+                    // 顶层有同名目录（~/伙伴云NAS/客户文档 和 ~/Desktop/客户文档）：名字后面用灰色小字写上一级文件夹
                     if level == 0, dupRoots.contains(d.name) {
                         Text(Self.parentName(d.path)).font(.system(size: 12)).foregroundStyle(EchoColor.fg3).lineLimit(1)
                     }
@@ -632,7 +634,7 @@ struct EchoBrowserView: View {
             } preview: { dragGhost(d.name) }
             .onDrop(of: [.text], delegate: EchoRowDrop(drag: drag, update: { dirHover(d, group: group, y: $0.y) }, exit: { leave(d.path) }, perform: { dropOnDir(d) }))
             .padding(.top, level == 0 ? 8 : 0)   // 顶层目录之间多空一点，靠留白分组，不加图标
-            .help(missingDirs.contains(d.path) ? "\((d.path as NSString).abbreviatingWithTildeInPath) 已不存在，可右键「找到新位置…」" : (d.path as NSString).abbreviatingWithTildeInPath)
+            .help(missingDirs.contains(d.path) ? "文件夹已不存在：\((d.path as NSString).abbreviatingWithTildeInPath)\n右键「找到新位置…」把会话移到改名后的文件夹" : (d.path as NSString).abbreviatingWithTildeInPath)
             .contextMenu { dirMenu(d) }
 
             if open {
