@@ -36,6 +36,10 @@ enum EchoTests {
             }
             try EchoDeleted.add(out, dir)
         }
+        else if a.count == 3, a[1] == "--cat" {   // 按行读一个文件原样写到标准输出（.zst 边读边解压），和 zstd -dc 比对
+            let out = FileHandle.standardOutput
+            try EchoLines.each(URL(fileURLWithPath: a[2])) { l in autoreleasepool { out.write(Data(buffer: l)) } }
+        }
         else if a.count == 3, a[1] == "--backup" { try backup(URL(fileURLWithPath: a[2])) }
         else if a.count == 3, a[1] == "--time" { try timeExport(URL(fileURLWithPath: a[2])) }
         else if a.count == 3, a[1] == "--clean-estimate" {   // 手动排查：按默认保留期限估算一台电脑的备份能释放多少（只算不改）

@@ -1,16 +1,54 @@
 // 瘦身：会话 jsonl 写进备份前怎么改（base64、请求记录、按保留期限换成占位、密钥打码），其余原样保留。
 // 规则见 需求文档/版本需求/v0.7.0-会话备份和自动清理.html，行为以 代码/原型/slim.py 为准，tests/run.sh 拿原型现场生成的结果比对。
 import Foundation
+import CZstd
 
 // MARK: - 按行读文件
 
+/// zstd 流式解压：喂一块压缩数据，每解出一小段（ZSTD_DStreamOutSize，约 128 KB）就交给 sink，不攒成一整块
+final class EchoZstd {
+    private let ctx: OpaquePointer
+    private var out = [UInt8](repeating: 0, count: ZSTD_DStreamOutSize())
+    /// 最后一帧解完了（ZSTD_decompressStream 返回 0）；文件读完还没解完说明文件不完整
+    private(set) var finished = true
+
+    init() throws {
+        guard let c = ZSTD_createDCtx() else { throw CocoaError(.fileReadUnknown) }
+        ctx = c
+    }
+    deinit { ZSTD_freeDCtx(ctx) }
+
+    func decompress(_ data: Data, _ sink: (UnsafeBufferPointer<UInt8>) throws -> Void) throws {
+        try data.withUnsafeBytes { (src: UnsafeRawBufferPointer) in
+            var input = ZSTD_inBuffer(src: src.baseAddress, size: src.count, pos: 0)
+            while true {
+                var full = false
+                try out.withUnsafeMutableBytes { dst in
+                    var output = ZSTD_outBuffer(dst: dst.baseAddress, size: dst.count, pos: 0)
+                    let r = ZSTD_decompressStream(ctx, &output, &input)
+                    if ZSTD_isError(r) != 0 {
+                        throw CocoaError(.fileReadCorruptFile, userInfo: [NSLocalizedDescriptionKey: "解压出错：" + String(cString: ZSTD_getErrorName(r))])
+                    }
+                    finished = r == 0
+                    full = output.pos == output.size   // 输出满了，解压器里可能还有，接着要
+                    try sink(UnsafeBufferPointer(start: dst.baseAddress!.assumingMemoryBound(to: UInt8.self), count: output.pos))
+                }
+                if input.pos == input.size && !full { break }
+            }
+        }
+    }
+}
+
 enum EchoLines {
     /// 逐行回调，行内容含末尾的换行符（最后一行可能没有）。会话文件大到几百 MB，分块读，不整个读进内存。
+    /// .zst（Codex 压过的旧会话）边读边解压，调用方不用管
     static func each(_ url: URL, _ body: (UnsafeBufferPointer<UInt8>) throws -> Void) throws {
         let fh = try FileHandle(forReadingFrom: url)
         defer { try? fh.close() }
+        let zst = url.pathExtension == "zst" ? try EchoZstd() : nil
         var buf = [UInt8]()
-        while let chunk = try fh.read(upToCount: 8 << 20), !chunk.isEmpty {
+        // 新读到的一段接在上次没处理完的半行后面，切出完整的行回调，剩下的半行留着
+        func feed(_ chunk: UnsafeBufferPointer<UInt8>) throws {
             buf.append(contentsOf: chunk)
             var start = 0
             try buf.withUnsafeBufferPointer { p in
@@ -23,6 +61,14 @@ enum EchoLines {
             }
             buf.removeFirst(start)
         }
+        // 每读一块放进 autoreleasepool：读出的 Data 是自动释放的，不包的话整个文件读完才放，大文件能涨到几百 MB
+        while try autoreleasepool(invoking: {
+            guard let raw = try fh.read(upToCount: zst == nil ? 8 << 20 : 1 << 20), !raw.isEmpty else { return false }
+            if let zst { try zst.decompress(raw, feed) }
+            else { try raw.withUnsafeBytes { try feed($0.bindMemory(to: UInt8.self)) } }
+            return true
+        }) {}
+        if let zst, !zst.finished { throw CocoaError(.fileReadCorruptFile, userInfo: [NSFilePathErrorKey: url.path, NSLocalizedDescriptionKey: "压缩文件不完整"]) }
         if !buf.isEmpty { try buf.withUnsafeBufferPointer { try body($0) } }
     }
 
