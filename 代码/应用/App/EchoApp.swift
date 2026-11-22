@@ -77,6 +77,9 @@ enum EchoPrefs {
     /// 自动删除 Claude 里不活跃的会话（默认开，30 天）
     static var autoDelete: Bool { get { d.object(forKey: "autoDelete") == nil ? true : d.bool(forKey: "autoDelete") } set { d.set(newValue, forKey: "autoDelete") } }
     static var autoDeleteDays: Int { get { int("autoDeleteDays", 30) } set { d.set(newValue, forKey: "autoDeleteDays") } }
+    /// Codex 也自动清理（默认开，30 天）：Codex 自己不删会话，一直攒着
+    static var autoDeleteCodex: Bool { get { d.object(forKey: "autoDeleteCodex") == nil ? true : d.bool(forKey: "autoDeleteCodex") } set { d.set(newValue, forKey: "autoDeleteCodex") } }
+    static var autoDeleteCodexDays: Int { get { int("autoDeleteCodexDays", 30) } set { d.set(newValue, forKey: "autoDeleteCodexDays") } }
 
     static let cleanRulesVersion = 1
     static var cleanRules: Int { get { d.integer(forKey: "cleanRules") } set { d.set(newValue, forKey: "cleanRules") } }
@@ -180,6 +183,9 @@ final class EchoState: ObservableObject {
                 if sources.contains(where: { $0.0 == .claude }), let a = EchoState.autoDeleteIfOn(claudeDir) {
                     logs.append(["t": started, "app": "claude", "autoDel": a.count, "autoDelBytes": a.bytes])
                 }
+                if let (_, codexDir) = sources.first(where: { $0.0 == .codex }), let a = EchoState.autoDeleteCodexIfOn(codexDir) {
+                    logs.append(["t": started, "app": "codex", "autoDel": a.count, "autoDelBytes": a.bytes])
+                }
             }
             if case .failure(let e) = r { logs.append(["t": started, "app": "", "error": e.localizedDescription]) }
             EchoBackupLog.append(dir, logs)
@@ -232,6 +238,18 @@ final class EchoState: ObservableObject {
         return r.count > 0 ? (r.count, r.bytes) : nil
     }
 
+    /// Codex 的自动清理（设置里打开时）。dir 是 Codex 的备份（codex/）。在后台线程调用
+    @discardableResult
+    nonisolated static func autoDeleteCodexIfOn(_ dir: URL) -> (count: Int, bytes: Int64)? {
+        guard EchoPrefs.autoDeleteCodex else { return nil }
+        let list = EchoAutoDelete.codexCandidates(source: EchoBackup.codexSource, dir: dir, days: EchoPrefs.autoDeleteCodexDays)
+        guard !list.isEmpty else { return nil }
+        let r = EchoAutoDelete.run(list)
+        NSLog("回响自动清理 Codex：%d 个会话移进废纸篓，腾出 %.1fMB，失败 %d", r.count, Double(r.bytes) / 1e6, r.failures.count)
+        for f in r.failures { NSLog("回响自动清理 Codex 失败：%@：%@", f.path, f.message) }
+        return r.count > 0 ? (r.count, r.bytes) : nil
+    }
+
     func reloadSessions() {
         guard !scanning else { return }
         scanning = true
@@ -268,6 +286,7 @@ final class EchoState: ObservableObject {
 
     /// 写回原会话后立刻增量备份，列表里马上看到新名字
     func rename(_ s: EchoSession, to title: String) throws {
+        guard s.app == .claude else { throw CocoaError(.fileWriteNoPermission, userInfo: [NSLocalizedDescriptionKey: "Codex 的会话在 Codex 里改名"]) }
         guard let u = EchoRename.originalURL(for: s) else {
             throw CocoaError(.fileWriteNoPermission, userInfo: [NSLocalizedDescriptionKey: "这个会话在 \(s.computer) 上，到那台电脑上改"])
         }

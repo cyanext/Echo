@@ -15,7 +15,7 @@ enum EchoTests {
 
     static func main() throws {
         let a = CommandLine.arguments
-        if a.count == 3, a[1] == "--rules" { rules(); try renameTest(fixture: URL(fileURLWithPath: a[2])); try statsTest(); try commitMatchTest(); timeTest(); try cleanTest(); try layoutTest(); try autoDeleteTest(); try claudeSettingsTest() }
+        if a.count == 3, a[1] == "--rules" { rules(); try renameTest(fixture: URL(fileURLWithPath: a[2])); try statsTest(); try commitMatchTest(); timeTest(); try cleanTest(); try layoutTest(); try codexBackupTest(); try autoDeleteTest(); try claudeSettingsTest() }
         else if a.count == 4, a[1] == "--overview" {   // 手动排查：按应用的方式整理总览数据，写到文件，看用了多久
             let t0 = Date()
             let list = EchoLibrary.scan(backupRoot: URL(fileURLWithPath: a[2]))
@@ -281,6 +281,51 @@ enum EchoTests {
         let est = try EchoClean.run(computerDir: me, policy: EchoPolicy(), dryRun: true)
         check(est.files == 1, "分应用：清理应找到 claude/ 里的会话，实际 \(est.files) 个")
         print("  分应用 6 项")
+    }
+
+    /// Codex：sessions 和 archived_sessions（含 .zst）解压后按日期放进 sessions/年/月/日/，复制 session_index；
+    /// 自动清理只挑到期、备份完整的会话文件，不动 session_index；x.jsonl.zst 不会把同名的 x.jsonl 当目录删
+    static func codexBackupTest() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent("echo-codex-\(getpid())")
+        defer { try? fm.removeItem(at: root) }
+        let src = root.appendingPathComponent("codex源"), dir = root.appendingPathComponent("备份/机/codex"), bin = root.appendingPathComponent("废纸篓")
+        let a = src.appendingPathComponent("sessions/2026/09/01/rollout-2026-09-01T10-00-00-aaa.jsonl")
+        let z = src.appendingPathComponent("archived_sessions/rollout-2026-10-02T10-00-00-bbb.jsonl.zst")
+        for d in [a.deletingLastPathComponent(), z.deletingLastPathComponent(), bin] { try fm.createDirectory(at: d, withIntermediateDirectories: true) }
+        let line = #"{"timestamp":"2026-09-01T02:00:00.000Z","type":"session_meta","payload":{"id":"aaa","cwd":"/tmp","source":"vscode"}}"# + "\n"
+            + #"{"timestamp":"2026-09-01T02:00:01.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"装一下补丁"}]}}"# + "\n"
+        try line.write(to: a, atomically: true, encoding: .utf8)
+        let plain = z.deletingPathExtension()   // 临时写一份未压缩的，用 zstd 压成 .zst
+        try line.replacingOccurrences(of: "aaa", with: "bbb").write(to: plain, atomically: true, encoding: .utf8)
+        let p = Process(); p.executableURL = URL(fileURLWithPath: "/opt/homebrew/bin/zstd"); p.arguments = ["-q", "--rm", plain.path]
+        try p.run(); p.waitUntilExit()
+        try "{\"id\":\"aaa\",\"thread_name\":\"改过的名字\"}\n".write(to: src.appendingPathComponent("session_index.jsonl"), atomically: true, encoding: .utf8)
+        let old = Date(timeIntervalSinceNow: -40 * 86400)
+        for f in [a, z] { try fm.setAttributes([.modificationDate: old], ofItemAtPath: f.path) }
+
+        let items = EchoBackup.codexItems(src)
+        let r = try EchoBackup.run(items: items, computerDir: dir)
+        let outA = dir.appendingPathComponent("sessions/2026/09/01/rollout-2026-09-01T10-00-00-aaa.jsonl")
+        let outZ = dir.appendingPathComponent("sessions/2026/10/02/rollout-2026-10-02T10-00-00-bbb.jsonl")
+        check(r.copied == 3 && fm.fileExists(atPath: outA.path) && (try? String(contentsOf: outZ, encoding: .utf8))?.contains("bbb") == true
+              && fm.fileExists(atPath: dir.appendingPathComponent("session_index.jsonl").path),
+              "Codex 备份：两个会话应解压到 sessions/年/月/日/、复制 session_index，实际写了 \(r.copied)")
+        // 备份后又改过的不清理
+        try line.appending(line).write(to: a, atomically: true, encoding: .utf8)
+        try fm.setAttributes([.modificationDate: old], ofItemAtPath: a.path)
+        let c = EchoAutoDelete.codexCandidates(source: src, dir: dir, days: 30)
+        check(c.map(\.original.lastPathComponent) == ["rollout-2026-10-02T10-00-00-bbb.jsonl.zst"], "Codex 自动清理：只挑备份完整、到期的，实际 \(c.map(\.rel))")
+        try line.write(to: z.deletingPathExtension(), atomically: true, encoding: .utf8)   // 同名的 x.jsonl 文件
+        var moved: [String] = []
+        let res = EchoAutoDelete.run(c) { u in moved.append(u.lastPathComponent); try fm.moveItem(at: u, to: bin.appendingPathComponent(u.lastPathComponent)) }
+        check(res.count == 1 && moved == [z.lastPathComponent] && fm.fileExists(atPath: z.deletingPathExtension().path)
+              && fm.fileExists(atPath: src.appendingPathComponent("session_index.jsonl").path),
+              "Codex 自动清理：只挪会话文件，不动同名的 .jsonl 和 session_index，实际挪了 \(moved)")
+        let list = EchoLibrary.scan(backupRoot: root.appendingPathComponent("备份"))
+        check(list.count == 2 && list.first { $0.sessionId == "aaa" }?.meta.title == "改过的名字" && list.allSatisfy { $0.app == .codex },
+              "Codex 列表：两个会话都在、标题取 session_index，实际 \(list.map { $0.sessionId + "「" + $0.meta.title + "」" })")
+        print("  Codex 备份 4 项")
     }
 
     /// 自动删除：只挑超过期限、备份完整（连同名目录）、没开着的；只删原会话，备份不动

@@ -6,12 +6,20 @@
 import Foundation
 
 enum EchoRename {
-    /// 本机会话在 ~/.claude 里的原文件；另一台电脑的会话、原文件已被删的返回 nil
+    /// 本机会话的原文件（~/.claude 或 ~/.codex 里）；另一台电脑的会话、原文件已被删的返回 nil。
+    /// Codex 的可能还在 sessions/年/月/日/，也可能被压成 .zst、挪进 archived_sessions/
     static func originalURL(for s: EchoSession) -> URL? {
         guard s.computer == EchoPrefs.computerName else { return nil }
+        let fm = FileManager.default
+        if s.app == .codex {
+            let name = s.url.lastPathComponent, day = s.url.deletingLastPathComponent().pathComponents.suffix(3).joined(separator: "/")
+            let root = EchoBackup.codexSource
+            return ["sessions/\(day)/\(name)", "sessions/\(day)/\(name).zst", "archived_sessions/\(name)", "archived_sessions/\(name).zst"]
+                .map { root.appendingPathComponent($0) }.first { fm.fileExists(atPath: $0.path) }
+        }
         let u = EchoBackup.source.appendingPathComponent(s.url.deletingLastPathComponent().lastPathComponent)
             .appendingPathComponent(s.url.lastPathComponent)
-        return FileManager.default.fileExists(atPath: u.path) ? u : nil
+        return fm.fileExists(atPath: u.path) ? u : nil
     }
 
     /// 2 分钟内还在写的会话：Claude Code 可能再写一次旧标题，把名字改回去
@@ -115,6 +123,13 @@ extension EchoExport {
     }
 }
 
+/// Claude 会话的同名目录（子代理、长工具输出），确实是目录才算：Codex 的 x.jsonl.zst 去掉扩展名是 x.jsonl，不能当成目录删
+func sameNameDir(_ f: URL) -> URL? {
+    var isDir: ObjCBool = false
+    let dir = f.deletingPathExtension()
+    return FileManager.default.fileExists(atPath: dir.path, isDirectory: &isDir) && isDir.boolValue ? dir : nil
+}
+
 /// 删除：原会话和备份一起移到废纸篓（能放回）。会话文件和同名目录（子代理、长工具输出）一起移，备份记录里去掉。
 /// 只删本机的会话；2 分钟内还在写的不删。
 enum EchoDelete {
@@ -127,6 +142,11 @@ enum EchoDelete {
 
     static func paths(for s: EchoSession) -> Paths? {
         guard let orig = EchoRename.originalURL(for: s) else { return nil }
+        if s.app == .codex {   // 备份在 codex/sessions/年/月/日/，备份记录在 codex/，键是相对 ~/.codex 的原路径
+            let codexDir = s.url.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            let rel = String(orig.standardizedFileURL.path.dropFirst(EchoBackup.codexSource.standardizedFileURL.path.count + 1))
+            return Paths(original: orig, backup: s.url, record: codexDir.appendingPathComponent("备份记录.json"), rel: rel)
+        }
         let rel = s.url.deletingLastPathComponent().lastPathComponent + "/" + s.url.lastPathComponent
         let record = s.url.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("备份记录.json")
         return Paths(original: orig, backup: s.url, record: record, rel: rel)
@@ -139,12 +159,11 @@ enum EchoDelete {
             throw CocoaError(.fileWriteUnknown, userInfo: [NSLocalizedDescriptionKey: "会话正在进行，结束后再删"])
         }
         for f in [p.original, p.backup] {
-            let dir = f.deletingPathExtension()
             if fm.fileExists(atPath: f.path) { try remove(f) }
-            if fm.fileExists(atPath: dir.path) { try remove(dir) }
+            if let dir = sameNameDir(f) { try remove(dir) }
         }
         var r = EchoBackupRecord.load(p.record)
-        let prefix = String(p.rel.dropLast(6)) + "/"
+        let prefix = (p.rel as NSString).deletingPathExtension + "/"   // 同名目录里的文件（Claude 的子代理记录）
         r.files = r.files.filter { $0.key != p.rel && !$0.key.hasPrefix(prefix) }
         try? r.save(p.record)
     }
@@ -171,7 +190,7 @@ enum EchoMove {
     }
 
     static func paths(for s: EchoSession, to dir: String, source: URL = EchoBackup.source) -> Paths? {
-        guard s.computer == EchoPrefs.computerName else { return nil }
+        guard s.computer == EchoPrefs.computerName, s.app == .claude else { return nil }   // Codex 的会话按日期存，不按文件夹，不挪
         let oldDir = s.url.deletingLastPathComponent().lastPathComponent, name = s.url.lastPathComponent
         let original = source.appendingPathComponent(oldDir).appendingPathComponent(name)
         guard FileManager.default.fileExists(atPath: original.path) else { return nil }
@@ -296,6 +315,19 @@ enum EchoAutoDelete {
         return out.sorted { $0.rel < $1.rel }
     }
 
+    /// Codex：超过期限没改过、备份完整（备份记录里的大小和时间与原文件一致、备份文件在）、2 分钟内没写的会话文件。
+    /// 只挪会话文件本身（.jsonl 或 .jsonl.zst），Codex 的 session_index、数据库不动。source 是 ~/.codex，dir 是 Codex 的备份（codex/）
+    static func codexCandidates(source: URL, dir: URL, days: Int, now: Date = Date()) -> [Candidate] {
+        let fm = FileManager.default
+        let record = EchoBackupRecord.load(dir.appendingPathComponent("备份记录.json"))
+        return EchoBackup.codexItems(source).filter { it in
+            guard it.out.hasPrefix("sessions/"), record.files[it.rel] == it.stamp,
+                  now.timeIntervalSince1970 - it.stamp.mtime > Double(days) * 86400,
+                  fm.fileExists(atPath: dir.appendingPathComponent(it.out).path), !EchoRename.isActive(it.url) else { return false }
+            return true
+        }.map { Candidate(original: $0.url, rel: $0.rel, bytes: $0.stamp.size) }.sorted { $0.rel < $1.rel }
+    }
+
     /// 移进废纸篓；remove 测试时换成移到临时目录。返回删了几个、腾出多少、哪些没删成
     static func run(_ list: [Candidate], remove: (URL) throws -> Void = { try FileManager.default.trashItem(at: $0, resultingItemURL: nil) })
         -> (count: Int, bytes: Int64, failures: [(path: String, message: String)]) {
@@ -304,8 +336,7 @@ enum EchoAutoDelete {
         for c in list {
             do {
                 try remove(c.original)
-                let dir = c.original.deletingPathExtension()
-                if fm.fileExists(atPath: dir.path) { try remove(dir) }
+                if let dir = sameNameDir(c.original) { try remove(dir) }
                 count += 1
                 bytes += c.bytes
             } catch {
