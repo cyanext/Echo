@@ -21,8 +21,10 @@ struct EchoBrowserView: View {
     @State private var moveDone: String?                               // 挪好后的提示和恢复命令
     @State private var moveCmd: String?
     @AppStorage("sidebarOrder") private var orderRaw = ""              // 拖动排好的顺序（EchoOrder），JSON
-    @State private var dragging: EchoDragItem?                         // 正在拖的会话或目录
-    @State private var hint: EchoDropHint?                             // 拖到哪儿了、松开会怎样
+    @State private var drag = EchoDragState()                          // 拖动的状态：放在 @State 里不订阅，鼠标移动时左栏的树不重画
+    @State private var currentID: String?                              // 当前打开的会话；数据变了算一次，不在每行里找
+    @State private var multiComputer = false                           // 有几台电脑的会话，会话行才写电脑名
+    @State private var openState: [String: Bool] = [:]                 // dirStateRaw 解析好的展开状态
     @State private var tree: [EchoDir] = []                            // 会话列表变了才重新分组，不在每次刷新时算
     @State private var showAll: Set<String> = []                       // 点过「再显示」的项目
     @State private var showOverview = true                             // 打开窗口默认停在总览
@@ -47,29 +49,8 @@ struct EchoBrowserView: View {
     }
 
     var body: some View {
-        HStack(spacing: 0) {
-            sidebar
-                .frame(width: sideW)
-                .overlay(alignment: .trailing) { EchoResizeHandle(width: $sideW).frame(width: 10) }
-            // 右边白区：靠左栏的两个角收圆角 12，左栏的灰底从圆角外露出来（照伙伴云NAS应用）
-            ZStack {
-                if showOverview { EchoOverview() }
-                else if let t = target { EchoConversation(target: t, at: jumpAt) }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(EchoColor.surface)
-            .clipShape(UnevenRoundedRectangle(topLeadingRadius: 12, bottomLeadingRadius: 12))
-            .overlay(UnevenRoundedRectangle(topLeadingRadius: 12, bottomLeadingRadius: 12).strokeBorder(EchoColor.sideLine, lineWidth: 1).padding(.trailing, -1))
-        }
-        .background(EchoColor.side)
-        .foregroundStyle(EchoColor.fg)
-        .ignoresSafeArea()
-        .frame(minWidth: 860, minHeight: 560)
-        .onAppear(perform: regroup)
-        .onChange(of: state.sessions) { _, _ in regroup() }
-        .onChange(of: computer) { _, _ in regroup() }
-        .onChange(of: orderRaw) { _, _ in regroup() }
-        .overlay(alignment: .bottom) { dropTip }
+        layout
+        .overlay(alignment: .bottom) { EchoDropTip(drag: drag) }
         .onChange(of: state.openSessionID) { _, id in
             guard let id else { return }
             state.openSessionID = nil
@@ -116,6 +97,33 @@ struct EchoBrowserView: View {
         } message: {
             Text(editError ?? "")
         }
+    }
+
+    /// 左栏加右边白区；修饰链拆成两段，免得编译器推导类型超时
+    private var layout: some View {
+        HStack(spacing: 0) {            sidebar
+                .frame(width: sideW)
+                .overlay(alignment: .trailing) { EchoResizeHandle(width: $sideW).frame(width: 10) }
+            // 右边白区：靠左栏的两个角收圆角 12，左栏的灰底从圆角外露出来（照伙伴云NAS应用）
+            ZStack {
+                if showOverview { EchoOverview() }
+                else if let t = target { EchoConversation(target: t, at: jumpAt) }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(EchoColor.surface)
+            .clipShape(UnevenRoundedRectangle(topLeadingRadius: 12, bottomLeadingRadius: 12))
+            .overlay(UnevenRoundedRectangle(topLeadingRadius: 12, bottomLeadingRadius: 12).strokeBorder(EchoColor.sideLine, lineWidth: 1).padding(.trailing, -1))
+        }
+        .background(EchoColor.side)
+        .foregroundStyle(EchoColor.fg)
+        .ignoresSafeArea()
+        .frame(minWidth: 860, minHeight: 560)
+        .onAppear(perform: regroup)
+        .onChange(of: state.sessions) { _, _ in regroup() }
+        .onChange(of: computer) { _, _ in regroup() }
+        .onChange(of: orderRaw) { _, _ in regroup() }
+        .onChange(of: sessionID) { _, _ in currentID = session?.id }
+        .onChange(of: dirStateRaw) { _, _ in openState = dirState }
     }
 
     private func startRename(_ t: EchoTarget) {
@@ -302,16 +310,19 @@ struct EchoBrowserView: View {
 
     private func regroup() {
         tree = EchoOrder.arrange(EchoLibrary.dirTree(computer.isEmpty ? state.sessions : state.sessions.filter { $0.computer == computer }), order)
+        multiComputer = Set(state.sessions.map(\.computer)).count > 1
+        currentID = session?.id
+        openState = dirState
     }
 
     /// 目录展开收起：点过的按点的来；没点过的，顶层默认展开，当前会话所在的那几级也展开
     private func isOpen(_ d: EchoDir, level: Int) -> Bool {
-        if let v = dirState[d.path] { return v }
-        return level == 0 || (collectionID == nil && d.contains(session?.id))
+        if let v = openState[d.path] { return v }
+        return level == 0 || (collectionID == nil && d.contains(currentID))
     }
 
     private func toggle(_ d: EchoDir, level: Int) {
-        var st = dirState
+        var st = openState
         st[d.path] = !isOpen(d, level: level)
         dirStateRaw = st.map { "\($0.key)\t\($0.value ? 1 : 0)" }.sorted().joined(separator: "\n")
     }
@@ -376,8 +387,7 @@ struct EchoBrowserView: View {
         let open = isOpen(d, level: level)
         let parts = d.name.components(separatedBy: " / ")
         return AnyView(Group {
-            let into = hint?.key == d.path && hint?.mode == .into && hint?.ok == true
-            EchoRow(fill: into ? EchoColor.sel : nil) {
+            EchoRow(fill: nil) {
                 HStack(spacing: 6) {
                     // 展开按钮：照 NAS 网站目录树，收起朝右、展开朝下，自己有悬停底
                     EchoTwist(open: open) { toggle(d, level: level) }
@@ -393,14 +403,12 @@ struct EchoBrowserView: View {
                 toggle(d, level: level)
             }
             .background(guides(level))
-            .overlay { if into { RoundedRectangle(cornerRadius: 8).strokeBorder(EchoColor.accent, lineWidth: 1.5) } }
-            .overlay(alignment: lineEdge(d.path)) { insertLine(d.path) }
-            .opacity(dragging?.dir == d.path ? 0.45 : 1)
+            .overlay(EchoDropMark(drag: drag, key: d.path, dragged: { [p = d.path] in $0.dir == p }))
             .onDrag {
                 startDrag(EchoDragItem(sessions: [], dir: d.path, group: group))
                 return NSItemProvider(object: d.path as NSString)
             } preview: { dragGhost(d.name) }
-            .onDrop(of: [.text], delegate: EchoRowDrop(update: { dirHover(d, group: group, y: $0.y) }, exit: { leave(d.path) }, perform: { dropOnDir(d) }))
+            .onDrop(of: [.text], delegate: EchoRowDrop(drag: drag, update: { dirHover(d, group: group, y: $0.y) }, exit: { leave(d.path) }, perform: { dropOnDir(d) }))
             .padding(.top, level == 0 ? 8 : 0)   // 顶层目录之间多空一点，靠留白分组，不加图标
             .help((d.path as NSString).abbreviatingWithTildeInPath)
 
@@ -428,7 +436,7 @@ struct EchoBrowserView: View {
     }
 
     private func sessionRow(_ s: EchoSession, indent: CGFloat) -> some View {
-        let on = picked.contains(s.id) || (!showOverview && picked.isEmpty && collectionID == nil && s.id == session?.id)
+        let on = picked.contains(s.id) || (!showOverview && picked.isEmpty && collectionID == nil && s.id == currentID)
         return EchoRow(fill: on ? EchoColor.sideOn : nil, shadow: on) {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 VStack(alignment: .leading, spacing: 2) {
@@ -437,7 +445,7 @@ struct EchoBrowserView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                     HStack(spacing: 6) {
                         Text(EchoTime.short(s.endDate))
-                        if computers.count > 1 { Text(s.computer).lineLimit(1) }
+                        if multiComputer { Text(s.computer).lineLimit(1) }
                         Spacer(minLength: 4)
                         Text(ByteCountFormatter.string(fromByteCount: s.size, countStyle: .file))
                     }
@@ -459,8 +467,7 @@ struct EchoBrowserView: View {
             }
         }
         .contextMenu { sessionMenu(s) }
-        .overlay(alignment: lineEdge(s.sessionId)) { insertLine(s.sessionId) }
-        .opacity(dragging?.sessions.contains(s) == true ? 0.45 : 1)
+        .overlay(EchoDropMark(drag: drag, key: s.sessionId, dragged: { [id = s.sessionId] in $0.sessions.contains { $0.sessionId == id } }))
         .onDrag {
             let list = picked.contains(s.id) && picked.count > 1 ? state.sessions.filter { picked.contains($0.id) } : [s]
             startDrag(EchoDragItem(sessions: list, dir: nil, group: Set(list.map(\.projectPath)).count == 1 ? "s:" + s.projectPath : ""))
@@ -468,75 +475,75 @@ struct EchoBrowserView: View {
         } preview: {
             dragGhost(picked.contains(s.id) && picked.count > 1 ? "\(s.meta.title) 等 \(picked.count) 个会话" : s.meta.title)
         }
-        .onDrop(of: [.text], delegate: EchoRowDrop(update: { sessionHover(s, y: $0.y) }, exit: { leave(s.sessionId) }, perform: { dropOnSession(s) }))
+        .onDrop(of: [.text], delegate: EchoRowDrop(drag: drag, update: { sessionHover(s, y: $0.y) }, exit: { leave(s.sessionId) }, perform: { dropOnSession(s) }))
     }
 
-    // MARK: 拖动（照 NAS 网站的拖放公共层：能放的位置浅主色底加一圈主色，排序是一条主色插入线；拖着的变淡；底部居中一条提示写清松开会怎样）
+    // MARK: 拖动：照 NAS 网站的拖放公共层（lib/dnd.js）。开始拖记下拖的是什么；拖过某行判断能不能放，只重画那一行的标记和底部提示（状态在 EchoDragState，左栏的树不跟着重画）；松开再判断一次、收掉，能放才执行
 
     private var order: [String: [String]] {
         (try? JSONDecoder().decode([String: [String]].self, from: Data(orderRaw.utf8))) ?? [:]
     }
 
     private func startDrag(_ item: EchoDragItem) {
-        dragging = item
-        hint = nil
+        drag.item = item
+        drag.set(nil)
         // 拖到窗口外松手时收不到放下：鼠标松开后稍等一下（让放下先处理）再清掉
         Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { t in
             guard NSEvent.pressedMouseButtons & 1 == 0 else { return }
             t.invalidate()
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { dragging = nil; hint = nil }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { drag.clear() }
         }
     }
 
-    private func leave(_ key: String) { if hint?.key == key { hint = nil } }
+    private func leave(_ key: String) { if drag.hint?.key == key { drag.set(nil) } }
 
     /// 目录行：拖会话来是挪进这个目录；拖同一级的目录来是排序（上半行插到前面，下半行插到后面）
     private func dirHover(_ d: EchoDir, group: String, y: CGFloat) {
-        guard let drag = dragging else { return }
-        if let dir = drag.dir {
-            guard dir != d.path else { hint = nil; return }
-            hint = drag.group == group
+        guard let it = drag.item else { return }
+        if let dir = it.dir {
+            guard dir != d.path else { drag.set(nil); return }
+            drag.set(it.group == group
                 ? EchoDropHint(key: d.path, mode: y < 17 ? .before : .after, ok: true, text: "松开排到「\(d.name)」\(y < 17 ? "前面" : "后面")")
-                : EchoDropHint(key: d.path, mode: .into, ok: false, text: "目录只能在同一级里排序")
+                : EchoDropHint(key: d.path, mode: .into, ok: false, text: "目录只能在同一级里排序"))
             return
         }
         let name = (d.path as NSString).lastPathComponent
-        if drag.sessions.allSatisfy({ $0.projectPath == d.path }) {
-            hint = EchoDropHint(key: d.path, mode: .into, ok: false, text: "已经在「\(name)」里，拖到会话之间可以排序")
-        } else if let far = drag.sessions.first(where: { EchoRename.originalURL(for: $0) == nil }) {
-            hint = EchoDropHint(key: d.path, mode: .into, ok: false, text: "「\(far.meta.title)」在 \(far.computer) 上，到那台电脑上挪")
+        if it.sessions.allSatisfy({ $0.projectPath == d.path }) {
+            drag.set(EchoDropHint(key: d.path, mode: .into, ok: false, text: "已经在「\(name)」里，拖到会话之间可以排序"))
+        } else if let far = it.sessions.first(where: { EchoRename.originalURL(for: $0) == nil }) {
+            drag.set(EchoDropHint(key: d.path, mode: .into, ok: false, text: "「\(far.meta.title)」在 \(far.computer) 上，到那台电脑上挪"))
         } else {
-            hint = EchoDropHint(key: d.path, mode: .into, ok: true, text: "松开挪到「\(name)」")
+            drag.set(EchoDropHint(key: d.path, mode: .into, ok: true, text: "松开挪到「\(name)」"))
         }
     }
 
     /// 会话行：同一个目录里的会话拖来是排序；别处的会话、目录拖来时提示该往哪放
     private func sessionHover(_ s: EchoSession, y: CGFloat) {
-        guard let drag = dragging else { return }
-        if drag.dir != nil {
-            hint = EchoDropHint(key: s.sessionId, mode: .into, ok: false, text: "目录只能在同一级里排序")
-        } else if drag.sessions.contains(s) {
-            hint = nil
-        } else if drag.group == "s:" + s.projectPath {
-            hint = EchoDropHint(key: s.sessionId, mode: y < 24 ? .before : .after, ok: true, text: "松开排到这里")
+        guard let it = drag.item else { return }
+        if it.dir != nil {
+            drag.set(EchoDropHint(key: s.sessionId, mode: .into, ok: false, text: "目录只能在同一级里排序"))
+        } else if it.sessions.contains(s) {
+            drag.set(nil)
+        } else if it.group == "s:" + s.projectPath {
+            drag.set(EchoDropHint(key: s.sessionId, mode: y < 24 ? .before : .after, ok: true, text: "松开排到这里"))
         } else {
-            hint = EchoDropHint(key: s.sessionId, mode: .into, ok: false, text: "要挪到这个目录，拖到目录那一行上")
+            drag.set(EchoDropHint(key: s.sessionId, mode: .into, ok: false, text: "要挪到这个目录，拖到目录那一行上"))
         }
     }
 
     private func dropOnDir(_ d: EchoDir) -> Bool {
-        defer { dragging = nil; hint = nil }
-        guard let drag = dragging, let h = hint, h.key == d.path, h.ok else { return false }
-        if let dir = drag.dir { return reorder(drag.group, [dir], to: d.path, after: h.mode == .after) }
+        defer { drag.clear() }
+        guard let it = drag.item, let h = drag.hint, h.key == d.path, h.ok else { return false }
+        if let dir = it.dir { return reorder(it.group, [dir], to: d.path, after: h.mode == .after) }
         moveDir = d.path
-        moveList = drag.sessions
+        moveList = it.sessions
         return true
     }
 
     private func dropOnSession(_ s: EchoSession) -> Bool {
-        defer { dragging = nil; hint = nil }
-        guard let drag = dragging, let h = hint, h.key == s.sessionId, h.ok else { return false }
-        return reorder(drag.group, drag.sessions.map(\.sessionId), to: s.sessionId, after: h.mode == .after)
+        defer { drag.clear() }
+        guard let it = drag.item, let h = drag.hint, h.key == s.sessionId, h.ok else { return false }
+        return reorder(it.group, it.sessions.map(\.sessionId), to: s.sessionId, after: h.mode == .after)
     }
 
     /// 按左栏现在的顺序算出整组新顺序，记下来
@@ -556,34 +563,12 @@ struct EchoBrowserView: View {
         return true
     }
 
-    private func lineEdge(_ key: String) -> Alignment { hint?.key == key && hint?.mode == .before ? .top : .bottom }
-
-    @ViewBuilder
-    private func insertLine(_ key: String) -> some View {
-        if let h = hint, h.key == key, h.ok, h.mode != .into {
-            Rectangle().fill(EchoColor.accent).frame(height: 2).allowsHitTesting(false)
-        }
-    }
-
     /// 拖影：名字小卡片，照 NAS 的 .ui-dnd-ghost
     private func dragGhost(_ text: String) -> some View {
         Text(text).font(.system(size: 13)).lineLimit(1).frame(maxWidth: 260, alignment: .leading)
             .padding(.horizontal, 12).frame(height: 36)
             .background(RoundedRectangle(cornerRadius: 8).fill(EchoColor.surface).shadow(color: .black.opacity(0.18), radius: 6, y: 2))
             .foregroundStyle(EchoColor.fg)
-    }
-
-    /// 底部居中的提示条：深底浅字，写清松开会怎样、不能放的原因
-    @ViewBuilder
-    private var dropTip: some View {
-        if dragging != nil, let h = hint {
-            Text(h.text).font(.system(size: 12)).lineLimit(1)
-                .padding(.horizontal, 14).padding(.vertical, 8)
-                .background(RoundedRectangle(cornerRadius: 8).fill(EchoColor.fg).shadow(color: .black.opacity(0.18), radius: 6, y: 2))
-                .foregroundStyle(EchoColor.surface)
-                .padding(.bottom, 24)
-                .allowsHitTesting(false)
-        }
     }
 
     private var empty: some View {
@@ -648,12 +633,61 @@ struct EchoDropHint: Equatable {
 }
 
 /// 行上的放下：随鼠标位置更新提示（排序时看在上半行还是下半行），松开时交给行处理
+/// 照 NAS 网站 dnd.js 的 dragover：每次判断能不能放，能放是「移动」，不能放光标显示禁止（dropEffect none）
 struct EchoRowDrop: DropDelegate {
+    let drag: EchoDragState
     let update: (CGPoint) -> Void
     let exit: () -> Void
     let perform: () -> Bool
     func dropEntered(info: DropInfo) { update(info.location) }
-    func dropUpdated(info: DropInfo) -> DropProposal? { update(info.location); return DropProposal(operation: .move) }
+    func dropUpdated(info: DropInfo) -> DropProposal? { update(info.location); return DropProposal(operation: drag.hint?.ok == true ? .move : .forbidden) }
     func dropExited(info: DropInfo) { exit() }
     func performDrop(info: DropInfo) -> Bool { perform() }
+}
+
+/// 拖动的状态单独放一个对象：只有下面几个小视图订阅它，鼠标每动一下只重画插入线、描边、提示条，左栏的树不动
+@MainActor final class EchoDragState: ObservableObject {
+    @Published var item: EchoDragItem?
+    @Published var hint: EchoDropHint?
+    func set(_ h: EchoDropHint?) { if hint != h { hint = h } }   // 一样就不发通知
+    func clear() { if item != nil { item = nil }; set(nil) }
+}
+
+/// 行上的拖动标记（照 NAS 网站的拖放）：能放进的目录浅主色底加主色边，排序处一条主色插入线，拖着的那行盖一层左栏底色变淡
+struct EchoDropMark: View {
+    @ObservedObject var drag: EchoDragState
+    let key: String
+    let dragged: (EchoDragItem) -> Bool
+
+    var body: some View {
+        ZStack {
+            if let it = drag.item, dragged(it) { RoundedRectangle(cornerRadius: 8).fill(EchoColor.side.opacity(0.55)) }
+            if let h = drag.hint, h.key == key, h.ok {
+                switch h.mode {
+                case .into:
+                    RoundedRectangle(cornerRadius: 8).fill(EchoColor.sel)
+                        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(EchoColor.accent, lineWidth: 1.5))
+                case .before: VStack(spacing: 0) { Rectangle().fill(EchoColor.accent).frame(height: 2); Spacer(minLength: 0) }
+                case .after: VStack(spacing: 0) { Spacer(minLength: 0); Rectangle().fill(EchoColor.accent).frame(height: 2) }
+                }
+            }
+        }
+        .allowsHitTesting(false)
+    }
+}
+
+/// 底部居中的提示条：深底浅字，写清松开会怎样、不能放的原因
+struct EchoDropTip: View {
+    @ObservedObject var drag: EchoDragState
+
+    var body: some View {
+        if drag.item != nil, let h = drag.hint {
+            Text(h.text).font(.system(size: 12)).lineLimit(1)
+                .padding(.horizontal, 14).padding(.vertical, 8)
+                .background(RoundedRectangle(cornerRadius: 8).fill(EchoColor.fg).shadow(color: .black.opacity(0.18), radius: 6, y: 2))
+                .foregroundStyle(EchoColor.surface)
+                .padding(.bottom, 24)
+                .allowsHitTesting(false)
+        }
+    }
 }
