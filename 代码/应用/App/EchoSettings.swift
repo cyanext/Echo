@@ -1,5 +1,5 @@
 // 设置窗口：通用（电脑名、备份位置、备份频率、开机自动启动）、存储（来源、备份存储）两页。
-// 设计稿 设计/存储设置/，规则见 需求文档/版本需求/待定-会话备份和自动清理.html。首次设置（EchoOnboarding）复用这里的各块。
+// 设计稿 设计/存储设置/，规则见 需求文档/版本需求/v0.7.0-会话备份和自动清理.html。首次设置（EchoOnboarding）复用这里的各块。
 import AppKit
 import ServiceManagement
 import SwiftUI
