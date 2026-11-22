@@ -143,7 +143,9 @@ struct EchoOnboardingView: View {
             (Text("念念不忘 必有") + Text("回响").fontWeight(.medium).foregroundColor(EchoColor.accent))
                 .font(.system(size: 17)).tracking(1).foregroundStyle(EchoColor.fg2).padding(.top, 8)
             VStack(alignment: .leading, spacing: 12) {
-                feat("checkmark.icloud", "备份", "会话自动备份到你选的文件夹，换台电脑也看得到")
+                feat("checkmark.icloud", "备份", "Claude Code、Codex 的会话自动备份，换台电脑也看得到")
+                // 瘦身：本机实测 Claude 7.9 GB 备份后 846 MB，Codex 3.6 GB 约 240 MB（11-22）
+                feat("rectangle.compress.vertical", "瘦身", "图片和过程数据按期限清理，备份只有原会话的十分之一，密钥自动打码")
                 feat("clock.arrow.circlepath", "回看", "按目录找会话，按版本、压缩点跳到当时做了什么")
                 feat("chart.bar", "总览", "每周用了多少 Token、做了哪些提交")
             }

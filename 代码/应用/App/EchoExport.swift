@@ -92,6 +92,7 @@ enum EchoExport {
     }
 
     static func export(_ url: URL, computer: String) throws -> [String: Any] {
+        if try isCodexFile(url) { return try exportCodex(url, computer: computer) }
         var meta: [String: Any] = ["id": String(url.lastPathComponent.dropLast(6)), "title": "", "aiTitle": "", "cwd": "",
                                    "gitBranch": "", "start": "", "end": "", "computer": computer]
         var turns: [Turn] = []
@@ -186,6 +187,197 @@ enum EchoExport {
         case let s as String: return !s.isEmpty
         default: return true
         }
+    }
+}
+
+// MARK: - Codex（规则以原型 export.py 的 export_codex 为准）
+
+extension EchoExport {
+    private struct Stop: Error {}
+
+    /// 第一行是 session_meta 的是 Codex 的会话
+    static func isCodexFile(_ url: URL) throws -> Bool {
+        var codex = false
+        do {
+            try EchoLines.each(url) { line in
+                codex = ((try? JSONSerialization.jsonObject(with: Data(buffer: EchoLines.trim(line)))) as? [String: Any])?["type"] as? String == "session_meta"
+                throw Stop()
+            }
+        } catch is Stop {}
+        return codex
+    }
+
+    private static let codexSystemPrefixes = ["<", "# AGENTS.md", "Host notice:"]
+    private static let codexRequest = try! NSRegularExpression(pattern: #"\n## My request[^\n]*:\n"#)
+    private static let cleanedText = try! NSRegularExpression(pattern: #"^\[已清理：(.+)\]$"#)
+
+    /// 「[已清理：工具参数，原 3.4 KB]」里的「工具参数，原 3.4 KB」
+    static func cleanedInner(_ s: String) -> String? {
+        let ns = s as NSString
+        guard let m = cleanedText.firstMatch(in: s, range: NSRange(location: 0, length: ns.length)) else { return nil }
+        return ns.substring(with: m.range(at: 1))
+    }
+
+    /// 从会话文件往上找 session_index.jsonl，取这个会话最后一次的名字
+    static func codexTitle(_ url: URL, _ sid: String) -> String {
+        var d = url.standardizedFileURL.deletingLastPathComponent()
+        for _ in 0..<5 {
+            let f = d.appendingPathComponent("session_index.jsonl")
+            if FileManager.default.fileExists(atPath: f.path) {
+                var name = ""
+                try? EchoLines.each(f) { line in
+                    guard let o = (try? JSONSerialization.jsonObject(with: Data(buffer: EchoLines.trim(line)))) as? [String: Any],
+                          o["id"] as? String == sid, let n = o["thread_name"] as? String, !n.isEmpty else { return }
+                    name = n
+                }
+                return name
+            }
+            d = d.deletingLastPathComponent()
+        }
+        return ""
+    }
+
+    private static func lstrip(_ s: String) -> Substring { s.drop(while: { $0.isWhitespace }) }
+
+    /// 一条 user 消息拆成（人打的字，系统注入的段落）
+    static func codexUserParts(_ p: [String: Any]) -> (human: String, system: String) {
+        let kinds = (p["internal_chat_message_metadata_passthrough"] as? [String: Any])?["content_item_kinds"] as? [Any] ?? []
+        var human: [String] = [], system: [String] = []
+        for (i, c) in (p["content"] as? [Any] ?? []).enumerated() {
+            guard let c = c as? [String: Any], c["type"] as? String == "input_text" else { continue }
+            var text = c["text"] as? String ?? ""
+            let kind = i < kinds.count ? kinds[i] as? String : nil
+            let isUser = (kind?.isEmpty == false) ? kind == "user.text" : !codexSystemPrefixes.contains(where: { lstrip(text).hasPrefix($0) })
+            if isUser {
+                let ns = text as NSString
+                if let m = codexRequest.firstMatch(in: text, range: NSRange(location: 0, length: ns.length)) {
+                    system.append(ns.substring(to: m.range.location).trimmed)
+                    text = ns.substring(from: m.range.location + m.range.length)
+                }
+            }
+            if isUser { human.append(text.trimmed) } else { system.append(text.trimmed) }
+        }
+        return (human.filter { !$0.isEmpty }.joined(separator: "\n"), system.filter { !$0.isEmpty }.joined(separator: "\n\n"))
+    }
+
+    /// 工具参数：JSON 字符串解开；清理掉的写成和 Claude 一样的 {已清理: …}
+    static func codexInput(_ v: Any?) -> Any {
+        if let s = v as? String {
+            if let inner = cleanedInner(s) { return ["已清理": inner] }
+            if let o = (try? JSONSerialization.jsonObject(with: Data(s.utf8), options: .fragmentsAllowed)) as? [String: Any] { return o }
+            return ["input": s]
+        }
+        if let d = v as? [String: Any] { return d }
+        return ["input": v ?? NSNull()]
+    }
+
+    static func codexOutput(_ v: Any?) -> String {
+        if let s = v as? String { return s }
+        var out: [String] = []
+        for b in v as? [Any] ?? [] {
+            guard let b = b as? [String: Any] else { continue }
+            if let t = b["type"] as? String, t == "input_text" || t == "output_text" { out.append(b["text"] as? String ?? "") }
+            else if b["type"] as? String == "input_image" { out.append("[图片]") }
+        }
+        return out.joined(separator: "\n")
+    }
+
+    private final class CBlock {
+        let kind: String
+        var text = "", name = "", input: Any = [String: Any](), result: Any = NSNull(), cleaned: String?
+        init(_ kind: String) { self.kind = kind }
+        var dict: [String: Any] {
+            if kind == "tool" { return ["kind": kind, "name": name, "input": input, "result": result, "isError": false] }
+            if let cleaned { return ["kind": kind, "text": text, "cleaned": cleaned] }
+            return ["kind": kind, "text": text]
+        }
+    }
+
+    static func exportCodex(_ url: URL, computer: String) throws -> [String: Any] {
+        var meta: [String: Any] = ["id": "", "title": "", "aiTitle": "", "cwd": "", "gitBranch": "", "start": "", "end": "", "computer": computer, "app": "codex"]
+        var turns: [(role: String, ts: String, text: String, blocks: [CBlock], trigger: String?)] = []
+        var tools: [String: CBlock] = [:]
+        var cur: Int?   // 正在拼的这一轮回复在 turns 里的位置
+        func reply(_ ts: String) -> Int {
+            if let cur { return cur }
+            turns.append(("assistant", ts, "", [], nil))
+            cur = turns.count - 1
+            return cur!
+        }
+        func str(_ k: String) -> String { meta[k] as? String ?? "" }
+        let needles = ["\"type\":\"response_item\"", "\"type\":\"session_meta\"", "\"type\":\"compacted\""].map { Array($0.utf8) }
+        try EchoLines.each(url) { line in
+            let b = EchoLines.trim(line)
+            guard needles.contains(where: { EchoLines.has(b, $0) }),
+                  let d = (try? JSONSerialization.jsonObject(with: Data(buffer: b))) as? [String: Any],
+                  let p = d["payload"] as? [String: Any] else { return }
+            let t = d["type"] as? String, ts = d["timestamp"] as? String ?? ""
+            if t == "session_meta" {
+                if str("id").isEmpty { meta["id"] = p["id"] as? String ?? "" }
+                if str("cwd").isEmpty { meta["cwd"] = p["cwd"] as? String ?? "" }
+                if let g = p["git"] as? [String: Any], str("gitBranch").isEmpty { meta["gitBranch"] = g["branch"] as? String ?? "" }
+                return
+            }
+            if t == "compacted" {
+                let m = (p["message"] as? String ?? "").trimmed
+                if !m.isEmpty { turns.append(("summary", ts, m, [], "auto")); cur = nil }
+                return
+            }
+            guard t == "response_item" else { return }
+            let pt = p["type"] as? String
+            if pt == "message", p["role"] as? String == "user" {
+                let (human, system) = codexUserParts(p)
+                if !system.isEmpty { turns.append(("system", ts, system, [], nil)) }
+                if !human.isEmpty { turns.append(("user", ts, human, [], nil)) }
+                if !human.isEmpty || !system.isEmpty {
+                    if str("start").isEmpty { meta["start"] = ts }
+                    meta["end"] = ts
+                    cur = nil
+                }
+                return
+            }
+            switch pt {
+            case "message" where p["role"] as? String == "assistant":
+                for c in p["content"] as? [Any] ?? [] {
+                    guard let c = c as? [String: Any], c["type"] as? String == "output_text", let x = c["text"] as? String, !x.trimmed.isEmpty else { continue }
+                    let blk = CBlock("text"); blk.text = x
+                    turns[reply(ts)].blocks.append(blk)
+                }
+                if !ts.isEmpty { meta["end"] = ts }
+            case "reasoning":
+                if let enc = p["encrypted_content"] as? String, let inner = cleanedInner(enc), inner.hasPrefix("思考过程，原 ") {
+                    let blk = CBlock("thinking"); blk.cleaned = String(inner.dropFirst("思考过程，原 ".count))
+                    turns[reply(ts)].blocks.append(blk)
+                } else {
+                    let text = (p["summary"] as? [Any] ?? []).compactMap { ($0 as? [String: Any]).map { $0["text"] as? String ?? "" } }.joined(separator: "\n\n")
+                    if !text.trimmed.isEmpty { let blk = CBlock("thinking"); blk.text = text; turns[reply(ts)].blocks.append(blk) }
+                }
+            case "function_call", "custom_tool_call", "web_search_call", "tool_search_call":
+                let blk = CBlock("tool")
+                if pt == "function_call" { blk.name = p["name"] as? String ?? ""; blk.input = codexInput(p["arguments"]) }
+                else if pt == "custom_tool_call" { blk.name = p["name"] as? String ?? ""; blk.input = codexInput(p["input"]) }
+                else {
+                    blk.name = String(pt!.dropLast(5))
+                    let a = p["action"]
+                    blk.input = EchoExport.truthy(a) ? a! : [String: Any]()
+                }
+                if let id = p["call_id"] as? String, !id.isEmpty { tools[id] = blk }
+                turns[reply(ts)].blocks.append(blk)
+            case "function_call_output", "custom_tool_call_output":
+                if let id = p["call_id"] as? String, let blk = tools[id] { blk.result = codexOutput(p["output"]) }
+            default: break
+            }
+        }
+        let kept = turns.filter { $0.role != "assistant" || !$0.blocks.isEmpty }
+        let sid = str("id")
+        let title = codexTitle(url, sid)
+        meta["title"] = !title.isEmpty ? title : kept.first(where: { $0.role == "user" }).map { $0.text.prefix40 } ?? sid
+        let out: [[String: Any]] = kept.map { x in
+            if x.role == "assistant" { return ["role": x.role, "ts": x.ts, "blocks": x.blocks.map(\.dict)] }
+            if let tr = x.trigger { return ["role": x.role, "ts": x.ts, "text": x.text, "trigger": tr] }
+            return ["role": x.role, "ts": x.ts, "text": x.text]
+        }
+        return ["meta": meta, "turns": out]
     }
 }
 
