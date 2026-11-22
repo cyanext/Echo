@@ -54,6 +54,10 @@ enum EchoPrefs {
 
     /// 上次清理备份的时间；cleanRules 记清理规则的版本，升级后第一次把已有备份全部过一遍（连密钥打码）
     static var lastClean: Date? { get { d.object(forKey: "lastClean") as? Date } set { d.set(newValue, forKey: "lastClean") } }
+    /// 自动删除 Claude 里不活跃的会话（默认开，30 天）
+    static var autoDelete: Bool { get { d.object(forKey: "autoDelete") == nil ? true : d.bool(forKey: "autoDelete") } set { d.set(newValue, forKey: "autoDelete") } }
+    static var autoDeleteDays: Int { get { int("autoDeleteDays", 30) } set { d.set(newValue, forKey: "autoDeleteDays") } }
+
     static let cleanRulesVersion = 1
     static var cleanRules: Int { get { d.integer(forKey: "cleanRules") } set { d.set(newValue, forKey: "cleanRules") } }
 }
@@ -129,7 +133,10 @@ final class EchoState: ObservableObject {
                     Task { @MainActor in EchoState.shared.done = n; EchoState.shared.total = t }
                 }
             }
-            if case .success(let res) = r, res.failures.isEmpty { EchoState.cleanIfDue(dir) }
+            if case .success(let res) = r, res.failures.isEmpty {
+                EchoState.cleanIfDue(dir)
+                EchoState.autoDeleteIfOn(dir)
+            }
             await MainActor.run {
                 let s = EchoState.shared
                 s.running = false
@@ -162,6 +169,16 @@ final class EchoState: ObservableObject {
         } catch {
             NSLog("回响清理没跑起来：%@", error.localizedDescription)
         }
+    }
+
+    /// 备份成功后删 Claude 里不活跃、已备份完整的会话（设置里打开时）。在后台线程调用
+    nonisolated static func autoDeleteIfOn(_ dir: URL) {
+        guard EchoPrefs.autoDelete else { return }
+        let list = EchoAutoDelete.candidates(source: EchoBackup.source, computerDir: dir, days: EchoPrefs.autoDeleteDays)
+        guard !list.isEmpty else { return }
+        let r = EchoAutoDelete.run(list)
+        NSLog("回响自动删除：%d 个会话移进废纸篓，腾出 %.1fMB，失败 %d", r.count, Double(r.bytes) / 1e6, r.failures.count)
+        for f in r.failures { NSLog("回响自动删除失败：%@：%@", f.path, f.message) }
     }
 
     func reloadSessions() {

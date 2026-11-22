@@ -13,7 +13,7 @@ enum EchoTests {
 
     static func main() throws {
         let a = CommandLine.arguments
-        if a.count == 3, a[1] == "--rules" { rules(); try renameTest(fixture: URL(fileURLWithPath: a[2])); try statsTest(); try cleanTest() }
+        if a.count == 3, a[1] == "--rules" { rules(); try renameTest(fixture: URL(fileURLWithPath: a[2])); try statsTest(); try cleanTest(); try autoDeleteTest(); try claudeSettingsTest() }
         else if a.count == 4, a[1] == "--overview" {   // 手动排查：按应用的方式整理总览数据，写到文件，看用了多久
             let t0 = Date()
             let list = EchoLibrary.scan(backupRoot: URL(fileURLWithPath: a[2]))
@@ -40,6 +40,11 @@ enum EchoTests {
             let t0 = Date()
             let r = try EchoClean.run(computerDir: URL(fileURLWithPath: a[2]), policy: EchoPolicy(), dryRun: true)
             print(String(format: "  %d 个文件，%.0fMB → %.0fMB，%.1f 秒", r.files, Double(r.bytesBefore) / 1e6, Double(r.bytesAfter) / 1e6, Date().timeIntervalSince(t0)))
+        }
+        else if a.count == 4, a[1] == "--autodelete-preview" {   // 手动排查：按期限列出会被自动删除的会话（只列不删）：test --autodelete-preview <电脑备份目录> <天数>
+            let list = EchoAutoDelete.candidates(source: EchoBackup.source, computerDir: URL(fileURLWithPath: a[2]), days: Int(a[3]) ?? 30)
+            for c in list { print(String(format: "  %@  %.1fMB", c.rel, Double(c.bytes) / 1e6)) }
+            print(String(format: "  共 %d 个，%.0fMB", list.count, Double(list.reduce(0) { $0 + $1.bytes }) / 1e6))
         }
         else if a.count == 4, a[1] == "--slim" {   // 手动排查：按默认保留期限瘦身一个文件，看用时和改了多少
             let t0 = Date()
@@ -163,6 +168,69 @@ enum EchoTests {
         check(r3.rewritten == 1 && gText.contains("已清理"), "清理：第一次全部过一遍时没到门槛的也重写，实际 \(r3.rewritten)")
         check(EchoSlim.sizeText(512) == "512 B" && EchoSlim.sizeText(3482) == "3.4 KB" && EchoSlim.sizeText(130 << 20) == "130 MB" && EchoSlim.sizeText(1288490189) == "1.2 GB", "大小写法不对")
         print("  清理 7 项")
+    }
+
+    /// 自动删除：只挑超过期限、备份完整（连同名目录）、没开着的；只删原会话，备份不动
+    static func autoDeleteTest() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent("echo-autodel-\(getpid())")
+        defer { try? fm.removeItem(at: root) }
+        let src = root.appendingPathComponent("claude/projects"), comp = root.appendingPathComponent("备份/机")
+        let bin = root.appendingPathComponent("废纸篓")
+        for d in [src.appendingPathComponent("-p/s4/subagents"), comp.appendingPathComponent("projects/-p"), bin] { try fm.createDirectory(at: d, withIntermediateDirectories: true) }
+        let old = Date(timeIntervalSinceNow: -40 * 86400)
+        var record = EchoBackupRecord()
+        func make(_ rel: String, backed: Bool = true, at: Date = old) throws {
+            let f = src.appendingPathComponent(rel)
+            try Data("x\n".utf8).write(to: f)
+            try fm.setAttributes([.modificationDate: at], ofItemAtPath: f.path)
+            if backed {
+                let b = comp.appendingPathComponent("projects").appendingPathComponent(rel)
+                try fm.createDirectory(at: b.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try Data("x\n".utf8).write(to: b)
+                let v = try f.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
+                record.files[rel] = EchoFileStamp(size: Int64(v.fileSize!), mtime: v.contentModificationDate!.timeIntervalSince1970)
+            }
+        }
+        try make("-p/s1.jsonl")                                  // 该删
+        try make("-p/s2.jsonl", backed: false)                   // 没备份
+        try make("-p/s3.jsonl", at: Date(timeIntervalSinceNow: -5 * 86400))   // 最近用过
+        try make("-p/s4.jsonl"); try make("-p/s4/subagents/a.jsonl", backed: false)   // 子代理记录没备份
+        try make("-p/s5.jsonl")                                  // 正开着
+        try record.save(comp.appendingPathComponent("备份记录.json"))
+        let list = EchoAutoDelete.candidates(source: src, computerDir: comp, days: 30, open: { $0 == "s5" })
+        check(list.map(\.rel) == ["-p/s1.jsonl"], "自动删除：只该挑 s1，实际 \(list.map(\.rel))")
+        let r = EchoAutoDelete.run(list, remove: { try fm.moveItem(at: $0, to: bin.appendingPathComponent($0.lastPathComponent)) })
+        check(r.count == 1 && !fm.fileExists(atPath: src.appendingPathComponent("-p/s1.jsonl").path), "自动删除：s1 应移走")
+        check(fm.fileExists(atPath: comp.appendingPathComponent("projects/-p/s1.jsonl").path), "自动删除：备份不应动")
+        print("  自动删除 3 项")
+    }
+
+    /// 关闭 Claude 的自动清理：只改 cleanupPeriodDays，其余一字不动；没有就加上；坏文件不改
+    static func claudeSettingsTest() throws {
+        let fm = FileManager.default
+        let f = fm.temporaryDirectory.appendingPathComponent("echo-settings-\(getpid()).json")
+        defer { try? fm.removeItem(at: f) }
+        let cases: [(String, String)] = [
+            ("{\n  \"model\": \"opus\",\n  \"cleanupPeriodDays\": 30,\n  \"x\": [1, 2]\n}\n", "{\n  \"model\": \"opus\",\n  \"cleanupPeriodDays\": 36500,\n  \"x\": [1, 2]\n}\n"),
+            ("{\n    \"model\": \"opus\"\n}\n", "{\n    \"cleanupPeriodDays\": 36500,\n    \"model\": \"opus\"\n}\n"),
+            ("{\"model\":\"opus\"}", "{\"cleanupPeriodDays\": 36500, \"model\":\"opus\"}"),
+            ("{}", "{\"cleanupPeriodDays\": 36500}"),
+        ]
+        for (before, want) in cases {
+            try before.write(to: f, atomically: true, encoding: .utf8)
+            try EchoClaudeSettings.setCleanupDays(36500, url: f)
+            let got = try String(contentsOf: f, encoding: .utf8)
+            check(got == want, "改 settings.json 不对：\(before.debugDescription) → \(got.debugDescription)")
+        }
+        try? fm.removeItem(at: f)
+        try EchoClaudeSettings.setCleanupDays(36500, url: f)
+        check(EchoClaudeSettings.cleanupDays(f) == 36500, "没有 settings.json 时应新建")
+        try "{ 坏的".write(to: f, atomically: true, encoding: .utf8)
+        let failed = (try? EchoClaudeSettings.setCleanupDays(36500, url: f)) == nil
+        let still = try String(contentsOf: f, encoding: .utf8)
+        check(failed && still == "{ 坏的", "坏文件不应改")
+        print("  改 Claude 设置 6 项")
     }
 
     static func lines(_ url: URL) throws -> [Data] {
