@@ -1,5 +1,5 @@
 // 对话正文。数据格式见 EchoExport.swift（规则以 代码/原型/export.py 为准）。
-// 应用里数据来自 echo://app/session.json（EchoBrowser.swift 的 EchoScheme），复制恢复命令交给 Swift 写剪贴板；
+// 应用里数据来自 echo://app/session.json（EchoWeb.swift 的 EchoScheme），复制恢复命令交给 Swift 写剪贴板；
 // 设计稿 设计/浏览窗口/ 先放好 window.SESSION 再引用本文件。
 (function () {
   const root = typeof document === "undefined" ? null : document.getElementById("conv");
