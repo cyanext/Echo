@@ -147,11 +147,11 @@ h2.sec { margin: var(--space-4) var(--space-1) 0; }
 .name .line { display: flex; align-items: baseline; gap: var(--space-2); white-space: nowrap; overflow: hidden; }
 .name .title { flex: none; max-width: 60%; overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
 .name .path { flex: none; font-size: var(--text-xs); color: var(--fg-faint); }
-/* 版本：只有标签图标和版本号，不加底色（「去掉外部便签」）；悬停加下划线 */
+/* 版本：只有标签图标和版本号，不加底色（「去掉外部便签」）；悬停变色 */
 .vers { display: flex; flex-wrap: wrap; gap: 2px var(--space-3); margin: 4px 0 2px; }
 .ver { display: inline-flex; align-items: center; gap: 3px; height: 20px; color: var(--accent); font: 600 var(--text-xs)/20px var(--font-mono); cursor: pointer; }
 .ver svg { width: 11px; height: 11px; }
-.ver:hover { text-decoration: underline; text-underline-offset: 2px; }
+.ver:hover { color: var(--fg); }   /* 悬停变色，不加下划线 */
 .more-ver { align-self: center; font-size: var(--text-xs); color: var(--fg-faint); }
 .num { text-align: right; font-size: var(--text-xs); line-height: var(--lh-sm); color: var(--fg-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .num.strong { color: var(--fg); font-weight: 600; }
