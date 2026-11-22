@@ -36,6 +36,11 @@ enum EchoTests {
         }
         else if a.count == 3, a[1] == "--backup" { try backup(URL(fileURLWithPath: a[2])) }
         else if a.count == 3, a[1] == "--time" { try timeExport(URL(fileURLWithPath: a[2])) }
+        else if a.count == 4, a[1] == "--slim" {   // 手动排查：按默认保留期限瘦身一个文件，看用时和改了多少
+            let t0 = Date()
+            let s = try EchoSlim.slimFile(URL(fileURLWithPath: a[2]), to: URL(fileURLWithPath: a[3]))
+            print(String(format: "  %.0fMB → %.0fMB，去掉 %d 行，改写 %d 行，%.1f 秒", Double(s.bytesIn) / 1e6, Double(s.bytesOut) / 1e6, s.droppedLines, s.changedLines, Date().timeIntervalSince(t0)))
+        }
         else if a.count == 4, a[1] == "--scan" {   // 手动排查：按应用的方式扫备份目录，看某个会话在不在、归到哪
             let list = EchoLibrary.scan(backupRoot: URL(fileURLWithPath: a[2]))
             print("  扫到 \(list.count) 个会话")
@@ -120,7 +125,9 @@ enum EchoTests {
         // 瘦身：行数一样；原型原样写出的行逐字节一样，改写过的行解析后一样
         let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("echo-test-\(getpid()).jsonl")
         defer { try? FileManager.default.removeItem(at: tmp) }
-        let stats = try EchoSlim.slimFile(src, to: tmp)
+        var policy = EchoPolicy()
+        if let n = ProcessInfo.processInfo.environment["ECHO_NOW"], let d = EchoTime.parse(n) { policy.now = d }
+        let stats = try EchoSlim.slimFile(src, to: tmp, policy: policy)
         let mine = try lines(tmp), theirs = try lines(slimmed), orig = try lines(src)
         check(mine.count == theirs.count, "\(name) 瘦身后行数 \(mine.count)，原型 \(theirs.count)")
         for (n, (m, t)) in zip(mine, theirs).enumerated() where m != t {

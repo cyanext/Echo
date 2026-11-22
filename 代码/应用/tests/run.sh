@@ -4,6 +4,7 @@
 set -e
 D="${0:A:h:h}"; P="${D:h}/原型"; T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
 export TMPDIR="$T/"   # 测试程序的缓存目录（EchoLibrary.supportDir）落在这里，跑完一起删
+export ECHO_NOW=2026-11-21T00:00:00Z   # 「现在」固定，按保留期限换占位的结果每次一样（原型和测试程序都读它）
 source "$D/tools/swift-env.sh" "$T"
 swiftc "${SWIFT_FLAGS[@]}" -D TEST -parse-as-library -target arm64-apple-macos14.0 "$D"/App/*.swift "$D/tests/test.swift" -o "$T/test"
 "$T/test" --rules "$D/tests/fixtures/各类记录.jsonl"
