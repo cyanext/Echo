@@ -112,6 +112,9 @@ struct EchoBrowserView: View {
                 else if let t = target { EchoConversation(target: t, at: jumpAt) }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            // 网页顶上一条 10 高的透明拖动带（照伙伴云NAS应用 v0.9.3 的 WindowDragArea）：网页把鼠标吃掉，右边顶上也要能拖窗口、双击放大。
+            // 对话标题栏的按钮从 12 开始（上内边距 8 加 4），总览的按钮从 17 开始，10 以内没有可点的东西
+            .overlay(alignment: .top) { EchoWindowDrag().frame(height: 10) }
             .background(EchoColor.surface)
             .clipShape(UnevenRoundedRectangle(topLeadingRadius: 12, bottomLeadingRadius: 12))
             .overlay(UnevenRoundedRectangle(topLeadingRadius: 12, bottomLeadingRadius: 12).strokeBorder(EchoColor.sideLine, lineWidth: 1).padding(.trailing, -1))
