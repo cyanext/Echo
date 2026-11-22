@@ -44,6 +44,7 @@ enum EchoPrefs {
     static var computerDir: URL { backupRoot.appendingPathComponent(computerName) }
     /// 这台电脑 Claude 的备份：projects/、备份记录.json、移动记录.json（0.8 起分应用放，见 EchoLayout）
     static var claudeDir: URL { EchoLayout.dir(computerDir, .claude) }
+    static var codexDir: URL { EchoLayout.dir(computerDir, .codex) }
 
     private static func int(_ key: String, _ def: Int) -> Int { d.object(forKey: key) == nil ? def : d.integer(forKey: key) }
 
@@ -60,6 +61,18 @@ enum EchoPrefs {
     static var backupHours: Int { get { int("backupHours", 24) } set { d.set(newValue, forKey: "backupHours") } }
     /// 来源卡片上的勾：备不备份 Claude Code 的会话
     static var backupClaude: Bool { get { d.object(forKey: "backupClaude") == nil ? true : d.bool(forKey: "backupClaude") } set { d.set(newValue, forKey: "backupClaude") } }
+    /// 备不备份 Codex 的会话（默认开；本机没有 ~/.codex/sessions 时不起作用）
+    static var backupCodex: Bool { get { d.object(forKey: "backupCodex") == nil ? true : d.bool(forKey: "backupCodex") } set { d.set(newValue, forKey: "backupCodex") } }
+    static var hasCodex: Bool { FileManager.default.fileExists(atPath: EchoBackup.codexSource.appendingPathComponent("sessions").path) }
+    /// 这次要备份的应用和各自的备份文件夹
+    static var enabledSources: [(EchoSource, URL)] {
+        (backupClaude ? [(EchoSource.claude, claudeDir)] : []) + (backupCodex && hasCodex ? [(EchoSource.codex, codexDir)] : [])
+    }
+    /// 上次备份成功：勾选的应用里最早的那个（都成功过才算这次备份完整）
+    static var lastSuccess: Date? {
+        let dates = enabledSources.map { EchoBackupRecord.load($0.1.appendingPathComponent("备份记录.json")).lastSuccess }
+        return dates.contains(where: { $0 == nil }) ? nil : dates.compactMap { $0 }.min()
+    }
 
     /// 自动删除 Claude 里不活跃的会话（默认开，30 天）
     static var autoDelete: Bool { get { d.object(forKey: "autoDelete") == nil ? true : d.bool(forKey: "autoDelete") } set { d.set(newValue, forKey: "autoDelete") } }
@@ -103,7 +116,7 @@ final class EchoState: ObservableObject {
         EchoPrefs.moveOldBackup()
         do { try EchoLayout.migrate(EchoPrefs.computerDir) } catch { NSLog("回响：Claude 的备份没挪进 claude/：%@", error.localizedDescription) }
         overview = EchoStats.loadLast()   // 先显示上次整理好的总览，后台再刷新
-        lastSuccess = EchoBackupRecord.load(EchoPrefs.claudeDir.appendingPathComponent("备份记录.json")).lastSuccess
+        lastSuccess = EchoPrefs.lastSuccess
         cleanupDays = EchoBackup.cleanupDays()
         backupIfNeeded()
         // 每小时看一次：电脑每天第一次开机或唤醒后就会备份，不用固定时间点
@@ -119,7 +132,7 @@ final class EchoState: ObservableObject {
     }
 
     func backupIfNeeded() {
-        guard EchoPrefs.backupClaude else { return }
+        guard !EchoPrefs.enabledSources.isEmpty else { return }
         if let d = lastSuccess {
             let h = EchoPrefs.backupHours
             if h >= 24 ? Calendar.current.isDateInToday(d) : Date().timeIntervalSince(d) < Double(h) * 3600 - 60 { return }
@@ -135,19 +148,32 @@ final class EchoState: ObservableObject {
         done = 0
         total = 0
         cleanupDays = EchoBackup.cleanupDays()
-        let dir = EchoPrefs.computerDir, claudeDir = EchoPrefs.claudeDir
+        let dir = EchoPrefs.computerDir, claudeDir = EchoPrefs.claudeDir, sources = EchoPrefs.enabledSources
         Task.detached(priority: .utility) {
             var last = Date.distantPast
-            let r = Result {
-                try EchoBackup.run(source: EchoBackup.source, computerDir: claudeDir, policy: EchoPrefs.policy) { n, t in
-                    guard n == t || Date().timeIntervalSince(last) > 0.3 else { return }
-                    last = Date()
-                    Task { @MainActor in EchoState.shared.done = n; EchoState.shared.total = t }
+            // 勾选的应用一个个备份，进度合在一起算；结果合并
+            let r = Result { () -> EchoBackupResult in
+                let lists = try sources.map { s, d -> ([EchoBackup.Item], URL) in
+                    (s == .claude ? try EchoBackup.claudeItems(EchoBackup.source) : EchoBackup.codexItems(EchoBackup.codexSource), d)
                 }
+                let total = lists.reduce(0) { $0 + $1.0.count }
+                var all = EchoBackupResult(), before = 0
+                for (items, d) in lists {
+                    let one = try EchoBackup.run(items: items, computerDir: d, policy: EchoPrefs.policy) { n, _ in
+                        guard before + n == total || Date().timeIntervalSince(last) > 0.3 else { return }
+                        last = Date()
+                        let done = before + n
+                        Task { @MainActor in EchoState.shared.done = done; EchoState.shared.total = total }
+                    }
+                    before += items.count
+                    all.copied += one.copied; all.skipped += one.skipped; all.total += one.total
+                    all.bytesIn += one.bytesIn; all.bytesOut += one.bytesOut; all.failures += one.failures; all.seconds += one.seconds
+                }
+                return all
             }
             if case .success(let res) = r, res.failures.isEmpty {
                 EchoState.cleanIfDue(dir)
-                EchoState.autoDeleteIfOn(claudeDir)
+                if sources.contains(where: { $0.0 == .claude }) { EchoState.autoDeleteIfOn(claudeDir) }
             }
             await MainActor.run {
                 let s = EchoState.shared
@@ -155,7 +181,7 @@ final class EchoState: ObservableObject {
                 switch r {
                 case .success(let res):
                     s.failures = res.failures.map(\.path)
-                    s.lastSuccess = EchoBackupRecord.load(claudeDir.appendingPathComponent("备份记录.json")).lastSuccess
+                    s.lastSuccess = EchoPrefs.lastSuccess
                     NSLog("回响备份：共 %d 个文件，写入 %d，跳过 %d，失败 %d，%.1f 秒", res.total, res.copied, res.skipped, res.failures.count, res.seconds)
                     for f in res.failures { NSLog("回响备份失败：%@：%@", f.path, f.message) }
                 case .failure(let e):

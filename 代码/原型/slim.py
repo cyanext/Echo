@@ -19,6 +19,8 @@ Codex 的行（需求文档/版本需求/待定-多应用支持.html，每行是
 - 系统记录：developer 消息、系统说明、工具清单、权限沙箱设置、world_state、压缩时存的整段历史副本、
   item_completed 事件（和正式记录重复）、thread_settings_applied，只换下面列的字段，别的字段（cwd、model、用量）留着。
 - 图片：data:…;base64, 开头的长字符串、生成图片的 result 一律换成占位。
+- 自动审批的子会话（session_meta 的 source 是 subagent.other = guardian）：Codex 塞给它的「用户消息」是整段待审对话，
+  也算系统记录（分派干活的子代理 thread_spawn 照常）。
 """
 import json
 import os
@@ -198,6 +200,10 @@ CODEX_SYSTEM = {
 CODEX_GIT_RE = re.compile(r"(?:^|&&|\|\||;|\n|\\n|[\"'`])\s*git\b(?:\s+-c\s+\S+)*\s+(?:commit|merge)\b")
 
 
+# 文件从头读到尾时记住的：放在 git_ids 里的一个记号，表示这是自动审批的子会话
+GUARDIAN = "\0guardian"
+
+
 def is_codex(obj):
     return obj.get("type") in CODEX_TYPES and isinstance(obj.get("payload"), dict)
 
@@ -233,8 +239,13 @@ def apply_codex(obj, policy, now, git_ids):
     pt = p.get("type") if t in ("event_msg", "response_item") else None
     ts = parse_ts(obj.get("timestamp"))
     changed = False
+    if t == "session_meta":
+        src = p.get("source")
+        if isinstance(src, dict) and isinstance(src.get("subagent"), dict) and src["subagent"].get("other") == "guardian":
+            git_ids.add(GUARDIAN)
     fields = CODEX_SYSTEM.get((t, pt), [])
-    if t == "response_item" and pt == "message" and p.get("role") not in ("user", "assistant"):
+    if t == "response_item" and pt == "message" and (p.get("role") not in ("user", "assistant")
+                                                       or (p.get("role") == "user" and GUARDIAN in git_ids)):
         fields = ["content"]
     for f in fields:
         if p.get(f) is not None and not is_cleaned(p[f]) and expired(policy["system"], ts, now):

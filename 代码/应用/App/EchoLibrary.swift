@@ -4,6 +4,8 @@ import Foundation
 
 struct EchoSessionMeta: Codable, Hashable {
     var title = "", cwd = "", start = "", end = ""
+    var sid: String?       // Codex：session_meta 里的会话 ID（Claude 的会话 ID 就是文件名）
+    var sub: Bool?         // Codex：子代理的会话（自动审批 guardian、分派的子任务），照样备份，列表里不显示
 }
 
 struct EchoSession: Identifiable, Hashable {
@@ -13,6 +15,7 @@ struct EchoSession: Identifiable, Hashable {
     let computer: String
     let size: Int64
     let meta: EchoSessionMeta
+    var app: EchoSource = .claude
     var endDate: Date? { EchoTime.parse(meta.end) }
     var projectPath: String { meta.cwd.isEmpty ? url.deletingLastPathComponent().lastPathComponent : meta.cwd }
 }
@@ -126,6 +129,46 @@ enum EchoSessionScan {
     private static let needleUser = Array("\"type\":\"user\"".utf8)
     private static let needleTitles = ["\"type\":\"custom-title\"", "\"type\":\"ai-title\""].map { Array($0.utf8) }
 
+    private static let needleCodexUser = Array("\"role\":\"user\"".utf8), needleCodexAsst = Array("\"role\":\"assistant\"".utf8)
+    private static let needleMeta = Array("\"type\":\"session_meta\"".utf8)
+
+    /// Codex 的会话：项目路径、会话 ID 取 session_meta；起止时间、第一句话和 EchoExport.exportCodex 一致。标题在扫列表时另按 session_index.jsonl 换
+    static func readCodex(_ url: URL) throws -> EchoSessionMeta {
+        var m = EchoSessionMeta(), firstUser = ""
+        try EchoLines.each(url) { line in
+            let b = EchoLines.trim(line)
+            if m.sid == nil, EchoLines.has(b, needleMeta), let d = json(b), let p = d["payload"] as? [String: Any] {
+                m.sid = p["id"] as? String ?? ""
+                m.cwd = p["cwd"] as? String ?? ""
+                m.sub = !(p["source"] is String)   // 子代理的 source 是 {"subagent": …}
+                return
+            }
+            let isUser = EchoLines.has(b, needleCodexUser)
+            guard isUser || EchoLines.has(b, needleCodexAsst), EchoLines.has(b, needleTs) else { return }
+            guard let d = json(b), d["type"] as? String == "response_item", let p = d["payload"] as? [String: Any], p["type"] as? String == "message" else { return }
+            let ts = d["timestamp"] as? String ?? ""
+            if p["role"] as? String == "user" {
+                let (human, system) = EchoExport.codexUserParts(p)
+                guard !human.isEmpty || !system.isEmpty else { return }
+                if m.start.isEmpty { m.start = ts }
+                m.end = ts
+                if firstUser.isEmpty, !human.isEmpty { firstUser = human.prefix40 }
+            } else if !ts.isEmpty, p["role"] as? String == "assistant" { m.end = ts }
+        }
+        m.title = !firstUser.isEmpty ? firstUser : m.sid ?? ""
+        return m
+    }
+
+    /// Codex 改过、起过的名字：session_index.jsonl 每行 {id, thread_name}，同一个会话取最后一行
+    static func codexTitles(_ codexDir: URL) -> [String: String] {
+        var out: [String: String] = [:]
+        try? EchoLines.each(codexDir.appendingPathComponent("session_index.jsonl")) { line in
+            guard let d = json(EchoLines.trim(line)), let id = d["id"] as? String, let n = d["thread_name"] as? String, !n.isEmpty else { return }
+            out[id] = n
+        }
+        return out
+    }
+
     /// 扫一遍文件取标题、项目路径、起止时间，规则和 EchoExport 一致（标题：用户改的 > AI 起的 > 第一句话）
     static func read(_ url: URL) throws -> EchoSessionMeta {
         var m = EchoSessionMeta(), custom = "", ai = "", firstUser = ""
@@ -198,7 +241,7 @@ enum EchoLibrary {
             ((try? fm.contentsOfDirectory(at: u, includingPropertiesForKeys: keys)) ?? []).filter { !$0.lastPathComponent.hasPrefix(".") }
         }
         // 先列出所有会话文件，缓存里没有或变了的并发读（第一次打开时一百多个文件）
-        struct Item { let f: URL; let c: URL; let stamp: EchoFileStamp; let moved: [String: String] }
+        struct Item { let f: URL; let c: URL; let stamp: EchoFileStamp; let moved: [String: String]; var app: EchoSource = .claude }
         var items: [Item] = []
         let keys: Set<URLResourceKey> = [.fileSizeKey, .contentModificationDateKey]
         for c in list(backupRoot, [.isDirectoryKey]) {
@@ -213,18 +256,29 @@ enum EchoLibrary {
                     }
                 }
             }
+            // Codex：codex/sessions/年/月/日/rollout-….jsonl
+            for r in EchoLayout.sessionRoots(c) where r.source == .codex {
+                let en = fm.enumerator(at: r.root, includingPropertiesForKeys: Array(keys), options: .skipsHiddenFiles)
+                for case let f as URL in en?.allObjects ?? [] where f.pathExtension == "jsonl" {
+                    guard let v = try? f.resourceValues(forKeys: keys) else { continue }
+                    items.append(Item(f: f, c: c, stamp: EchoFileStamp(size: Int64(v.fileSize ?? 0), mtime: v.contentModificationDate?.timeIntervalSince1970 ?? 0), moved: [:], app: .codex))
+                }
+            }
         }
+        var titles: [String: [String: String]] = [:]   // 电脑 → Codex 的会话名
+        for it in items where it.app == .codex && titles[it.c.path] == nil { titles[it.c.path] = EchoSessionScan.codexTitles(EchoLayout.dir(it.c, .codex)) }
         let metas = EchoParallel.map(items) { it -> EchoSessionMeta? in
             if let e = cache.entries[it.f.path], e.stamp == it.stamp { return e.meta }
-            return try? EchoSessionScan.read(it.f)
+            return try? (it.app == .codex ? EchoSessionScan.readCodex(it.f) : EchoSessionScan.read(it.f))
         }
         for (it, m) in zip(items, metas) {
             guard var meta = m else { continue }
             fresh.entries[it.f.path] = .init(stamp: it.stamp, meta: meta)
-            if meta.start.isEmpty { continue }   // 一条对话都没有的空会话不列
-            let sid = String(it.f.lastPathComponent.dropLast(6))
+            if meta.start.isEmpty || meta.sub == true { continue }   // 一条对话都没有的空会话、Codex 的子代理会话不列
+            let sid = meta.sid ?? String(it.f.lastPathComponent.dropLast(6))
             if let cwd = it.moved[sid] { meta.cwd = cwd }
-            out.append(EchoSession(url: it.f, sessionId: sid, computer: it.c.lastPathComponent, size: it.stamp.size, meta: meta))
+            if it.app == .codex, let t = titles[it.c.path]?[sid] { meta.title = t }
+            out.append(EchoSession(url: it.f, sessionId: sid, computer: it.c.lastPathComponent, size: it.stamp.size, meta: meta, app: it.app))
         }
         cache = fresh
         if let d = try? JSONEncoder().encode(cache) { try? d.write(to: cacheURL, options: .atomic) }

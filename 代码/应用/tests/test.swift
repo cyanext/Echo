@@ -41,6 +41,14 @@ enum EchoTests {
             try EchoLines.each(URL(fileURLWithPath: a[2])) { l in autoreleasepool { out.write(Data(buffer: l)) } }
         }
         else if a.count == 3, a[1] == "--backup" { try backup(URL(fileURLWithPath: a[2])) }
+        else if a.count == 3, a[1] == "--backup-codex" {   // 手动验收：本机 Codex 会话全量备份到 <目录>（不是电脑目录，是 codex 这一级），跑两遍
+            for n in 1...2 {
+                let r = try EchoBackup.run(items: EchoBackup.codexItems(EchoBackup.codexSource), computerDir: URL(fileURLWithPath: a[2]))
+                print(String(format: "  第 %d 遍：%d 个文件，写入 %d，跳过 %d，失败 %d，%.0fMB → %.0fMB，%.1f 秒",
+                             n, r.total, r.copied, r.skipped, r.failures.count, Double(r.bytesIn) / 1e6, Double(r.bytesOut) / 1e6, r.seconds))
+                for f in r.failures.prefix(5) { print("    \(f.path)：\(f.message)") }
+            }
+        }
         else if a.count == 3, a[1] == "--time" { try timeExport(URL(fileURLWithPath: a[2])) }
         else if a.count == 3, a[1] == "--clean-estimate" {   // 手动排查：按默认保留期限估算一台电脑的备份能释放多少（只算不改）
             let t0 = Date()

@@ -26,6 +26,7 @@
     return m ? m[1][0].toUpperCase() + m[1].slice(1) + " " + m[2] + (m[3] && m[3].length < 3 ? "." + m[3] : "") : id;
   };
 
+  let DATA = null;   // 这次整理好的数据（备份卡片要用 data.backup）
   let prices = {}, TODAY, weeks = [], cur = 0, open = new Set();   // open：展开了全部会话的那几天（时间戳）
 
   function price(model) {
@@ -220,13 +221,30 @@
     $("money").innerHTML = `<h2>用量<span class="note">这周折合 ${fmtU(w.usd)}</span></h2>` + row("按用途", parts) + row("按模型", models);
   }
 
+  // 备份：这台电脑各应用备份了多少会话、原会话多大、备份多大（Swift 整理时一并给 data.backup）；没有数据就不显示
+  const APP = { claude: "Claude Code", codex: "Codex", workbuddy: "WorkBuddy" };
+  const fmtB = (n) => { if (n < 1024) return n + " B"; let v = n; for (const u of ["KB", "MB", "GB", "TB"]) { v /= 1024; if (v < 1000 || u === "TB") return (v < 10 ? v.toFixed(1) : Math.round(v)) + " " + u; } };
+  function backup() {
+    const b = DATA && DATA.backup, el = $("backup");
+    el.hidden = !(b && b.apps && b.apps.length);
+    if (el.hidden) return;
+    const when = b.last ? (() => { const d = new Date(b.last), t = new Date(d.getFullYear(), d.getMonth(), d.getDate()); return `上次备份 ${+t === +TODAY ? "今天" : md(d)} ${hm(+d)}`; })() : "还没有备份过";
+    const gone = b.apps.reduce((a, x) => a + (x.gone || 0), 0);
+    el.innerHTML = `<h2>备份<span class="note">${when}</span></h2>` + b.apps.map((x) => {
+      const pct = x.src ? Math.max(0, Math.round((1 - x.bak / x.src) * 100)) : 0;
+      return `<div class="bk"><div class="bk-head"><img src="app-${x.app}.svg" alt=""><span>${APP[x.app] || x.app}</span><span class="cnt">${fmtN(x.sessions)} 个会话</span>
+        <span class="sz" data-tip="原会话 ${fmtB(x.src)}，备份 ${fmtB(x.bak)}">${fmtB(x.src)} → <b>${fmtB(x.bak)}</b></span><em>省 ${pct}%</em></div>
+        <div class="bkbar"><i style="width:${x.src ? Math.min(100, x.bak / x.src * 100) : 0}%"></i></div></div>`;
+    }).join("") + (gone ? `<div class="bk-note">${fmtN(gone)} 个会话的原文件已经清理，只在备份里</div>` : "");
+  }
+
   function draw() {
     const none = !weeks.length;
     $("blank").hidden = !none;
     document.querySelector(".main").classList.toggle("none", none);
     document.querySelector(".page").hidden = none;
     if (none) { $("blank").innerHTML = Blank.html("empty", "还没有会话", "备份完成后，这里按周显示 Token、消息、AI 时长和 Git 提交"); return; }
-    hero(); cal(); week(); money();
+    hero(); cal(); week(); money(); backup();
   }
 
   // 占位用的假数据：第一次整理总览要十几秒，先用它按真实版式画一遍，外面加 .ui-skel 变成灰块（照 NAS 网站公共层的自动占位）
@@ -252,6 +270,7 @@
     const page = document.querySelector(".page");
     page.classList.toggle("ui-skel", skel);
     const was = weeks[cur] && +weeks[cur].start;
+    DATA = skel ? null : d;
     build(skel ? fake() : d);
     const i = keepWeek && was ? weeks.findIndex((w) => +w.start === was) : -1;
     cur = i >= 0 ? i : weeks.length - 1;

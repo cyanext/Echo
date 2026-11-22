@@ -135,8 +135,6 @@ h2.sec { margin: var(--space-4) var(--space-1) 0; }
 .link:hover { text-decoration: underline; }
 .toggle { padding: var(--space-1) 0 var(--space-2); font-size: var(--text-xs); color: var(--accent); cursor: pointer; }
 
-/* 对不上会话的提交：卡底一条细线隔开，一个项目一行 */
-
 /* 用量：两根分段条拉满整宽，图例在条下；按用途金额多的深，按模型主色深浅加灰 */
 .use + .use { margin-top: var(--space-4); }
 .use-name { margin-bottom: var(--space-2); font-size: var(--text-xs); line-height: var(--lh-xs); color: var(--fg-muted); }
@@ -165,3 +163,15 @@ h2.sec { margin: var(--space-4) var(--space-1) 0; }
 @media (prefers-reduced-motion: reduce) { .ui-skel { animation: none; } }
 #blank[hidden], .page[hidden] { display: none; }
 .main.none .wk { visibility: hidden; }
+
+/* 备份：每个应用一行（图标、会话数、原会话 → 备份、省了多少），下面一根条：整条是原会话，主色那段是备份 */
+.bk + .bk { margin-top: var(--space-4); }
+.bk-head { display: flex; align-items: center; gap: var(--space-2); font-size: var(--text-sm); font-variant-numeric: tabular-nums; }
+.bk-head img { width: 16px; height: 16px; border-radius: 3px; box-shadow: 0 0 0 .5px rgba(0,0,0,.08); }
+.bk-head .cnt { color: var(--fg-faint); font-size: var(--text-xs); }
+.bk-head .sz { margin-left: auto; color: var(--fg-muted); }
+.bk-head .sz b { font-weight: 600; color: var(--fg); }
+.bk-head em { min-width: 56px; font-style: normal; text-align: right; color: var(--accent); }
+.bkbar { position: relative; height: 6px; margin-top: var(--space-2); border-radius: var(--radius-2xs); background: var(--mute); overflow: hidden; }
+.bkbar i { position: absolute; inset: 0 auto 0 0; min-width: 3px; border-radius: var(--radius-2xs); background: var(--accent); }
+.bk-note { margin-top: var(--space-4); font-size: var(--text-xs); line-height: var(--lh-xs); color: var(--fg-faint); }

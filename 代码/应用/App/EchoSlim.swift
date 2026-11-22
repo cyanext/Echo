@@ -236,6 +236,8 @@ struct EchoPolicy {
 /// 一个文件从头处理到尾时要记住的：git 提交、合并命令的调用编号（它的结果也一直留着）
 final class EchoSlimState {
     var gitIds = Set<[UInt8]>()
+    /// Codex 自动审批的子会话（session_meta 的 source.subagent.other == "guardian"）：用户消息也算系统记录
+    var guardian = false
 }
 
 enum EchoSlim {
@@ -497,8 +499,12 @@ enum EchoSlim {
         let pt = (t == "event_msg" || t == "response_item") ? payload[kType]?.stringRaw.flatMap(decode) : nil
         let ts = obj[kTimestamp]?.stringRaw.flatMap { EchoTime.parse(String(decoding: $0.dropFirst().dropLast(), as: UTF8.self)) }
         var changed = false
+        if t == "session_meta", payload[RawJSON.quoted("source")]?[RawJSON.quoted("subagent")]?[RawJSON.quoted("other")]?.stringRaw == RawJSON.quoted("guardian") {
+            state.guardian = true
+        }
         var fields = codexSystem[t + "|" + (pt ?? "")] ?? []
-        if t == "response_item", pt == "message", !(payload[kRole]?.stringRaw.flatMap(decode).map { ["user", "assistant"].contains($0) } ?? false) { fields = ["content"] }
+        let role = payload[kRole]?.stringRaw.flatMap(decode)
+        if t == "response_item", pt == "message", !["user", "assistant"].contains(role ?? "") || (role == "user" && state.guardian) { fields = ["content"] }
         for f in fields {
             let k = RawJSON.quoted(f)
             guard let i = p.lastIndex(where: { $0.key == k }), !isNull(p[i].value), !isCleaned(p[i].value) else { continue }
