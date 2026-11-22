@@ -5,11 +5,28 @@
 ```text
 需求文档/     版本需求/（一类事一篇，开工时叫「待定-<主题>」，发版时改成「v<号>-<主题>」）、设计规范/、归档/（立项方案）、.pm-doc/
 设计/         设计稿，一个主题一个文件夹，每个文件夹一份说明
-代码/应用/    Mac 应用：App/ 源码（Echo*.swift）、Web/ 对话页面和总览页面（overview.*，单价表 prices.json，两页共用的 base.*、缺省插画 blank-*.svg）、icon/ 应用图标（改图标跑 make_icon.py）、tests/、tools/、build.sh
+代码/应用/    Mac 应用：App/ 源码（Echo*.swift，见下）、Web/ 对话页面和总览页面（overview.*，单价表 prices.json，两页共用的 base.*、缺省插画 blank-*.svg）、icon/ 应用图标（改图标跑 make_icon.py）、tests/、tools/、build.sh
 代码/原型/    Python 和网页原型，瘦身和消息显示以它为准，测试拿它比对
-样例/         一个会话的瘦身结果和浏览页面（会话内容不进 git）
-备份/         应用生成的备份，iCloud 同步，不进 git
+样例/         真实会话和它的浏览页面（页面从 代码/原型/viewer/ 拷来，数据 export.py 生成），整个不进 git
 ```
+
+备份默认在本目录旁边的 `../回响备份/<电脑名>/`（桌面在 iCloud 里，两台电脑共用），设置里能改；0.5.0 及以前在本目录的 `备份/`，新版打开时自动挪过去。
+
+`代码/应用/App/` 各文件：
+
+| 文件 | 管什么 |
+|---|---|
+| `EchoApp.swift` | 入口、主菜单、设置项（EchoPrefs）、全局状态（EchoState：备份、会话列表、总览、改名删除合集） |
+| `EchoBackup.swift` | 从 `~/.claude/projects` 增量备份，挑文件的规则 |
+| `EchoSlim.swift` | 按行读文件、瘦身（去掉图片等大块） |
+| `EchoLibrary.swift` | 扫备份出会话列表、目录树，路径和时间的公共函数 |
+| `EchoExport.swift` | 会话整理成对话页要的数据，规则以 `代码/原型/export.py` 为准 |
+| `EchoEdit.swift` | 改名、合集、删除 |
+| `EchoStats.swift` | 总览的数：每天的消息、时长、Token，Git 提交 |
+| `EchoBrowser.swift` | 浏览窗口：左栏目录树、右栏切换、底部备份状态 |
+| `EchoWeb.swift` | 右栏网页：对话、总览，`echo://app/` 取文件和数据 |
+| `EchoTheme.swift` | 颜色、左栏的行、按钮等原生公共部件，自绘图标 |
+| `EchoSettings.swift` | 设置窗口 |
 
 ## 开发
 

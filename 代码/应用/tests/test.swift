@@ -68,6 +68,17 @@ enum EchoTests {
         check(d?.ms == 90000 && d?.lg == 60000, "统计：AI 干活 90 秒、最长 60 秒，实际 \(d?.ms ?? 0) \(d?.lg ?? 0)")
         check(EchoStats.project(NSHomeDirectory() + "/Desktop/项目代码/NAS/伙伴云NAS应用") == "NAS", "统计：项目取大目录下一级")
         check(EchoStats.project(NSHomeDirectory() + "/Desktop/项目代码/回响/.worktrees/主页") == "回响", "统计：.worktrees 算进上一级")
+        // Git：上级目录往下找两层里的仓库，.开头的不进；删掉的分支工作区换成主目录
+        let fm = FileManager.default
+        let top = fm.temporaryDirectory.appendingPathComponent("回响仓库测试-\(UUID().uuidString)").path
+        defer { try? fm.removeItem(atPath: top) }
+        for d in ["甲/.git", "乙/丙/.git", "乙/丙/丁/.git", "乙/.隐藏/.git", "戊/己/庚/.git"] {
+            try fm.createDirectory(atPath: top + "/" + d, withIntermediateDirectories: true)
+        }
+        check(EchoStats.reposBelow(top).sorted() == [top + "/乙/丙", top + "/甲"], "统计：上级目录应找到两层内的仓库，实际 \(EchoStats.reposBelow(top))")
+        check(EchoStats.reposBelow(NSHomeDirectory()).isEmpty, "统计：家目录不往下找")
+        check(EchoStats.liveDir(top + "/甲/.worktrees/已删") == top + "/甲", "统计：删掉的分支工作区换成主目录")
+        check(EchoStats.liveDir(top + "/没有") == nil, "统计：不存在的目录跳过")
         print("  总览统计：\(failed == 0 ? "通过" : "有失败")")
     }
 

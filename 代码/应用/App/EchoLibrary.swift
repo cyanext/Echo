@@ -1,4 +1,4 @@
-// 会话列表：读备份目录下所有电脑的会话，按项目（cwd）归组。
+// 会话列表：读备份目录下所有电脑的会话，按会话目录（cwd）排成多级目录树。
 // 每个会话的标题、时间、项目路径要扫一遍文件才知道，按「路径 + 大小 + 修改时间」缓存在 ~/Library/Application Support/回响/。
 import Foundation
 
@@ -17,14 +17,6 @@ struct EchoSession: Identifiable, Hashable {
     var projectPath: String { meta.cwd.isEmpty ? url.deletingLastPathComponent().lastPathComponent : meta.cwd }
 }
 
-struct EchoProject: Identifiable, Hashable {
-    var id: String { path }
-    let path: String
-    var name: String { (path as NSString).lastPathComponent }
-    let sessions: [EchoSession]
-    var last: Date? { sessions.first?.endDate }
-}
-
 /// 目录树的一级：名字（合成一行时是「上级 / 下级」）、子目录、直接在这一级开的会话
 struct EchoDir: Identifiable, Hashable {
     var id: String { path }
@@ -36,6 +28,18 @@ struct EchoDir: Identifiable, Hashable {
     var last: Date? { ([sessions.first?.endDate] + children.map(\.last)).compactMap { $0 }.max() }
     var all: [EchoSession] { sessions + children.flatMap(\.all) }
     func contains(_ id: String?) -> Bool { id != nil && (sessions.contains { $0.id == id } || children.contains { $0.contains(id) }) }
+}
+
+/// 会话目录拆成各级名字：家目录下的去掉家目录；以「.」开头的目录（.worktrees、.claude）和它下面的算进上一级。
+/// 左栏目录树、总览的项目归类共用这一套
+enum EchoPath {
+    static func parts(_ path: String) -> (home: Bool, comps: [String]) {
+        let home = NSHomeDirectory()
+        let under = path == home || path.hasPrefix(home + "/")
+        var comps = (under ? String(path.dropFirst(home.count)) : path).split(separator: "/").map(String.init)
+        if let dot = comps.firstIndex(where: { $0.hasPrefix(".") }), dot >= 2 { comps = Array(comps[..<dot]) }
+        return (under, comps)
+    }
 }
 
 enum EchoTime {
@@ -171,14 +175,10 @@ enum EchoLibrary {
             var kids: [String: Node] = [:], sessions: [EchoSession] = []
             init(_ path: String, _ name: String) { self.path = path; self.name = name }
         }
-        let home = NSHomeDirectory()
         var roots: [String: Node] = [:]
         for s in sessions {
-            let cwd = s.projectPath
-            let under = cwd == home || cwd.hasPrefix(home + "/")
-            var comps = (under ? String(cwd.dropFirst(home.count)) : cwd).split(separator: "/").map(String.init)
-            if let dot = comps.firstIndex(where: { $0.hasPrefix(".") }), dot >= 2 { comps = Array(comps[..<dot]) }
-            let base = under ? home : ""
+            let (under, comps) = EchoPath.parts(s.projectPath)
+            let base = under ? NSHomeDirectory() : ""
             let head = comps.count >= 2 ? 2 : comps.count
             let rootPath = base + "/" + comps.prefix(head).joined(separator: "/")
             let root = roots[rootPath] ?? Node(rootPath, comps.prefix(head).last ?? "~")
@@ -204,12 +204,5 @@ enum EchoLibrary {
             return d
         }
         return roots.values.map { build($0, top: true) }.sorted { ($0.last ?? .distantPast) > ($1.last ?? .distantPast) }
-    }
-
-    /// 按项目归组；项目按最近使用排序，会话按最后时间倒序
-    static func group(_ sessions: [EchoSession]) -> [EchoProject] {
-        Dictionary(grouping: sessions, by: \.projectPath)
-            .map { EchoProject(path: $0.key, sessions: $0.value.sorted { ($0.endDate ?? .distantPast) > ($1.endDate ?? .distantPast) }) }
-            .sorted { ($0.last ?? .distantPast) > ($1.last ?? .distantPast) }
     }
 }
