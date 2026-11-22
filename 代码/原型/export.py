@@ -57,7 +57,7 @@ def open_lines(path):
     """按行读；Codex 压过的旧会话（.jsonl.zst）用 zstd 命令边解压边读"""
     if path.endswith(".zst"):
         import io, subprocess
-        proc = subprocess.Popen(["zstd", "-dcq", path], stdout=subprocess.PIPE)
+        proc = subprocess.Popen(["zstd", "-dcq", path], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
         return io.TextIOWrapper(proc.stdout, encoding="utf-8", errors="surrogateescape", newline="")
     return open(path, encoding="utf-8", newline="")
 

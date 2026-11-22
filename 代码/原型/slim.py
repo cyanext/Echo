@@ -317,7 +317,7 @@ def slim_file(src_path, dst_path, policy=DEFAULT_POLICY, now=None):
     # Codex 压过的旧会话（.jsonl.zst）用 zstd 命令边解压边读
     if src_path.endswith(".zst"):
         import io, subprocess
-        proc = subprocess.Popen(["zstd", "-dcq", src_path], stdout=subprocess.PIPE)
+        proc = subprocess.Popen(["zstd", "-dcq", src_path], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
         fin_ctx = io.TextIOWrapper(proc.stdout, encoding="utf-8", errors="surrogateescape", newline="")
     else:
         fin_ctx = open(src_path, encoding="utf-8", errors="surrogateescape", newline="")
