@@ -233,6 +233,9 @@
   const APP = { claude: "Claude Code", codex: "Codex", workbuddy: "WorkBuddy" };
   const fmtB = (n) => { if (!n) return "0"; if (n < 1024) return n + " B"; let v = n; for (const u of ["KB", "MB", "GB", "TB"]) { v /= 1024; if (v < 1000 || u === "TB") return (v < 10 ? v.toFixed(1) : Math.round(v)) + " " + u; } };
   let logAll = false;
+  // 备份页（要更可视化）：数字卡；空间（各应用一行，同一把尺子：浅色整条是原会话，主色是备份）；
+  // 备份里都是什么（一根分段条，按类型）；每天备份（近 30 天的柱子，悬停看原 → 备份）；备份日志表
+  const KIND = [["对话消息", "q4"], ["工具调用", "q3"], ["工具结果", "q2"], ["思考过程", "mute"], ["系统记录", "mute2"]];
   function backup() {
     const b = DATA && DATA.backup, el = $("backup");
     if (!(b && b.apps && b.apps.length)) { el.innerHTML = `<div class="card"><div class="empty">还没有备份过</div></div>`; return; }
@@ -241,22 +244,39 @@
     const log = b.log || [], sum = (f) => log.reduce((a, x) => a + (x[f] || 0), 0);
     const src = b.apps.reduce((a, x) => a + x.src, 0), bak = b.apps.reduce((a, x) => a + x.bak, 0);
     const gone = b.apps.reduce((a, x) => a + (x.gone || 0), 0);
-    // 备份页：顶上三张数字卡（和会话页的指标卡同样式）、各应用一张卡、备份日志一张卡
     const stat = (l, v, s) => `<div class="card kpi"><div class="l">${l}</div><div class="v">${v}</div><div class="s">${s}</div></div>`;
     let h = `<div class="kpis bkstats">`
       + stat("已备份", `${fmtN(b.apps.reduce((a, x) => a + x.sessions, 0))}<small>个会话</small>`, gone ? `${fmtN(gone)} 个原文件已清理，只在备份里` : "原文件都还在")
       + stat("占用", `${fmtB(bak)}`, `原会话 ${fmtB(src)}，省 ${src ? Math.round((1 - bak / src) * 100) : 0}%`)
       + stat("自动清理", `${fmtN(sum("autoDel"))}<small>个会话</small>`, `腾出 ${fmtB(sum("autoDelBytes"))}，清理备份又腾出 ${fmtB(sum("cleanFreed"))}`)
-      + `</div><section class="card"><h2>各应用<span class="note">${when}</span></h2>`;
-    h += b.apps.map((x) => {
+      + `</div>`;
+    // 空间：所有应用用同一把尺子（最大的原会话占满），长短能直接比
+    const top = Math.max(...b.apps.map((x) => x.src), 1);
+    h += `<section class="card"><h2>空间<span class="note">${when}</span></h2>` + b.apps.map((x) => {
       const pct = x.src ? Math.max(0, Math.round((1 - x.bak / x.src) * 100)) : 0;
       return `<div class="bk"><div class="bk-head"><img src="app-${x.app}.svg" alt=""><span>${APP[x.app] || x.app}</span><span class="cnt">${fmtN(x.sessions)} 个会话</span>
         <span class="sz">${fmtB(x.src)} → <b>${fmtB(x.bak)}</b></span><em>省 ${pct}%</em></div>
-        <div class="bkbar"><i style="width:${x.src ? Math.min(100, x.bak / x.src * 100) : 0}%"></i></div></div>`;
-    }).join("") + `</section>`;
-    // 备份日志：按天并起来，新的在上
+        <div class="sbar" data-tip="${APP[x.app] || x.app}：原会话 ${fmtB(x.src)}，备份 ${fmtB(x.bak)}"><i class="src" style="width:${x.src / top * 100}%"></i><i class="bak" style="width:${x.bak / top * 100}%"></i></div></div>`;
+    }).join("") + `<div class="legend"><span><i class="q1"></i>原会话</span><span><i class="q4"></i>备份</span></div></section>`;
+    // 备份里都是什么：一根 28 高的分段条，块里写占比，图例写名字和大小
+    const kinds = (b.kinds || []).filter((k) => k.b > 0), kt = kinds.reduce((a, k) => a + k.b, 0);
+    if (kt) {
+      const color = (k) => (KIND.find((x) => x[0] === k) || [0, "mute"])[1];
+      h += `<section class="card"><h2>备份里都是什么<span class="note">共 ${fmtB(kt)}</span></h2><div class="tbar">`
+        + kinds.map((k) => { const p = k.b / kt * 100; return `<i class="${color(k.k)}" style="flex:${k.b}" data-tip="${k.k} ${fmtB(k.b)}（${p < 1 ? "<1" : Math.round(p)}%）">${p >= 8 ? Math.round(p) + "%" : ""}</i>`; }).join("")
+        + `</div><div class="legend">${kinds.map((k) => `<span><i class="${color(k.k)}"></i>${k.k}<b>${fmtB(k.b)}</b></span>`).join("")}</div></section>`;
+    }
+    // 每天备份：近 30 天，每天一根柱子（写进备份多少），没备份的天留空
     const byDay = new Map();
     for (const x of log) { const k = +dayOf(x.t); byDay.set(k, [...(byDay.get(k) || []), x]); }
+    const days30 = [...Array(30)].map((_, i) => addDays(TODAY, i - 29));
+    const out = days30.map((d) => (byDay.get(+d) || []).reduce((a, x) => a + (x.out || 0), 0)), mx = Math.max(...out, 1);
+    h += `<section class="card"><h2>每天备份<span class="note">近 30 天写进备份 ${fmtB(out.reduce((a, v) => a + v, 0))}</span></h2><div class="cols30">`
+      + days30.map((d, i) => { const xs = byDay.get(+d) || [], s2 = (f) => xs.reduce((a, x) => a + (x[f] || 0), 0);
+        const tip = xs.length ? `${md(d)}：写入 ${fmtN(s2("written"))} 个文件，原 ${fmtB(s2("in"))} → 备份 ${fmtB(s2("out"))}` : `${md(d)}：没有备份`;
+        return `<span class="c30" data-tip="${tip}"><i style="height:${out[i] ? Math.max(3, out[i] / mx * 100) : 0}%"></i></span>`; }).join("")
+      + `</div><div class="axis30"><span>${md(days30[0])}</span><span>${md(days30[15])}</span><span>今天</span></div></section>`;
+    // 备份日志：按天并起来，新的在上
     const days = [...byDay.entries()].sort((a, b2) => b2[0] - a[0]);
     if (days.length) {
       const list = logAll ? days : days.slice(0, 7);

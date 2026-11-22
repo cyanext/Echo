@@ -306,3 +306,5 @@
 
 /* 我的消息检索一条都没搜到 */
 .r-none[hidden] { display: none; }
+
+img[src="app-workbuddy.svg"] { transform: scale(.86); }   /* WorkBuddy 整块绿底，缩到 86% 和另两家视觉一样大 */

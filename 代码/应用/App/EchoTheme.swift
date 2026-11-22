@@ -241,3 +241,15 @@ struct EchoPickMenu: View {
         .shadow(color: .black.opacity(0.08), radius: 10, y: 4)
     }
 }
+
+/// 应用的官方 logo：圆角方块，不画线框；WorkBuddy 整块绿底，缩到 86% 和另两家视觉一样大（设计规范「应用图标」）
+struct EchoAppLogo: View {
+    let app: EchoSource
+    let image: NSImage
+    let size: CGFloat
+    var body: some View {
+        Image(nsImage: image).resizable().frame(width: size, height: size)
+            .clipShape(RoundedRectangle(cornerRadius: size * 0.22))
+            .scaleEffect(app == .workbuddy ? 0.86 : 1)
+    }
+}

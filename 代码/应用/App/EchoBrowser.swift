@@ -367,7 +367,7 @@ struct EchoBrowserView: View {
                 if multiApp {
                     EchoPickButton(on: false, help: EchoSource(rawValue: appFilter)?.title ?? "全部应用") {
                         if let a = EchoSource(rawValue: appFilter), let i = EchoSettingsStyle.appIcon(a) {
-                            Image(nsImage: i).resizable().frame(width: 16, height: 16).clipShape(RoundedRectangle(cornerRadius: 3.5))
+                            EchoAppLogo(app: a, image: i, size: 16)
                         } else {
                             Image(systemName: "square.grid.2x2").font(.system(size: 12.5))
                         }
@@ -583,7 +583,7 @@ struct EchoBrowserView: View {
                          selected: computer) { computer = $0; pickMenu = nil }
         } else if pickMenu == "app" {
             EchoPickMenu(width: 176, items: [("", AnyView(Image(systemName: "square.grid.2x2")), "全部")]
-                         + apps.map { a in (a.rawValue, AnyView(Group { if let i = EchoSettingsStyle.appIcon(a) { Image(nsImage: i).resizable().frame(width: 16, height: 16).clipShape(RoundedRectangle(cornerRadius: 3.5)).overlay(RoundedRectangle(cornerRadius: 3.5).strokeBorder(EchoColor.line, lineWidth: 0.5)) } }), a.title) },
+                         + apps.map { a in (a.rawValue, AnyView(Group { if let i = EchoSettingsStyle.appIcon(a) { EchoAppLogo(app: a, image: i, size: 16) } }), a.title) },
                          selected: appFilter) { appFilter = $0; pickMenu = nil }
         }
     }

@@ -465,7 +465,10 @@ enum EchoStats {
             apps.append(["app": src.rawValue, "sessions": sessions.filter { $0.computer == me && $0.app == src }.count,
                          "src": srcBytes, "bak": bak, "gone": gone])
         }
-        var out: [String: Any] = ["apps": apps, "log": EchoBackupLog.load(comp)]
+        // 备份里各类内容各占多少（要把备份读一遍，几秒；总览在后台整理）
+        let b = EchoStorage.backup(comp)
+        let kinds = EchoStorage.Kind.allCases.map { ["k": $0.rawValue, "b": b.bytes[$0] ?? 0] as [String: Any] }
+        var out: [String: Any] = ["apps": apps, "log": EchoBackupLog.load(comp), "kinds": kinds]
         if let d = EchoPrefs.lastSuccess { out["last"] = ISO8601DateFormatter().string(from: d) }
         return out
     }

@@ -42,7 +42,6 @@ struct EchoSettingsView: View {
 
 enum EchoSettingsStyle {
     /// Claude Code 的官方图标（LobeHub 图标库的 claudecode-color），放在 Web/ 随应用打包
-    static var claudeIcon: NSImage? { webImage("logo-claudecode.svg") }
     private static func webImage(_ name: String) -> NSImage? {
         let dir = ProcessInfo.processInfo.environment["ECHO_WEB"].map { URL(fileURLWithPath: $0) } ?? Bundle.main.resourceURL?.appendingPathComponent("Web")
         return dir.flatMap { NSImage(contentsOf: $0.appendingPathComponent(name)) }
@@ -294,17 +293,17 @@ struct EchoSourcesBlock: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             if !onboarding { EchoBlockHeader(title: "来源", sum: "勾选要备份的应用") }
-            EchoSourceCard(icon: EchoSettingsStyle.claudeIcon, name: "Claude Code", meta: meta(model.claude, .claude), on: $on) {
+            EchoSourceCard(app: .claude, name: "Claude Code", meta: meta(model.claude, .claude), on: $on) {
                 if showCleanup { cleanup }
             }
             if model.codexLoaded && model.codex == nil {
-                EchoSourceCard(icon: EchoSettingsStyle.appIcon(.codex), name: "Codex", meta: "暂无本地会话", on: .constant(false), enabled: false) {}
+                EchoSourceCard(app: .codex, name: "Codex", meta: "暂无本地会话", on: .constant(false), enabled: false) {}
             } else {
-                EchoSourceCard(icon: EchoSettingsStyle.appIcon(.codex), name: "Codex", meta: meta(model.codex, .codex), on: $codexOn) {
+                EchoSourceCard(app: .codex, name: "Codex", meta: meta(model.codex, .codex), on: $codexOn) {
                     if showCleanup { codexCleanup }
                 }
             }
-            EchoSourceCard(icon: EchoSettingsStyle.appIcon(.workbuddy), name: "WorkBuddy", meta: "暂无本地会话", on: .constant(false), enabled: false) {}
+            EchoSourceCard(app: .workbuddy, name: "WorkBuddy", meta: "暂无本地会话", on: .constant(false), enabled: false) {}
         }
     }
 
@@ -376,7 +375,7 @@ struct EchoSourcesBlock: View {
 
 /// 来源卡片：图标、名字、会话数等、勾选；下面接这个应用自己的选项。以后加 Codex 等只多一张卡
 struct EchoSourceCard<Content: View>: View {
-    let icon: NSImage?
+    let app: EchoSource
     let name: String
     let meta: String
     @Binding var on: Bool
@@ -386,13 +385,10 @@ struct EchoSourceCard<Content: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 12) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 8).fill(Color.white)
-                        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(EchoColor.line))
-                    if let icon { Image(nsImage: icon).resizable().frame(width: 22, height: 22) }
-                }
-                .frame(width: 32, height: 32)
-                .saturation(enabled ? 1 : 0).opacity(enabled ? 1 : 0.45)
+                // 官方 logo 直接画成 32 的圆角方块，不套白框、不画线框
+                Group { if let i = EchoSettingsStyle.appIcon(app) { EchoAppLogo(app: app, image: i, size: 32) } }
+                    .frame(width: 32, height: 32)
+                    .saturation(enabled ? 1 : 0).opacity(enabled ? 1 : 0.45)
                 VStack(alignment: .leading, spacing: 0) {
                     Text(name).font(.system(size: 13, weight: .semibold)).foregroundStyle(enabled ? EchoColor.fg : EchoColor.fg3)
                     Text(meta).font(.system(size: 12)).foregroundStyle(enabled ? EchoColor.fg2 : EchoColor.fg3)

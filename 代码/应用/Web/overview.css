@@ -7,7 +7,7 @@
   --fg: #1f2329; --fg-muted: #646a73; --fg-faint: #8f959e; --line: #e5e9e9;
   --accent: #008081; --down: #c46a1f;
   --q0: #eaeeee; --q1: #afdfde; --q2: #64c3c3; --q3: #009fa0; --q4: #007677;   /* 主色由浅到深，2 到 4 档用 dataviz 校验过 */
-  --mute: #d3dbdb;
+  --mute: #d3dbdb; --mute2: #e6ebeb;
   --bg-skeleton: #edf0f0;
   /* 字号 / 行高 */
   --text-xs: 12px; --lh-xs: 18px;     /* 小字：列名、灰字、数字 */
@@ -27,7 +27,7 @@
     --fg: #e6e8ec; --fg-muted: #9aa0ab; --fg-faint: #6f7581; --line: #2c3334;
     --accent: #3fc0c0; --down: #e3955a;
     --q0: #2a3031; --q1: #034747; --q2: #006d6d; --q3: #009a9b; --q4: #5ecbcb;
-    --mute: #364042;
+    --mute: #364042; --mute2: #2c3536;
     --bg-skeleton: #2a2f30;
   }
 }
@@ -44,13 +44,14 @@ svg { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; s
 .wk { display: flex; align-items: center; gap: var(--space-1); color: var(--fg-muted); }
 .wk .now { margin-left: var(--space-2); padding: 0 6px; border-radius: var(--radius-2xs); background: var(--bg-subtle); font-size: var(--text-xs); line-height: var(--lh-xs); }
 /* 应用筛选（设计稿 设计/多应用/）：图标按钮加一圈细框，菜单白底细框，选中的文字主色、右边小勾 */
-.appf { position: relative; margin-left: auto; }
-.appf + .seg { margin-left: 0; }
+/* 顶栏右边：应用筛选和「会话 / 备份」放在一起靠右；切到备份时筛选按钮隐藏，切换按钮位置不动（点备份会跳一下） */
+.head-r { display: flex; align-items: center; gap: var(--space-3); margin-left: auto; }
+.appf { position: relative; }
 .appf .pb { display: inline-flex; align-items: center; gap: 3px; height: 30px; padding: 0 6px 0 8px; border: 1px solid var(--line); border-radius: var(--radius-sm); color: var(--fg-muted); cursor: pointer; }
 .appf .pb:hover { background: var(--bg-hover); }
 .appf svg { width: 16px; height: 16px; stroke-width: 1.6; }
 .appf svg.dn { width: 12px; height: 12px; }
-.appf img.ai { width: 16px; height: 16px; border-radius: 3.5px; box-shadow: 0 0 0 .5px rgba(0,0,0,.08); }
+.appf img.ai { width: 16px; height: 16px; border-radius: 3.5px; }
 .pmenu { position: absolute; right: 0; top: 36px; z-index: 5; width: 176px; padding: 4px; border-radius: 10px; background: var(--bg-surface); box-shadow: 0 0 0 1px var(--line), 0 6px 20px rgba(0,0,0,.08); }
 .pmenu .mi { display: flex; align-items: center; gap: 4px; height: 30px; padding: 0 10px; border-radius: 6px; font-size: var(--text-sm); color: var(--fg); cursor: pointer; }
 .pmenu .mi:hover { background: var(--bg-hover); }
@@ -60,8 +61,9 @@ svg { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; s
 .pmenu .mi .ck { width: 14px; height: 14px; stroke-width: 2; color: var(--accent); }
 
 /* 右上角切换：会话 / 备份，灰底分段，选中的白底 */
-.seg { display: inline-flex; margin-left: auto; padding: 2px; border-radius: var(--radius-sm); background: var(--bg-subtle); }
-.seg b { padding: 0 var(--space-3); border-radius: 6px; font-size: var(--text-sm); line-height: 26px; font-weight: 400; color: var(--fg-muted); cursor: pointer; }
+.seg { display: inline-flex; padding: 2px; border-radius: var(--radius-sm); background: var(--bg-subtle); }
+.seg b { display: inline-flex; align-items: center; gap: 5px; padding: 0 var(--space-3); border-radius: 6px; font-size: var(--text-sm); line-height: 26px; font-weight: 400; color: var(--fg-muted); cursor: pointer; }
+.seg b svg { width: 14px; height: 14px; stroke-width: 1.7; }   /* 会话：对话气泡；备份：带勾的云（和左栏底部的备份状态一样） */
 .seg b.on { background: var(--bg-surface); color: var(--fg); box-shadow: 0 1px 2px rgba(0,0,0,.08); }
 .main.bkview .wk { visibility: hidden; }
 .ib { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: var(--radius-2xs); color: var(--fg-muted); cursor: pointer; }
@@ -200,11 +202,30 @@ h2.sec { margin: var(--space-4) var(--space-1) 0; }
 .row.bkrow .num.warn { color: var(--down); }
 .bk + .bk { margin-top: var(--space-4); }
 .bk-head { display: flex; align-items: center; gap: var(--space-2); font-size: var(--text-sm); font-variant-numeric: tabular-nums; }
-.bk-head img { width: 16px; height: 16px; border-radius: 3px; box-shadow: 0 0 0 .5px rgba(0,0,0,.08); }
+.bk-head img { width: 16px; height: 16px; border-radius: 3px; }
 .bk-head .cnt { color: var(--fg-faint); font-size: var(--text-xs); }
 .bk-head .sz { margin-left: auto; color: var(--fg-muted); }
 .bk-head .sz b { font-weight: 600; color: var(--fg); }
 .bk-head em { min-width: 56px; font-style: normal; text-align: right; color: var(--accent); }
-.bkbar { position: relative; height: 6px; margin-top: var(--space-2); border-radius: var(--radius-2xs); background: var(--mute); overflow: hidden; }
-.bkbar i { position: absolute; inset: 0 auto 0 0; min-width: 3px; border-radius: var(--radius-2xs); background: var(--accent); }
+/* 空间：同一把尺子，浅色整条是原会话、主色是备份，8 高、两端圆 */
+.sbar { position: relative; height: 8px; margin-top: var(--space-2); }
+.sbar i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 4px; }
+.sbar i.src { background: var(--q1); }
+.sbar i.bak { min-width: 3px; background: var(--q4); }
+/* 备份里都是什么：28 高的分段条，块间 2 的缝，块里写占比 */
+.tbar { display: flex; gap: 2px; height: 28px; }
+.tbar i { display: flex; align-items: center; min-width: 3px; padding-left: 8px; border-radius: 4px; font: 500 var(--text-xs)/1 -apple-system, sans-serif; font-style: normal; color: #fff; overflow: hidden; white-space: nowrap; }
+.tbar i.mute, .tbar i.mute2, .tbar i.q1, .tbar i.q2 { color: var(--fg); }
+.legend i.mute, .tbar i.mute { background: var(--mute); }
+.legend i.mute2, .tbar i.mute2 { background: var(--mute2); }
+@media (prefers-color-scheme: dark) { .tbar i.q4, .tbar i.q3 { color: #10292a; } .tbar i.q2 { color: #fff; } }   /* 深色里色阶反过来：浅块上用深字 */
+/* 每天备份：30 根柱子，宽不过 14，顶端圆角 3，从底线长出来 */
+.cols30 { display: flex; align-items: flex-end; gap: 2px; height: 96px; border-bottom: 1px solid var(--line); }
+.c30 { flex: 1; display: flex; align-items: flex-end; justify-content: center; height: 100%; cursor: default; }
+.c30 i { width: 100%; max-width: 14px; border-radius: 3px 3px 0 0; background: var(--q3); }
+.c30:hover i { background: var(--q4); }
+.axis30 { display: flex; justify-content: space-between; margin-top: var(--space-1); font-size: var(--text-xs); color: var(--fg-faint); }
 .bk-note { margin-top: var(--space-4); font-size: var(--text-xs); line-height: var(--lh-xs); color: var(--fg-faint); }
+
+/* 应用 logo 不画线框；WorkBuddy 整块绿底，缩到 86% 和另两家视觉一样大 */
+img[src="app-workbuddy.svg"] { transform: scale(.86); }
