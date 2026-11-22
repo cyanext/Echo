@@ -1,4 +1,4 @@
-// ech 用的本机索引（需求 需求文档/版本需求/待定-ech命令和skill.html）：每个会话按压缩点、版本提交、北京时间跨天分段，
+// ech 用的本机索引（需求 需求文档/版本需求/v0.9.0-ech命令和skill.html）：每个会话按压缩点、版本提交、北京时间跨天分段，
 // 我的消息、回复文字、阶段总结、工具调用的命令进全文索引（SQLite FTS5，trigram 分词，中文按字串匹配）。
 // 索引放本机 ~/Library/Application Support/回响/索引.sqlite，不放 iCloud；只读备份，回响或 ech backup 备份完增量更新。
 import Foundation
