@@ -1,5 +1,5 @@
 // 命令行工具 ech（需求 需求文档/版本需求/待定-ech命令和skill.html）：和应用同一个程序，用 ech 这个名字调用时走这里，不开窗口。
-// 查询命令只读备份、本机索引和总览数据；backup 和回响的「立即备份」同一套；mv 和左栏目录右键「改名」同一套。输出纯文本，给 Claude 读，--json 给脚本用。
+// 查询命令只读备份、本机索引和总览数据；backup 和回响的「立即备份」同一套；mv 和左栏目录右键「改名」同一套。输出纯文本，给各家 Agent 读，--json 给脚本用。
 import Foundation
 
 enum EchoCLI {
@@ -69,7 +69,7 @@ enum EchoCLI {
     static let help = """
     ech：查回响备份里的会话（只读），和备份
       ech find <关键词> [--app claude|codex] [--since 日期] [--project 词] [--limit 20]   按关键词找会话和段
-      ech list [--since 7d|本周|上周|日期] [--until 日期] [--project 词] [--app 名]       按时间列会话、消息、Token、提交
+      ech list [--since 日期] [--until 日期] [--project 词] [--app 名]                  按时间列会话、消息、Token、提交（默认最近 7 天）
       ech segs <会话>                                列一个会话的分段（每段一个引用，如 ce57ce36#3）
       ech read <引用> [--tools]                       把一段读成对话文字：ce57ce36#3 第 3 段，ce57ce36#L1200-1500 这几行，只写会话读最后一段
       ech context <会话> [--tools]                    续上一个会话：最近一次压缩的阶段总结和之后的对话
@@ -77,7 +77,8 @@ enum EchoCLI {
       ech backup                                     备份并更新索引（和回响的「立即备份」一样）
       ech index                                      只更新索引和总览数据，不备份
       ech schema [命令]                              各命令的参数（JSON）
-      ech install-skill                              把 ech skill 装到 ~/.claude/skills/ech
+      ech install-skill                              装 ech skill：~/.claude/skills/ech，有 Codex 时也装到 ~/.codex/skills/ech
+    日期写 2026-11-16、2026/11/16、11-16（今年），或 7d（最近 7 天，含今天），按北京时间、含两头。
     <会话> 写会话 ID（前 8 位就够）或备份文件路径；find、segs、list 的每一条都带引用，复制给 read 就行。输出超过 \(pageChars) 字时分页，加 --page 2 看下一页；加 --json 输出 JSON。
     """
 
@@ -155,35 +156,29 @@ enum EchoCLI {
 
     // MARK: 日期参数
 
-    /// 「本周」「上周」「今天」「7d」「2026-11-16」→ 北京时间的日期范围（含两头）
+    /// --since、--until → 北京时间的日期范围（含两头）。日期写 2026-11-16、2026/11/16、11-16（今年），
+    /// 相对时间写 7d（最近 7 天，含今天）；不写 --since 时是最近 7 天，不写 --until 时到今天
     static func dayRange(_ since: String?, _ until: String?) throws -> (String, String) {
-        var cal = Calendar(identifier: .gregorian); cal.timeZone = TimeZone(identifier: "Asia/Shanghai")!; cal.firstWeekday = 2
+        var cal = Calendar(identifier: .gregorian); cal.timeZone = TimeZone(identifier: "Asia/Shanghai")!
         let today = cal.startOfDay(for: Date())
         func key(_ d: Date) -> String { bj(d, "yyyy-MM-dd") }
-        func monday(_ d: Date) -> Date { cal.dateInterval(of: .weekOfYear, for: d)!.start }
-        var from = cal.date(byAdding: .day, value: -6, to: today)!, to = today
-        if let s = since {
-            switch s {
-            case "本周": from = monday(today)
-            case "上周": from = cal.date(byAdding: .day, value: -7, to: monday(today))!; to = cal.date(byAdding: .day, value: -1, to: monday(today))!
-            case "今天": from = today
-            case "昨天": from = cal.date(byAdding: .day, value: -1, to: today)!; to = from
-            default:
-                if s.hasSuffix("d"), let n = Int(s.dropLast()) { from = cal.date(byAdding: .day, value: 1 - n, to: today)! }
-                else if let d = parseDay(s, cal) { from = d }
-                else { throw Fail(text: "看不懂日期「\(s)」：写 2026-11-16、7d、本周、上周、今天") }
-            }
+        func day(_ s: String, _ name: String) throws -> Date {
+            if s.hasSuffix("d"), let n = Int(s.dropLast()), n > 0 { return cal.date(byAdding: .day, value: 1 - n, to: today)! }
+            if let d = parseDay(s, cal) { return d }
+            throw Fail(text: "\(name) 看不懂「\(s)」：写 2026-11-16、2026/11/16、11-16，或 7d（最近 7 天）")
         }
-        if let u = until {
-            guard let d = parseDay(u, cal) else { throw Fail(text: "看不懂日期「\(u)」：写 2026-11-22") }
-            to = d
-        }
+        let from = try since.map { try day($0, "--since") } ?? cal.date(byAdding: .day, value: -6, to: today)!
+        let to = try until.map { try day($0, "--until") } ?? today
+        guard from <= to else { throw Fail(text: "--since 晚于 --until") }
         return (key(from), key(to))
     }
 
+    /// 2026-11-16、2026/11/16、20261116、11-16（今年）
     static func parseDay(_ s: String, _ cal: Calendar) -> Date? {
-        let p = s.split(separator: "-").compactMap { Int($0) }
-        guard p.count == 3 else { return nil }
+        var p = s.split(whereSeparator: { $0 == "-" || $0 == "/" || $0 == "." }).compactMap { Int($0) }
+        if p.count == 1, s.count == 8, let n = Int(s) { p = [n / 10000, n / 100 % 100, n % 100] }
+        if p.count == 2 { p.insert(cal.component(.year, from: Date()), at: 0) }
+        guard p.count == 3, (1...12).contains(p[1]), (1...31).contains(p[2]) else { return nil }
         return cal.date(from: DateComponents(year: p[0], month: p[1], day: p[2]))
     }
 
@@ -511,7 +506,7 @@ enum EchoCLI {
         }
         if a.flags.contains("dry-run") {
             var out = "预览：\(what)；\(EchoDirMove.describe(p))。"
-            if let b = p.busy { out += "\n「\(b.meta.title)」正在进行或在 Claude 中打开，现在执行会整个不动。" }
+            if let b = p.busy { out += "\n「\(b.meta.title)」正在使用，现在执行会整个不动。" }
             return out + "\n去掉 --dry-run 执行。"
         }
         let r = try EchoDirMove.run(p)
@@ -533,9 +528,9 @@ enum EchoCLI {
 
     static let commands: [[String: Any]] = [
         ["command": "find", "summary": "按关键词找会话和段（只读）", "args": [["name": "关键词", "required": true, "desc": "空格分开的几个词都要有；3 个字以上走全文索引"]],
-         "options": [["name": "--app", "values": "claude | codex"], ["name": "--since", "values": "2026-11-16 | 7d | 本周 | 上周 | 今天"], ["name": "--project", "desc": "项目路径里的词"], ["name": "--limit", "default": 20], ["name": "--page"], ["name": "--json"]]],
+         "options": [["name": "--app", "values": "claude | codex"], ["name": "--since", "values": "2026-11-16 | 2026/11/16 | 11-16 | 7d"], ["name": "--project", "desc": "项目路径里的词"], ["name": "--limit", "default": 20], ["name": "--page"], ["name": "--json"]]],
         ["command": "list", "summary": "按时间列会话、我的消息、Token、提交和版本（只读，取总览数据）",
-         "options": [["name": "--since", "default": "7d", "values": "2026-11-16 | 7d | 本周 | 上周 | 今天 | 昨天"], ["name": "--until", "values": "2026-11-22"], ["name": "--project"], ["name": "--app"], ["name": "--page"], ["name": "--json"]]],
+         "options": [["name": "--since", "default": "7d", "values": "2026-11-16 | 2026/11/16 | 11-16 | 7d"], ["name": "--until", "default": "今天", "values": "2026-11-22 | 11-22"], ["name": "--project"], ["name": "--app"], ["name": "--page"], ["name": "--json"]]],
         ["command": "segs", "summary": "列一个会话的分段：段号、起止行、时间、版本、第一句（只读）", "args": [["name": "会话", "required": true, "desc": "会话 ID 前 8 位或备份文件路径"]], "options": [["name": "--json"]]],
         ["command": "read", "summary": "把一段读成对话文字（只读）", "args": [["name": "引用", "required": true, "desc": "会话#段号（ce57ce36#3）、会话#L起-止（ce57ce36#L1200-1500），只写会话读最后一段"]],
          "options": [["name": "--tools", "desc": "带上工具输出，每条前 2000 字"], ["name": "--page"], ["name": "--json"]]],
@@ -547,7 +542,7 @@ enum EchoCLI {
         ["command": "backup", "summary": "备份、更新索引和总览数据（和回响的「立即备份」一样，会写备份目录）"],
         ["command": "index", "summary": "只更新索引和总览数据，不备份"],
         ["command": "schema", "summary": "各命令的参数", "args": [["name": "命令", "required": false]]],
-        ["command": "install-skill", "summary": "把 ech skill 装到 ~/.claude/skills/ech（同名的先删再装）"],
+        ["command": "install-skill", "summary": "装 ech skill 到 ~/.claude/skills/ech，本机有 Codex 时也装到 ~/.codex/skills/ech（同名的先删再装）"],
     ]
 
     static func schema(_ a: Args) throws -> String {
@@ -559,6 +554,11 @@ enum EchoCLI {
     }
 
     static var skillDir: URL { URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".claude/skills/ech") }
+    /// Codex 的 skill 目录：本机装了 Codex（有 ~/.codex）时也装一份，哪家 Agent 都能用
+    static var codexSkillDir: URL? {
+        let codex = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".codex")
+        return FileManager.default.fileExists(atPath: codex.path) ? codex.appendingPathComponent("skills/ech") : nil
+    }
 
     /// 应用里带的 skill：Contents/Resources/skills/ech
     static var bundledSkill: URL? {
@@ -577,10 +577,13 @@ enum EchoCLI {
     static func installSkill() throws -> String {
         guard let src = bundledSkill else { throw Fail(text: "应用里没有带 skill，请从装好的回响里运行 ech") }
         let fm = FileManager.default
-        try fm.createDirectory(at: skillDir.deletingLastPathComponent(), withIntermediateDirectories: true)
-        if fm.fileExists(atPath: skillDir.path) { try fm.removeItem(at: skillDir) }
-        try fm.copyItem(at: src, to: skillDir)
-        return "已安装 ech skill \(skillVersion(skillDir) ?? "") 到 \(skillDir.path)"
+        let dirs = [skillDir] + (codexSkillDir.map { [$0] } ?? [])
+        for d in dirs {
+            try fm.createDirectory(at: d.deletingLastPathComponent(), withIntermediateDirectories: true)
+            if fm.fileExists(atPath: d.path) { try fm.removeItem(at: d) }
+            try fm.copyItem(at: src, to: d)
+        }
+        return "已安装 ech skill \(skillVersion(skillDir) ?? "")：" + dirs.map { ($0.path as NSString).abbreviatingWithTildeInPath }.joined(separator: "、")
     }
 
     /// 装的 skill 比应用旧时提醒一句（照 hac 的版本提示）

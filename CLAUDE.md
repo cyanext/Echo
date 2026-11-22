@@ -22,7 +22,7 @@
   | 目录改名 | 用户在左栏目录右键「改名」并确认，或运行 `ech mv <旧路径> <新路径>`：访达里的这个文件夹改名（只改这一个文件夹的名字，里面一个文件不动），本机的 Claude 会话照「移动」挪到新名字下；Codex 的、只剩备份的、在其他电脑上的不跟。旧路径已经不在时（在访达里改过了），只挪会话 | 同一位置已有这个名字；有会话 2 分钟内还在写或正在 Claude 里开着 |
 
 - 记忆文件只读。
-- `ech` 的查询命令（find、segs、read、context、list、schema）只读备份、本机索引和总览数据。会写的：`ech backup` 和回响的「立即备份」一样；`ech index` 只写本机索引和总览数据；`ech mv` 见上表「目录改名」；`ech install-skill` 写 `~/.claude/skills/ech`。安装命令行工具时在 `~/.local/bin/ech` 建一个指向回响程序的替身，那里已有别的文件时不覆盖。
+- `ech` 的查询命令（find、segs、read、context、list、schema）只读备份、本机索引和总览数据。会写的：`ech backup` 和回响的「立即备份」一样；`ech index` 只写本机索引和总览数据；`ech mv` 见上表「目录改名」；`ech install-skill` 写 `~/.claude/skills/ech`，本机有 Codex 时也写 `~/.codex/skills/ech`（只有这个 skill 目录，会话不动）。安装命令行工具时在 `~/.local/bin/ech` 建一个指向回响程序的替身，那里已有别的文件时不覆盖。
 - 会话里可能有密钥。写备份时打码（规则见 `代码/原型/slim.py`）；备份（默认 `../回响备份/`，每台电脑一个文件夹，里面按应用分 `claude/`、`codex/`）和 `样例/` 不进 git，除 iCloud 外不传到任何地方。
 - 联网只有一处：每周从 LiteLLM 的公开价格表（GitHub）下载一次模型单价，只发一个 GET，不带任何本机信息。
 - 回响自己的备份按保留期限清理：到期的内容换成占位、不删行，清理前的文件移到废纸篓。
