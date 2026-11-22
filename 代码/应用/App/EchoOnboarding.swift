@@ -138,8 +138,9 @@ struct EchoOnboardingView: View {
         VStack(spacing: 0) {
             Image(nsImage: NSApp.applicationIconImage).resizable().frame(width: 104, height: 104)
             Text("帮你记住和 AI 的每次对话").font(.system(size: 24, weight: .semibold)).foregroundStyle(EchoColor.fg).padding(.top, 16)
-            (Text("念念不忘，必有") + Text("回响").fontWeight(.semibold).foregroundColor(EchoColor.accent))
-                .font(.system(size: 18)).tracking(2).foregroundStyle(EchoColor.fg2).padding(.top, 4)
+            // 副标语：去掉全角逗号（占一整个字宽，读着像断开），两半之间空半个字；字距收到 1，「回响」只换颜色、字重中等，不和主标语抢
+            (Text("念念不忘 必有") + Text("回响").fontWeight(.medium).foregroundColor(EchoColor.accent))
+                .font(.system(size: 17)).tracking(1).foregroundStyle(EchoColor.fg2).padding(.top, 8)
             VStack(alignment: .leading, spacing: 12) {
                 feat("checkmark.icloud", "备份", "会话自动备份到你选的文件夹，换台电脑也看得到")
                 feat("clock.arrow.circlepath", "回看", "按目录找会话，按版本、压缩点跳到当时做了什么")
