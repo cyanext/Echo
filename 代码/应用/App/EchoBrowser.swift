@@ -194,6 +194,18 @@ struct EchoBrowserView: View {
         }
     }
 
+    /// 拖到目录上松手后确认一次：拖动容易失手，移动会改 Claude Code 里会话所在的文件夹
+    private func confirmMove(_ list: [EchoSession], to d: EchoDir) {
+        guard !list.isEmpty else { return }
+        let a = NSAlert()
+        a.messageText = list.count > 1 ? "将 \(list.count) 个会话移动到「\(d.name)」？" : "将此会话移动到「\(d.name)」？"
+        a.informativeText = "移动到 \((d.path as NSString).abbreviatingWithTildeInPath)。移动后需在该文件夹中恢复会话，会话内容不变。"
+        a.addButton(withTitle: "移动")
+        a.addButton(withTitle: "取消")
+        guard a.runModal() == .alertFirstButtonReturn else { return }
+        doMove(list, d.path)
+    }
+
     /// 「移动到」里列的文件夹：本机最近用过的会话目录（regroup 时算好），去掉这几个会话现在所在的，最多 8 个
     private func recentDirs(except list: [EchoSession]) -> [String] {
         let skip = Set(list.map(\.projectPath))
@@ -513,6 +525,13 @@ struct EchoBrowserView: View {
             }
         }
         .contextMenu { sessionMenu(s) }
+        .overlay(EchoDropMark(drag: drag, key: "s:" + s.id, dragged: { $0.sessions.contains { $0.id == s.id } }))
+        .onDrag {
+            // ⌘ 点选了几个、拖的是其中一个：几个一起拖
+            let list = picked.contains(s.id) && picked.count > 1 ? state.sessions.filter { picked.contains($0.id) } : [s]
+            startDrag(EchoDragItem(dir: "", group: "", sessions: list))
+            return NSItemProvider(object: s.id as NSString)
+        } preview: { dragGhost(picked.contains(s.id) && picked.count > 1 ? "\(picked.count) 个会话" : s.meta.title == s.sessionId ? "未命名会话" : s.meta.title) }
     }
 
     // MARK: 拖动：照 NAS 网站的拖放公共层（lib/dnd.js）。开始拖记下拖的是什么；拖过某行判断能不能放，只重画那一行的标记和底部提示（状态在 EchoDragState，左栏的树不跟着重画）；松开再判断一次、收掉，能放才执行
@@ -534,17 +553,38 @@ struct EchoBrowserView: View {
 
     private func leave(_ key: String) { if drag.hint?.key == key { drag.set(nil) } }
 
-    /// 目录行：同一级的目录拖来是排序（上半行插到前面，下半行插到后面）。会话不能拖，只按最近用过排
+    /// 目录行：同一级的目录拖来是排序（上半行插到前面，下半行插到后面）；会话拖来是移动到这个文件夹。
+    /// 会话不排序，只按最近用过排
     private func dirHover(_ d: EchoDir, group: String, y: CGFloat) {
-        guard let it = drag.item, it.dir != d.path else { drag.set(nil); return }
+        guard let it = drag.item else { drag.set(nil); return }
+        if !it.sessions.isEmpty { drag.set(moveHint(it.sessions, to: d)); return }
+        guard it.dir != d.path else { drag.set(nil); return }
         drag.set(it.group == group
             ? EchoDropHint(key: d.path, mode: y < 17 ? .before : .after, ok: true, text: "")
             : EchoDropHint(key: d.path, mode: .into, ok: false, text: "目录只能在同一级里排序"))
     }
 
+    /// 会话拖到目录上能不能放：只有本机的 Claude 会话能移动，文件夹要在本机，已在这个文件夹里的不算
+    private func moveHint(_ list: [EchoSession], to d: EchoDir) -> EchoDropHint {
+        let name = "「\(d.name)」"
+        func no(_ t: String) -> EchoDropHint { EchoDropHint(key: d.path, mode: .into, ok: false, text: t) }
+        if list.contains(where: { $0.app != .claude }) { return no("Codex 会话不支持移动") }
+        if let s = list.first(where: { $0.computer != EchoPrefs.computerName }) { return no("会话在 \(s.computer) 上，不能移动") }
+        if list.allSatisfy({ ($0.projectPath as NSString).standardizingPath == d.path }) { return no("会话已在\(name)中") }
+        var isDir: ObjCBool = false
+        if !FileManager.default.fileExists(atPath: d.path, isDirectory: &isDir) || !isDir.boolValue { return no("\(name)在本机不存在，不能移动到这里") }
+        return EchoDropHint(key: d.path, mode: .into, ok: true, text: list.count > 1 ? "将 \(list.count) 个会话移动到\(name)" : "移动到\(name)")
+    }
+
     private func dropOnDir(_ d: EchoDir) -> Bool {
         defer { drag.clear() }
         guard let it = drag.item, let h = drag.hint, h.key == d.path, h.ok else { return false }
+        if !it.sessions.isEmpty {
+            // 先让放下结束（拖影收回），再弹确认
+            let list = it.sessions.filter { ($0.projectPath as NSString).standardizingPath != d.path }
+            DispatchQueue.main.async { confirmMove(list, to: d) }
+            return true
+        }
         return reorder(it.group, [it.dir], to: d.path, after: h.mode == .after)
     }
 
@@ -647,10 +687,12 @@ struct EchoBrowserView: View {
     }
 }
 
-/// 正在拖的目录。group 是它所在的那一级（见 EchoOrder），只能在同一级里排序
+/// 正在拖的目录或会话。拖目录时 group 是它所在的那一级（见 EchoOrder），只能在同一级里排序；
+/// 拖会话时 sessions 是拖着的会话（⌘ 点选了几个就是那几个），放到目录上是移动
 struct EchoDragItem {
     var dir: String
     var group: String
+    var sessions: [EchoSession] = []
 }
 
 struct EchoDropHint: Equatable {
