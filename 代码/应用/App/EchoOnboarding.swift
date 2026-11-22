@@ -43,9 +43,10 @@ enum EchoOnboarding {
         w.makeKeyAndOrderFront(nil)
     }
 
-    /// 第 2 步点「继续」：先读一次 ~/.claude、写一次备份文件夹，让系统的授权弹窗在这一步弹完
+    /// 第 2 步点「继续」：先读一次 ~/.claude、~/.codex，写一次备份文件夹，让系统的授权弹窗在这一步弹完
     static func askAccess() {
         _ = try? FileManager.default.contentsOfDirectory(atPath: EchoBackup.source.path)
+        _ = try? FileManager.default.contentsOfDirectory(atPath: EchoBackup.codexSource.appendingPathComponent("sessions").path)
         let dir = EchoPrefs.computerDir
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let probe = dir.appendingPathComponent("回响-写入测试.tmp")
@@ -53,8 +54,16 @@ enum EchoOnboarding {
         try? FileManager.default.removeItem(at: probe)
     }
 
-    /// 首次备份大约多大：按当前保留期限把 Claude 会话过一遍（只算不写），图片等不备份的文件不算
+    /// 首次备份大约多大：按当前保留期限把勾选的应用的会话过一遍（只算不写），图片等不备份的文件不算
     static func estimate(policy: EchoPolicy) -> Int64 {
+        let codex = EchoPrefs.backupCodex && EchoPrefs.hasCodex
+            ? EchoParallel.map(EchoBackup.codexItems(EchoBackup.codexSource)) { it -> Int64 in
+                it.action == .copy ? it.stamp.size : Int64((try? EchoSlim.slimFile(it.url, to: nil, policy: policy).bytesOut) ?? 0)
+            }.reduce(0, +) : 0
+        return codex + (EchoPrefs.backupClaude ? claudeEstimate(policy: policy) : 0)
+    }
+
+    private static func claudeEstimate(policy: EchoPolicy) -> Int64 {
         let fm = FileManager.default
         guard let en = fm.enumerator(at: EchoBackup.source, includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey]) else { return 0 }
         let base = EchoBackup.source.standardizedFileURL.path + "/"
@@ -76,6 +85,7 @@ struct EchoOnboardingView: View {
     @State var step: Int
     @StateObject private var model = EchoStorageModel()
     @AppStorage("backupClaude") private var backupClaude = true
+    @AppStorage("backupCodex") private var backupCodex = true
     @State private var closeClaude = true
     @State private var firstBackup: Int64?
 
@@ -98,6 +108,8 @@ struct EchoOnboardingView: View {
                 case 2: page("备份什么", "勾选要备份的应用，各类内容按下面的期限备份。") {
                     VStack(alignment: .leading, spacing: 16) {
                         EchoSourcesBlock(model: model, onboarding: true, showCleanup: false)
+                            .onChange(of: backupClaude) { _, _ in estimateFirst() }
+                            .onChange(of: backupCodex) { _, _ in estimateFirst() }
                         EchoBackupBlock(model: model, onboarding: true, onChange: { estimateFirst() })
                         HStack {
                             VStack(alignment: .leading, spacing: 2) {
@@ -187,7 +199,7 @@ struct EchoOnboardingView: View {
     /// 底部：左边步骤点（不能继续时换成原因），右边上一步、继续
     private var footer: some View {
         HStack {
-            if step == 2 && !backupClaude {
+            if step == 2 && !backupClaude && !backupCodex {
                 Text("至少勾选一个应用").font(.system(size: 12)).foregroundStyle(EchoColor.fg2)
             } else {
                 HStack(spacing: 8) {
@@ -200,7 +212,7 @@ struct EchoOnboardingView: View {
             if step > 0 { Button("上一步") { step -= 1 }.controlSize(.large) }
             Button(step == 0 ? "开始设置" : step == 3 ? "完成，开始备份" : "继续") { next() }
                 .buttonStyle(.borderedProminent).tint(EchoColor.accent).controlSize(.large)
-                .disabled(step == 2 && !backupClaude)
+                .disabled(step == 2 && !backupClaude && !backupCodex)
         }
         .padding(.horizontal, 32)
         .frame(height: 72)
