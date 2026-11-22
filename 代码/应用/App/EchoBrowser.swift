@@ -157,13 +157,20 @@ struct EchoBrowserView: View {
     /// 删除确认：原会话在本机的和备份一起移走，不在的（清理了、在另一台电脑上）只移回响的备份。
     /// 统计数据默认留在总览里，勾选「同时删除统计数据」才删（三个按钮看不懂，改成勾选）。
     /// SwiftUI 的 alert 放不了勾选框，用 NSAlert 的勾选框（suppressionButton）
-    private func confirmDelete(_ list: [EchoSession]) {
+    /// folder：从目录右键删除时是目录名，确认框写清删的是这个目录下的会话、文件夹本身不删
+    private func confirmDelete(_ list: [EchoSession], folder: String? = nil) {
+        guard !list.isEmpty else { return }
         let local = list.filter { EchoRename.originalURL(for: $0) != nil }.count
         let a = NSAlert()
-        a.messageText = list.count > 1 ? "将 \(list.count) 个会话移到废纸篓？" : "将此会话移到废纸篓？"
-        a.informativeText = local == list.count ? "原会话和备份将一并移到废纸篓，可从废纸篓恢复。"
+        if let folder {
+            a.messageText = "将「\(folder)」下的 \(list.count) 个会话移到废纸篓？"
+        } else {
+            a.messageText = list.count > 1 ? "将 \(list.count) 个会话移到废纸篓？" : "将此会话移到废纸篓？"
+        }
+        a.informativeText = (folder == nil ? "" : "文件夹本身不会删除。")
+            + (local == list.count ? "原会话和备份将一并移到废纸篓，可从废纸篓恢复。"
             : local == 0 ? "原会话已不在本机，仅将备份移到废纸篓，可从废纸篓恢复。"
-            : "其中 \(local) 个原会话在本机，将与备份一并移到废纸篓；其余仅移除备份。均可从废纸篓恢复。"
+            : "其中 \(local) 个原会话在本机，将与备份一并移到废纸篓；其余仅移除备份。均可从废纸篓恢复。")
         a.addButton(withTitle: "移到废纸篓")
         a.addButton(withTitle: "取消")
         a.showsSuppressionButton = true
@@ -474,6 +481,10 @@ struct EchoBrowserView: View {
             .onDrop(of: [.text], delegate: EchoRowDrop(drag: drag, update: { dirHover(d, group: group, y: $0.y) }, exit: { leave(d.path) }, perform: { dropOnDir(d) }))
             .padding(.top, level == 0 ? 8 : 0)   // 顶层目录之间多空一点，靠留白分组，不加图标
             .help((d.path as NSString).abbreviatingWithTildeInPath)
+            .contextMenu {
+                // 只删会话（本机的原会话和备份一起进废纸篓，其他电脑的只删备份），文件夹本身不动
+                Button("将 \(d.count) 个会话移到废纸篓…") { confirmDelete(d.all, folder: d.name) }
+            }
 
             if open {
                 ForEach(d.children) { c in dirSection(c, level: level + 1, group: d.path) }
