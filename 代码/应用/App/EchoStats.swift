@@ -155,15 +155,21 @@ enum EchoStats {
 
     /// 一条命令里 git commit 的说明（commitKey），记成「m:说明」
     static func commitMessages(in cmd: String, into g: inout Set<String>) {
-        guard cmd.contains("commit") else { return }
-        let ns = cmd as NSString
-        for m in commitMsg.matches(in: cmd, range: NSRange(location: 0, length: ns.length)) {
-            let r = (2...4).map { m.range(at: $0) }.first { $0.location != NSNotFound }
-            guard let r else { continue }
-            var msg = ns.substring(with: r)
-            if m.range(at: 3).location != NSNotFound { msg = msg.replacingOccurrences(of: "\\\"", with: "\"") }
+        for msg in commitTexts(in: cmd) {
             let k = commitKey(msg)
             if !k.isEmpty { g.insert("m:" + k) }
+        }
+    }
+
+    /// 一条命令里 git commit 的说明原文（-m "…"、-m '…'、heredoc 的第一行）
+    static func commitTexts(in cmd: String) -> [String] {
+        guard cmd.contains("commit") else { return [] }
+        let ns = cmd as NSString
+        return commitMsg.matches(in: cmd, range: NSRange(location: 0, length: ns.length)).compactMap { m in
+            guard let r = (2...4).map({ m.range(at: $0) }).first(where: { $0.location != NSNotFound }) else { return nil }
+            var msg = ns.substring(with: r)
+            if m.range(at: 3).location != NSNotFound { msg = msg.replacingOccurrences(of: "\\\"", with: "\"") }
+            return msg
         }
     }
 
@@ -443,12 +449,38 @@ enum EchoStats {
         let cwds = Set(sessions.filter { $0.computer == EchoPrefs.computerName }.map(\.meta.cwd).filter { !$0.isEmpty }
                        + gone.filter { $0.c == EchoPrefs.computerName }.map(\.cwd))
         let commits = first.isEmpty ? [] : self.commits(cwds: cwds, since: since)
-        let gitList = commits.map { ["h": $0.h, "p": $0.p, "d": $0.d, "s": $0.s, "a": $0.a, "r": $0.r, "f": $0.f] as [String: Any] }
+        let owners = owner(commits, list)
+        let gitList = commits.enumerated().map { i, c -> [String: Any] in
+            var x: [String: Any] = ["h": c.h, "p": c.p, "d": c.d, "s": c.s, "a": c.a, "r": c.r, "f": c.f]
+            if let o = owners[i] { x["o"] = o }
+            return x
+        }
 
         let out: [String: Any] = ["today": EchoTime.formatted(Date(), "yyyy-MM-dd"), "sessions": list, "commits": gitList, "backup": backupSummary(sessions)]
         let data = (try? JSONSerialization.data(withJSONObject: out)) ?? Data("{}".utf8)
         try? data.write(to: lastURL, options: .atomic)
         return data
+    }
+
+    /// 提交归到哪个会话（总览和 ech 用同一个结果）：先看哪个会话里做了这次提交（会话的 g：git commit 输出里的提交号前 7 位，
+    /// 和「m:」加说明第一行前 30 字），在别的文件夹里提交的也对得上；没有的，同一项目、提交时间落在会话这天的起止之间
+    /// （前后各放宽 10 分钟），几个都对得上取这天 Token 多的；都对不上的不归任何会话，只算进当天的提交次数
+    static func owner(_ commits: [Commit], _ sessions: [[String: Any]]) -> [String?] {
+        var byKey: [String: String] = [:]
+        for s in sessions { for h in s["g"] as? [String] ?? [] { byKey[h.hasPrefix("m:") ? h : String(h.prefix(7))] = s["id"] as? String } }
+        return commits.map { c in
+            if let o = byKey[String(c.h.prefix(7))] ?? byKey["m:" + commitKey(c.s)] { return o }
+            guard let t = EchoTime.parse(c.d)?.timeIntervalSince1970 else { return nil }
+            let day = EchoTime.formatted(Date(timeIntervalSince1970: t), "yyyy-MM-dd")
+            var best: (String, Double)?
+            for s in sessions where s["p"] as? String == c.p {
+                guard let d = (s["days"] as? [String: [String: Any]])?[day], let a = d["a"] as? Double, let b = d["b"] as? Double,
+                      t >= a - 600, t <= b + 600 else { continue }
+                let tok = (d["k"] as? [String: [Double]] ?? [:]).values.reduce(0) { $0 + $1.reduce(0, +) }
+                if best == nil || tok > best!.1 { best = (s["id"] as? String ?? "", tok) }
+            }
+            return best?.0
+        }
     }
 
     /// 总览「备份」页的数：这台电脑各应用备份了几个会话、原会话多大（备份记录里记的大小）、备份多大（备份文件夹里的文件）、
