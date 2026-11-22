@@ -29,6 +29,7 @@ enum EchoColor {
     static let sideHover = dyn(0xffffff, 0xffffff, 0.6, 0.06)      // 左栏行悬停：灰底上的半透明白，照 NAS 网站 --bg-side-hover
     static let onSideHover = dyn(0x1f2329, 0xffffff, 0.08, 0.08)   // 左栏里小按钮（目录展开箭头）的悬停，照 NAS 网站 --bg-on-side-hover
     static let accentSoft = dyn(0x00898a, 0x4ccaca, 0.08, 0.14)
+    static let onAccent = dyn(0xffffff, 0x10292a)                  // 主色实心底上的字：浅色白字，深色深字（和网页 --on-dark、--on-light 一样）
     static let chrome = dyn(0xf6f7f7, 0x232529)
     static let subtle = dyn(0xf2f4f4, 0x292e2f)
     // 主色由浅到深的色阶（深色模式反过来，q4 最亮），和网页 overview.css 的 --q1…--q4 一致；mute 两档灰

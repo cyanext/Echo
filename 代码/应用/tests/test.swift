@@ -15,7 +15,7 @@ enum EchoTests {
 
     static func main() throws {
         let a = CommandLine.arguments
-        if a.count == 3, a[1] == "--rules" { rules(); try renameTest(fixture: URL(fileURLWithPath: a[2])); try statsTest(); try commitMatchTest(); timeTest(); try cleanTest(); try layoutTest(); try codexBackupTest(); try autoDeleteTest(); try claudeSettingsTest() }
+        if a.count == 3, a[1] == "--rules" { rules(); try renameTest(fixture: URL(fileURLWithPath: a[2])); try statsTest(); try commitMatchTest(); timeTest(); try cleanTest(); try layoutTest(); try pathTest(); try codexBackupTest(); try autoDeleteTest(); try claudeSettingsTest() }
         else if a.count == 4, a[1] == "--overview" {   // 手动排查：按应用的方式整理总览数据，写到文件，看用了多久
             let t0 = Date()
             let list = EchoLibrary.scan(backupRoot: URL(fileURLWithPath: a[2]))
@@ -243,6 +243,25 @@ enum EchoTests {
     }
 
     /// 备份分应用放（0.8）：老布局挪进 claude/、挪一次就好、清理记录跟着改；没升级的电脑照样读；同一个会话两处都有只算一次；合集的键不变
+    /// 左栏的目录：替身换成真实路径（~/Desktop/客户文档 → ~/伙伴云NAS/客户文档）、查不到的部分原样接上，抽象的文件夹归组
+    static func pathTest() throws {
+        let fm = FileManager.default
+        let t = EchoPath.real(fm.temporaryDirectory.path) + "/echo-path-\(getpid())"
+        defer { try? fm.removeItem(atPath: t) }
+        try fm.createDirectory(atPath: t + "/NAS/客户文档/甲", withIntermediateDirectories: true)
+        try fm.createDirectory(atPath: t + "/桌面", withIntermediateDirectories: true)
+        try fm.createSymbolicLink(atPath: t + "/桌面/客户文档", withDestinationPath: "../NAS/客户文档")
+        check(EchoPath.real(t + "/桌面/客户文档/甲") == t + "/NAS/客户文档/甲", "替身没换成真实路径：\(EchoPath.real(t + "/桌面/客户文档/甲"))")
+        check(EchoPath.real(t + "/桌面/客户文档/已删/乙") == t + "/NAS/客户文档/已删/乙", "查不到的部分应原样接上")
+        check(EchoPath.real(t + "/没有/丙") == t + "/没有/丙", "不存在的路径应原样返回")
+        let home = NSHomeDirectory()
+        check(EchoPath.parts(home + "/.claude/jobs/d219103f/tmp/codex-x").comps == ["Codex 后台任务"], "Codex 后台任务没归组")
+        check(EchoPath.parts(home + "/Documents/Codex/2026-09-25/ni-k").comps == ["Codex 临时对话"], "Codex 临时对话没归组")
+        check(EchoPath.parts("/private/tmp/claude-501/x/scratchpad").comps == ["临时文件夹"], "临时文件夹没归组")
+        check(EchoStats.project(home + "/Documents/New project") == "Codex 默认项目", "New project 没换名字")
+        print("  目录路径 7 项")
+    }
+
     static func layoutTest() throws {
         let fm = FileManager.default
         let root = fm.temporaryDirectory.appendingPathComponent("echo-layout-\(getpid())")

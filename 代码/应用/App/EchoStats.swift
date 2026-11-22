@@ -279,12 +279,14 @@ enum EchoStats {
     /// 会话归到哪个项目：和左栏目录树同一套路径，取大目录下面那一级（~/Desktop/项目代码/NAS/伙伴云NAS应用 → NAS）；
     /// 以「.」开头的目录（.worktrees）算进上一级
     static func project(_ path: String) -> String {
+        if let a = EchoPath.alias[EchoPath.real(path)] { return a }
         let comps = EchoPath.parts(path).comps
         return comps.count >= 3 ? comps[2] : comps.last ?? "~"
     }
 
     /// 总览卡片上写的路径：大目录加项目（~/Desktop/项目代码/NAS/伙伴云NAS应用 → 项目代码/NAS）
     static func projectPath(_ path: String) -> String {
+        if let a = EchoPath.alias[EchoPath.real(path)] { return a }
         let comps = EchoPath.parts(path).comps
         return comps.count >= 3 ? comps[1] + "/" + comps[2] : comps.last ?? "~"
     }

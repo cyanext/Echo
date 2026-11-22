@@ -2,7 +2,7 @@
 # 编译 回响.app（Apple 芯片，macOS 14+），输出 dist/回响.app。临时签名，自用。
 # 用法：zsh 代码/应用/build.sh；装到 ~/Applications 并重新打开：zsh 代码/应用/build.sh install
 set -e
-VERSION=0.8.1; BUILD=15                           # 版本号只改这里
+VERSION=0.8.2; BUILD=16                           # 版本号只改这里
 D="${0:A:h}"; T=$(mktemp -d); APP="$T/回响.app"
 trap 'rm -rf "$T"' EXIT
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources/Web"

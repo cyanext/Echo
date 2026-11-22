@@ -34,15 +34,68 @@ struct EchoDir: Identifiable, Hashable {
 }
 
 /// 会话目录拆成各级名字：家目录下的去掉家目录；以「.」开头的目录（.worktrees、.claude）和它下面的算进上一级。
+/// 先把路径里的替身（符号链接）换成真实路径：~/Desktop/客户文档 是 ~/伙伴云NAS/客户文档 的替身，从两边打开的会话归到同一个目录。
 /// 左栏目录树、总览的项目归类共用这一套
 enum EchoPath {
     static func parts(_ path: String) -> (home: Bool, comps: [String]) {
+        let path = real(path)
+        if let g = group(path) { return (false, [g]) }
         let home = NSHomeDirectory()
         let under = path == home || path.hasPrefix(home + "/")
         var comps = (under ? String(path.dropFirst(home.count)) : path).split(separator: "/").map(String.init)
         if let dot = comps.firstIndex(where: { $0.hasPrefix(".") }), dot >= 2 { comps = Array(comps[..<dot]) }
         return (under, comps)
     }
+
+    /// 看着抽象的文件夹归成一个好懂的目录，下面不再分级（「codex 的路径都有点抽象」）：
+    /// Claude 的后台任务调 Codex（codex exec）时在 ~/.claude/jobs/<编号>/tmp 下；Codex 桌面版不选项目时在 ~/Documents/Codex/<日期>/<名字>；
+    /// 各种临时目录（/tmp、/var/folders、Claude 的 scratchpad）
+    static func group(_ path: String) -> String? {
+        let home = NSHomeDirectory()
+        if path.hasPrefix(home + "/.claude/jobs/") { return "Codex 后台任务" }
+        if path.hasPrefix(home + "/Documents/Codex/") { return "Codex 临时对话" }
+        if ["/private/tmp/", "/tmp/", "/private/var/folders/", "/var/folders/"].contains(where: { path.hasPrefix($0) }) || path == "/private/tmp" { return "临时文件夹" }
+        return nil
+    }
+
+    /// 左栏里归出来的目录（不是真的文件夹）：路径是「/」加名字
+    static func isGroup(_ path: String) -> Bool { ["/Codex 后台任务", "/Codex 临时对话", "/临时文件夹"].contains(path) }
+
+    /// 真实存在、但名字看不出是什么的文件夹，左栏和总览换个名字显示，路径不变：Codex 默认建的「New project」
+    static let alias = [NSHomeDirectory() + "/Documents/New project": "Codex 默认项目"]
+
+    private static var cache: [String: String] = [:]
+    private static let lock = NSLock()
+
+    /// 一级一级往下查，遇到替身换成它指向的位置；查到不存在的那一级为止，后面原样接上（会话的文件夹可能已经删了、改名了）。
+    /// 同一个路径只查一次
+    static func real(_ path: String) -> String {
+        guard path.hasPrefix("/") else { return path }
+        lock.lock(); let hit = cache[path]; lock.unlock()
+        if let hit { return hit }
+        let fm = FileManager.default
+        var done: [String] = [], hops = 0                      // 已经查过、确实存在的各级
+        var rest = path.split(separator: "/").map(String.init)
+        var exists = true
+        while !rest.isEmpty {
+            let c = rest.removeFirst()
+            if c == "." || c.isEmpty { continue }
+            if c == ".." { if !done.isEmpty { done.removeLast() }; continue }
+            let next = "/" + (done + [c]).joined(separator: "/")
+            if exists, let dest = try? fm.destinationOfSymbolicLink(atPath: next), hops < 16 {
+                hops += 1
+                if dest.hasPrefix("/") { done = [] }
+                rest = dest.split(separator: "/").map(String.init) + rest   // 相对的从当前这一级往下接，「..」在上面处理
+                continue
+            }
+            if exists, !fm.fileExists(atPath: next) { exists = false }   // 查不到的那一级起原样接上，不再查替身
+            done.append(c)
+        }
+        let out = "/" + done.joined(separator: "/")
+        lock.lock(); cache[path] = out; lock.unlock()
+        return out
+    }
+
 }
 
 /// 多个文件同时处理：并发算每一项，结果按原顺序。f 要线程安全
@@ -313,7 +366,7 @@ enum EchoLibrary {
         let byEnd: (EchoSession, EchoSession) -> Bool = { ($0.endDate ?? .distantPast) > ($1.endDate ?? .distantPast) }
         // 每一级各占一行（「示例客户-面料 / 11.06 生产手册」这种应该两层，不合成一行）
         func build(_ n: Node, top: Bool) -> EchoDir {
-            EchoDir(path: n.path, name: n.name,
+            EchoDir(path: n.path, name: EchoPath.alias[n.path] ?? n.name,
                     children: n.kids.values.map { build($0, top: false) }.sorted { ($0.last ?? .distantPast) > ($1.last ?? .distantPast) },
                     sessions: n.sessions.sorted(by: byEnd))
         }
