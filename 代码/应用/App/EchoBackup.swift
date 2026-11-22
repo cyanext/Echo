@@ -55,7 +55,7 @@ enum EchoBackup {
     static var source: URL { URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".claude/projects") }
 
     /// 同步执行，放在后台线程调用。progress(已处理, 总数)
-    static func run(source: URL, computerDir: URL, progress: (Int, Int) -> Void = { _, _ in }) throws -> EchoBackupResult {
+    static func run(source: URL, computerDir: URL, policy: EchoPolicy = EchoPolicy(), progress: (Int, Int) -> Void = { _, _ in }) throws -> EchoBackupResult {
         let t0 = Date()
         let fm = FileManager.default
         let dest = computerDir.appendingPathComponent("projects")
@@ -81,13 +81,7 @@ enum EchoBackup {
         }
         result.total = todo.count
 
-        // 暂存目录：本机 ~/Library/Application Support/回响/暂存/<这次备份>/，只清自己的；中途退出留下的，过一天再清
-        let stagingRoot = EchoLibrary.supportDir.appendingPathComponent("暂存")
-        for old in (try? fm.contentsOfDirectory(at: stagingRoot, includingPropertiesForKeys: [.contentModificationDateKey])) ?? [] {
-            if let d = try? old.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate, Date().timeIntervalSince(d) > 86400 { try? fm.removeItem(at: old) }
-        }
-        let staging = stagingRoot.appendingPathComponent(UUID().uuidString)
-        try fm.createDirectory(at: staging, withIntermediateDirectories: true)
+        let staging = try makeStaging()
         defer { try? fm.removeItem(at: staging) }
 
         // 2. 和备份记录比，变了才写
@@ -101,11 +95,10 @@ enum EchoBackup {
             }
             do {
                 try fm.createDirectory(at: out.deletingLastPathComponent(), withIntermediateDirectories: true)
-                // 先写到本机暂存目录，写完再一步挪进备份目录：iCloud 只看到写好的文件，不会同步到写了一半的，
-                // 也不会给以「.」开头的临时文件打隐藏标记（11-21 几个会话就这样从列表里消失过）
+                // 先写到本机暂存目录，写完再一步挪进备份目录（place）
                 let tmp = staging.appendingPathComponent(UUID().uuidString + ".echo-tmp")
                 if f.action == .slim {
-                    let s = try EchoSlim.slimFile(f.url, to: tmp)
+                    let s = try EchoSlim.slimFile(f.url, to: tmp, policy: policy)
                     result.bytesIn += Int64(s.bytesIn)
                     result.bytesOut += Int64(s.bytesOut)
                 } else {
@@ -113,23 +106,7 @@ enum EchoBackup {
                     result.bytesIn += f.stamp.size
                     result.bytesOut += f.stamp.size
                 }
-                if rename(tmp.path, out.path) != 0 {
-                    // 暂存目录和备份目录不在同一块盘上（改名挪不过去）：在备份目录旁边写一份再改名
-                    let near = out.deletingLastPathComponent().appendingPathComponent(".\(out.lastPathComponent).echo-tmp")
-                    try? fm.removeItem(at: near)
-                    defer { try? fm.removeItem(at: tmp) }
-                    try fm.copyItem(at: tmp, to: near)
-                    guard rename(near.path, out.path) == 0 else {
-                        let msg = String(cString: strerror(errno))
-                        try? fm.removeItem(at: near)
-                        throw CocoaError(.fileWriteUnknown, userInfo: [NSLocalizedDescriptionKey: msg])
-                    }
-                }
-                // 万一还带着隐藏标记（走了上面的退路），清掉
-                var visible = URLResourceValues()
-                visible.isHidden = false
-                var o = out
-                try? o.setResourceValues(visible)
+                try place(tmp, at: out)
                 record.files[f.rel] = f.stamp
                 result.copied += 1
                 sinceSave += 1
@@ -146,6 +123,41 @@ enum EchoBackup {
         try record.save(recordURL)
         result.seconds = Date().timeIntervalSince(t0)
         return result
+    }
+
+    /// 把暂存目录里写好的文件一步挪到 out（覆盖）：iCloud 只看到写好的文件，不会同步到写了一半的，
+    /// 也不会给以「.」开头的临时文件打隐藏标记（11-21 几个会话就这样从列表里消失过）
+    static func place(_ tmp: URL, at out: URL) throws {
+        let fm = FileManager.default
+        if rename(tmp.path, out.path) != 0 {
+            // 暂存目录和备份目录不在同一块盘上（改名挪不过去）：在备份目录旁边写一份再改名
+            let near = out.deletingLastPathComponent().appendingPathComponent(".\(out.lastPathComponent).echo-tmp")
+            try? fm.removeItem(at: near)
+            defer { try? fm.removeItem(at: tmp) }
+            try fm.copyItem(at: tmp, to: near)
+            guard rename(near.path, out.path) == 0 else {
+                let msg = String(cString: strerror(errno))
+                try? fm.removeItem(at: near)
+                throw CocoaError(.fileWriteUnknown, userInfo: [NSLocalizedDescriptionKey: msg])
+            }
+        }
+        // 万一还带着隐藏标记（走了上面的退路），清掉
+        var visible = URLResourceValues()
+        visible.isHidden = false
+        var o = out
+        try? o.setResourceValues(visible)
+    }
+
+    /// 本机暂存目录 ~/Library/Application Support/回响/暂存/<这次>/，只清自己的；中途退出留下的，过一天再清
+    static func makeStaging() throws -> URL {
+        let fm = FileManager.default
+        let stagingRoot = EchoLibrary.supportDir.appendingPathComponent("暂存")
+        for old in (try? fm.contentsOfDirectory(at: stagingRoot, includingPropertiesForKeys: [.contentModificationDateKey])) ?? [] {
+            if let d = try? old.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate, Date().timeIntervalSince(d) > 86400 { try? fm.removeItem(at: old) }
+        }
+        let staging = stagingRoot.appendingPathComponent(UUID().uuidString)
+        try fm.createDirectory(at: staging, withIntermediateDirectories: true)
+        return staging
     }
 
     /// Claude Code 会按 cleanupPeriodDays 删旧会话（默认 30 天）。返回 nil 表示已设成很长，不用提醒

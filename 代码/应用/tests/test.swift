@@ -13,7 +13,7 @@ enum EchoTests {
 
     static func main() throws {
         let a = CommandLine.arguments
-        if a.count == 3, a[1] == "--rules" { rules(); try renameTest(fixture: URL(fileURLWithPath: a[2])); try statsTest() }
+        if a.count == 3, a[1] == "--rules" { rules(); try renameTest(fixture: URL(fileURLWithPath: a[2])); try statsTest(); try cleanTest() }
         else if a.count == 4, a[1] == "--overview" {   // 手动排查：按应用的方式整理总览数据，写到文件，看用了多久
             let t0 = Date()
             let list = EchoLibrary.scan(backupRoot: URL(fileURLWithPath: a[2]))
@@ -36,6 +36,11 @@ enum EchoTests {
         }
         else if a.count == 3, a[1] == "--backup" { try backup(URL(fileURLWithPath: a[2])) }
         else if a.count == 3, a[1] == "--time" { try timeExport(URL(fileURLWithPath: a[2])) }
+        else if a.count == 3, a[1] == "--clean-estimate" {   // 手动排查：按默认保留期限估算一台电脑的备份能释放多少（只算不改）
+            let t0 = Date()
+            let r = try EchoClean.run(computerDir: URL(fileURLWithPath: a[2]), policy: EchoPolicy(), dryRun: true)
+            print(String(format: "  %d 个文件，%.0fMB → %.0fMB，%.1f 秒", r.files, Double(r.bytesBefore) / 1e6, Double(r.bytesAfter) / 1e6, Date().timeIntervalSince(t0)))
+        }
         else if a.count == 4, a[1] == "--slim" {   // 手动排查：按默认保留期限瘦身一个文件，看用时和改了多少
             let t0 = Date()
             let s = try EchoSlim.slimFile(URL(fileURLWithPath: a[2]), to: URL(fileURLWithPath: a[3]))
@@ -112,6 +117,51 @@ enum EchoTests {
         check(EchoStats.liveDir(top + "/甲/.worktrees/已删") == top + "/甲", "统计：删掉的分支工作区换成主目录")
         check(EchoStats.liveDir(top + "/没有") == nil, "统计：不存在的目录跳过")
         print("  总览统计：\(failed == 0 ? "通过" : "有失败")")
+    }
+
+    /// 清理备份：到期的换成占位、行数不变；旧文件进废纸篓（这里换成临时目录）；再跑一遍不动；没到门槛不重写，第一次（force）照样重写；估算不改文件
+    static func cleanTest() throws {
+        let fm = FileManager.default
+        let dir = fm.temporaryDirectory.appendingPathComponent("echo-clean-\(getpid())")
+        defer { try? fm.removeItem(at: dir) }
+        let proj = dir.appendingPathComponent("projects/-p")
+        let bin = dir.appendingPathComponent("废纸篓")
+        try fm.createDirectory(at: proj, withIntermediateDirectories: true)
+        try fm.createDirectory(at: bin, withIntermediateDirectories: true)
+        func line(_ o: [String: Any]) -> String { String(data: try! JSONSerialization.data(withJSONObject: o, options: [.sortedKeys]), encoding: .utf8)! + "\n" }
+        let big = String(repeating: "旧参数", count: 2000)
+        let a = line(["type": "assistant", "uuid": "a", "timestamp": "2026-09-01T00:00:00Z", "message": ["id": "m", "content": [["type": "tool_use", "id": "t", "name": "Read", "input": ["x": big]]]]])
+            + line(["type": "user", "uuid": "b", "timestamp": "2026-11-20T00:00:00Z", "message": ["role": "user", "content": "新消息"]])
+        let f = proj.appendingPathComponent("a.jsonl")
+        try a.write(to: f, atomically: true, encoding: .utf8)
+        // 门槛：大文件里只有一小块能清，不重写；force 时重写
+        let small = line(["type": "assistant", "uuid": "c", "timestamp": "2026-09-01T00:00:00Z", "message": ["id": "m2", "content": [["type": "tool_use", "id": "t2", "name": "Read", "input": ["x": "小"]]]]])
+            + String(repeating: line(["type": "user", "uuid": "d", "timestamp": "2026-11-20T00:00:00Z", "message": ["role": "user", "content": String(repeating: "很多消息", count: 50)]]), count: 400)
+        let g = proj.appendingPathComponent("b.jsonl")
+        try small.write(to: g, atomically: true, encoding: .utf8)
+        let gBefore = try Data(contentsOf: g)
+        var policy = EchoPolicy()
+        policy.now = EchoTime.parse("2026-11-21T00:00:00Z")!
+        var n = 0
+        let move: (URL) throws -> URL? = { u in n += 1; let t = bin.appendingPathComponent("\(n)-" + u.lastPathComponent); try fm.moveItem(at: u, to: t); return t }
+
+        let est = try EchoClean.run(computerDir: dir, policy: policy, dryRun: true, remove: move)
+        let fNow = try Data(contentsOf: f)
+        check(est.freed > 0 && n == 0 && fNow == Data(a.utf8), "清理：估算应算出能释放、不动文件，实际释放 \(est.freed)，移走 \(n)")
+        let r1 = try EchoClean.run(computerDir: dir, policy: policy, remove: move)
+        let after = try String(contentsOf: f, encoding: .utf8)
+        check(r1.rewritten == 1 && after.contains("已清理") && !after.contains("旧参数") && after.components(separatedBy: "\n").count == a.components(separatedBy: "\n").count,
+              "清理：到期的工具参数应换成占位、行数不变，实际重写 \(r1.rewritten)")
+        check(n == 1 && (try? Data(contentsOf: bin.appendingPathComponent("1-a.jsonl"))) == Data(a.utf8), "清理：旧文件应原样进废纸篓")
+        let gNow = try Data(contentsOf: g)
+        check(gNow == gBefore, "清理：没到门槛的文件不应重写")
+        let r2 = try EchoClean.run(computerDir: dir, policy: policy, remove: move)
+        check(r2.rewritten == 0 && n == 1, "清理：再跑一遍不应再动，实际重写 \(r2.rewritten)")
+        let r3 = try EchoClean.run(computerDir: dir, policy: policy, force: true, remove: move)
+        let gText = try String(contentsOf: g, encoding: .utf8)
+        check(r3.rewritten == 1 && gText.contains("已清理"), "清理：第一次全部过一遍时没到门槛的也重写，实际 \(r3.rewritten)")
+        check(EchoSlim.sizeText(512) == "512 B" && EchoSlim.sizeText(3482) == "3.4 KB" && EchoSlim.sizeText(130 << 20) == "130 MB" && EchoSlim.sizeText(1288490189) == "1.2 GB", "大小写法不对")
+        print("  清理 7 项")
     }
 
     static func lines(_ url: URL) throws -> [Data] {

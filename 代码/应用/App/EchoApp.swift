@@ -42,6 +42,20 @@ enum EchoPrefs {
     }
 
     static var computerDir: URL { backupRoot.appendingPathComponent(computerName) }
+
+    private static func int(_ key: String, _ def: Int) -> Int { d.object(forKey: key) == nil ? def : d.integer(forKey: key) }
+
+    /// 各类内容在备份里留多久（天）：-1 永久，0 不备份。默认：工具调用、工具结果 30 天，思考过程、系统记录不备份
+    static var keepToolUse: Int { get { int("keepToolUse", 30) } set { d.set(newValue, forKey: "keepToolUse") } }
+    static var keepToolResult: Int { get { int("keepToolResult", 30) } set { d.set(newValue, forKey: "keepToolResult") } }
+    static var keepThinking: Int { get { int("keepThinking", 0) } set { d.set(newValue, forKey: "keepThinking") } }
+    static var keepSystem: Int { get { int("keepSystem", 0) } set { d.set(newValue, forKey: "keepSystem") } }
+    static var policy: EchoPolicy { EchoPolicy(toolUse: keepToolUse, toolResult: keepToolResult, thinking: keepThinking, system: keepSystem) }
+
+    /// 上次清理备份的时间；cleanRules 记清理规则的版本，升级后第一次把已有备份全部过一遍（连密钥打码）
+    static var lastClean: Date? { get { d.object(forKey: "lastClean") as? Date } set { d.set(newValue, forKey: "lastClean") } }
+    static let cleanRulesVersion = 1
+    static var cleanRules: Int { get { d.integer(forKey: "cleanRules") } set { d.set(newValue, forKey: "cleanRules") } }
 }
 
 // MARK: - 状态
@@ -109,12 +123,13 @@ final class EchoState: ObservableObject {
         Task.detached(priority: .utility) {
             var last = Date.distantPast
             let r = Result {
-                try EchoBackup.run(source: EchoBackup.source, computerDir: dir) { n, t in
+                try EchoBackup.run(source: EchoBackup.source, computerDir: dir, policy: EchoPrefs.policy) { n, t in
                     guard n == t || Date().timeIntervalSince(last) > 0.3 else { return }
                     last = Date()
                     Task { @MainActor in EchoState.shared.done = n; EchoState.shared.total = t }
                 }
             }
+            if case .success(let res) = r, res.failures.isEmpty { EchoState.cleanIfDue(dir) }
             await MainActor.run {
                 let s = EchoState.shared
                 s.running = false
@@ -129,6 +144,23 @@ final class EchoState: ObservableObject {
                 }
                 s.reloadSessions()
             }
+        }
+    }
+
+    /// 备份成功后清理备份：每天最多一次；升级后第一次全部过一遍。在后台线程调用
+    nonisolated static func cleanIfDue(_ dir: URL, now: Date = Date()) {
+        let first = EchoPrefs.cleanRules < EchoPrefs.cleanRulesVersion
+        if !first, let d = EchoPrefs.lastClean, Calendar.current.isDate(d, inSameDayAs: now) { return }
+        var policy = EchoPrefs.policy
+        policy.now = now
+        do {
+            let r = try EchoClean.run(computerDir: dir, policy: policy, force: first)
+            NSLog("回响清理：%d 个文件，重写 %d 个，释放 %.1fMB，失败 %d", r.files, r.rewritten, Double(r.freed) / 1e6, r.failures.count)
+            for f in r.failures { NSLog("回响清理失败：%@：%@", f.path, f.message) }
+            if r.failures.isEmpty, first { EchoPrefs.cleanRules = EchoPrefs.cleanRulesVersion }
+            EchoPrefs.lastClean = now
+        } catch {
+            NSLog("回响清理没跑起来：%@", error.localizedDescription)
         }
     }
 

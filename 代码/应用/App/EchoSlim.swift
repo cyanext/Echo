@@ -379,14 +379,17 @@ enum EchoSlim {
         stats.bytesOut += out.count - before
     }
 
-    /// 瘦身整个文件，写到 dst（调用方负责先写临时文件再改名）
+    /// 瘦身整个文件，写到 dst（调用方负责先写临时文件再改名）；dst 为 nil 时只算不写（估算能释放多少）
     @discardableResult
-    static func slimFile(_ src: URL, to dst: URL, policy: EchoPolicy = EchoPolicy()) throws -> Stats {
-        guard FileManager.default.createFile(atPath: dst.path, contents: nil) else {
-            throw CocoaError(.fileWriteUnknown, userInfo: [NSFilePathErrorKey: dst.path])
+    static func slimFile(_ src: URL, to dst: URL?, policy: EchoPolicy = EchoPolicy()) throws -> Stats {
+        var fout: FileHandle?
+        if let dst {
+            guard FileManager.default.createFile(atPath: dst.path, contents: nil) else {
+                throw CocoaError(.fileWriteUnknown, userInfo: [NSFilePathErrorKey: dst.path])
+            }
+            fout = try FileHandle(forWritingTo: dst)
         }
-        let fout = try FileHandle(forWritingTo: dst)
-        defer { try? fout.close() }
+        defer { try? fout?.close() }
         var stats = Stats()
         let state = EchoSlimState()
         var out = [UInt8]()
@@ -394,27 +397,31 @@ enum EchoSlim {
         try EchoLines.each(src) { line in
             slimLine(line, into: &out, stats: &stats, policy: policy, state: state)
             if out.count >= 8 << 20 {
-                try fout.write(contentsOf: out)
+                try fout?.write(contentsOf: out)
                 out.removeAll(keepingCapacity: true)
             }
         }
-        try fout.write(contentsOf: out)
-        try fout.synchronize()
+        try fout?.write(contentsOf: out)
+        try fout?.synchronize()
         return stats
     }
 }
 
 // MARK: - 密钥打码
 
-/// 留前 4 位和后 4 位，中间换成 8 个「•」；不到 12 位的只留前 2 位；私钥只留首尾两行标记。规则和原型 mask_secrets 一致
+/// 留前 4 位和后 4 位，中间换成 8 个「•」；不到 12 位的只留前 2 位；私钥只留首尾两行标记。规则和原型 mask_secrets 一致。
+/// 几乎每行都有 token（用量里的 output_tokens），所以「password=…」这类赋值在字节上逐个找关键字（等价于原型的 ASSIGN 正则），
+/// Bearer、sk- 这些少见的先在字节里找到再跑正则；没有可疑内容的行不转字符串
 enum EchoSecrets {
     static let dots = String(repeating: "•", count: 8)
     private static func re(_ p: String) -> NSRegularExpression { try! NSRegularExpression(pattern: p) }
-    private static let hint = re(#"Bearer|sk-|gh[pousr]_|github_pat_|AKIA|PRIVATE KEY|(?i:pass|secret|token|api_?key|access_?key)"#)
     private static let privateKey = re(#"(-----BEGIN [A-Z ]*PRIVATE KEY-----)(.{40,}?)(-----END [A-Z ]*PRIVATE KEY-----)"#)
     private static let bearer = re(#"(Bearer\s+)([A-Za-z0-9._~+/=-]{16,})"#)
     private static let prefixed = re(#"()(?<![A-Za-z0-9])(sk-[A-Za-z0-9_-]{20,}|gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,}|AKIA[0-9A-Z]{16})"#)
-    private static let assign = re(#"(?i)((?:password|passwd|secret|token|api_?key|access_?key)\\?["']?\s*[:=]\s*\\?["']?)([^"'\\\s,;&<>]{8,})"#)
+    private static let rareNeedles = ["Bearer", "sk-", "hp_", "ho_", "hu_", "hs_", "hr_", "github_pat_", "AKIA", "PRIVATE KEY"].map { Array($0.utf8) }
+    /// 赋值的关键字（小写），顺序同原型正则里的分支
+    private static let keys = ["password", "passwd", "secret", "token", "api_key", "apikey", "access_key", "accesskey"].map { Array($0.utf8) }
+    private static let keyFirst = Set(keys.map { $0[0] })
     private static let exampleWords = ["xxx", "your", "example", "placeholder", "dummy", "changeme", "test", "redacted", "***"]
 
     static func maskValue(_ v: String) -> String {
@@ -426,32 +433,102 @@ enum EchoSecrets {
     static func looksReal(_ v: String) -> Bool {
         let low = v.lowercased()
         if exampleWords.contains(where: low.contains) || v.contains(where: { "${}•".contains($0) }) { return false }
-        return v.rangeOfCharacter(from: .letters) != nil && v.rangeOfCharacter(from: .decimalDigits) != nil
-            && v.unicodeScalars.contains(where: { ("a"..."z").contains($0) || ("A"..."Z").contains($0) })
+        return v.unicodeScalars.contains(where: { ("a"..."z").contains($0) || ("A"..."Z").contains($0) })
             && v.unicodeScalars.contains(where: { ("0"..."9").contains($0) })
     }
 
-    /// 逐个匹配从后往前替换：prefix 是保留的前半段（组 1），value 是要打码的组号
-    private static func sub(_ s: String, _ r: NSRegularExpression, _ f: (NSTextCheckingResult, NSString) -> String?) -> String {
+    private static func sub(_ s: String, _ r: NSRegularExpression, _ f: (NSTextCheckingResult, NSString) -> String) -> String {
         let ns = s as NSString
         var out = s as NSString
         for m in r.matches(in: s, range: NSRange(location: 0, length: ns.length)).reversed() {
-            if let rep = f(m, ns) { out = out.replacingCharacters(in: m.range, with: rep) as NSString }
+            out = out.replacingCharacters(in: m.range, with: f(m, ns)) as NSString
         }
         return out as String
     }
 
+    /// 从 i 起解一个 Unicode 字符，返回字符和占几个字节；坏字节当一个字节
+    private static func scalar(_ b: [UInt8], _ i: Int) -> (Unicode.Scalar?, Int) {
+        if b[i] < 0x80 { return (Unicode.Scalar(b[i]), 1) }
+        var it = b[i...].makeIterator()
+        var d = UTF8()
+        if case .scalarValue(let u) = d.decode(&it) { return (u, UTF8.width(u)) }
+        return (nil, 1)
+    }
+
+    /// 和 Python 的 \s 一样：ASCII 空白和 Unicode 空白
+    private static func isSpace(_ u: Unicode.Scalar?) -> Bool {
+        guard let u else { return false }
+        return u.properties.isWhitespace || (0x1C...0x1F).contains(u.value)
+    }
+
+    /// 等价于原型的 ASSIGN：关键字 \\?["']? \s* [:=] \s* \\?["']? 值（不含 "'\ 空白 ,;&<>，至少 8 个字符）
+    private static func assign(_ b: [UInt8]) -> [UInt8]? {
+        let n = b.count
+        var out: [UInt8] = [], last = 0, i = 0, changed = false
+        // 先在小写副本里用 memmem 找出所有关键字的位置，按位置排好；同一位置取原型正则里靠前的分支
+        let low = b.map { (65...90).contains($0) ? $0 + 32 : $0 }
+        var hits: [(pos: Int, len: Int)] = []
+        low.withUnsafeBufferPointer { lp in
+            guard let base = lp.baseAddress else { return }
+            for (order, k) in keys.enumerated() {
+                var from = 0
+                while from < n, let p = k.withUnsafeBufferPointer({ memmem(base + from, n - from, $0.baseAddress!, k.count) }) {
+                    let pos = base.distance(to: p.assumingMemoryBound(to: UInt8.self))
+                    hits.append((pos * 16 + order, k.count))
+                    from = pos + 1
+                }
+            }
+        }
+        guard !hits.isEmpty else { return nil }
+        hits.sort { $0.pos < $1.pos }
+        for h in hits {
+            let start = h.pos / 16
+            guard start >= i else { continue }
+            i = start
+            let k = keys[h.pos % 16]
+            var j = i + k.count
+            if j < n, b[j] == 0x5C { j += 1 }
+            if j < n, b[j] == 0x22 || b[j] == 0x27 { j += 1 }
+            while j < n { let (u, w) = scalar(b, j); if isSpace(u) { j += w } else { break } }
+            guard j < n, b[j] == 0x3A || b[j] == 0x3D else { continue }
+            j += 1
+            while j < n { let (u, w) = scalar(b, j); if isSpace(u) { j += w } else { break } }
+            if j < n, b[j] == 0x5C { j += 1 }
+            if j < n, b[j] == 0x22 || b[j] == 0x27 { j += 1 }
+            var e = j, count = 0
+            while e < n {
+                let c = b[e]
+                if c == 0x22 || c == 0x27 || c == 0x5C || c == 0x2C || c == 0x3B || c == 0x26 || c == 0x3C || c == 0x3E { break }
+                let (u, w) = scalar(b, e)
+                if isSpace(u) { break }
+                e += w; count += 1
+            }
+            guard count >= 8 else { continue }
+            let v = String(decoding: b[j..<e], as: UTF8.self)
+            if looksReal(v) {
+                out.append(contentsOf: b[last..<j])
+                out.append(contentsOf: Array(maskValue(v).utf8))
+                last = e
+                changed = true
+            }
+            i = e
+        }
+        guard changed else { return nil }
+        out.append(contentsOf: b[last...])
+        return out
+    }
+
     /// 有密钥就返回打码后的一行，没有返回 nil
     static func mask(_ line: [UInt8]) -> [UInt8]? {
-        let s0 = String(decoding: line, as: UTF8.self)
-        guard hint.firstMatch(in: s0, range: NSRange(location: 0, length: (s0 as NSString).length)) != nil else { return nil }
-        var s = sub(s0, privateKey) { m, ns in ns.substring(with: m.range(at: 1)) + dots + ns.substring(with: m.range(at: 3)) }
-        s = sub(s, bearer) { m, ns in ns.substring(with: m.range(at: 1)) + maskValue(ns.substring(with: m.range(at: 2))) }
-        s = sub(s, prefixed) { m, ns in maskValue(ns.substring(with: m.range(at: 2))) }
-        s = sub(s, assign) { m, ns in
-            let v = ns.substring(with: m.range(at: 2))
-            return looksReal(v) ? ns.substring(with: m.range(at: 1)) + maskValue(v) : nil
+        var b = line, changed = false
+        if rareNeedles.contains(where: { nd in line.withUnsafeBufferPointer { EchoLines.has($0, nd) } }) {
+            let s0 = String(decoding: line, as: UTF8.self)
+            var s = sub(s0, privateKey) { m, ns in ns.substring(with: m.range(at: 1)) + dots + ns.substring(with: m.range(at: 3)) }
+            s = sub(s, bearer) { m, ns in ns.substring(with: m.range(at: 1)) + maskValue(ns.substring(with: m.range(at: 2))) }
+            s = sub(s, prefixed) { m, ns in maskValue(ns.substring(with: m.range(at: 2))) }
+            if s != s0 { b = Array(s.utf8); changed = true }
         }
-        return s == s0 ? nil : Array(s.utf8)
+        if let a = assign(b) { b = a; changed = true }
+        return changed ? b : nil
     }
 }
