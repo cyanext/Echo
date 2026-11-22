@@ -18,9 +18,21 @@ enum EchoTests {
             let t0 = Date()
             let list = EchoLibrary.scan(backupRoot: URL(fileURLWithPath: a[2]))
             let t1 = Date()
-            let data = EchoStats.build(list)
+            let data = EchoStats.build(list, deleted: EchoDeleted.loadAll(URL(fileURLWithPath: a[2])))
             try data.write(to: URL(fileURLWithPath: a[3]))
             print(String(format: "  %d 个会话，扫列表 %.1f 秒，整理总览 %.1f 秒，%d KB", list.count, t1.timeIntervalSince(t0), Date().timeIntervalSince(t1), data.count / 1024))
+        }
+        else if a.count >= 5, a[1] == "--record-deleted" {   // 补记已删除统计：test --record-deleted <电脑备份目录> <删除时间 ISO> <会话.jsonl…>
+            let dir = URL(fileURLWithPath: a[2]), when = EchoTime.parse(a[3]) ?? Date()
+            var out: [EchoDeletedSession] = []
+            for f in a.dropFirst(4) {
+                let u = URL(fileURLWithPath: f), m = try EchoSessionScan.read(u)
+                let s = EchoSession(url: u, sessionId: String(u.lastPathComponent.dropLast(6)), computer: dir.lastPathComponent, size: 0, meta: m)
+                let r = try EchoDeleted.make(s, at: when)
+                print("  \(r.sid.prefix(8))  \(r.t)  \(r.cwd)  \(r.days.count) 天")
+                out.append(r)
+            }
+            try EchoDeleted.add(out, dir)
         }
         else if a.count == 3, a[1] == "--backup" { try backup(URL(fileURLWithPath: a[2])) }
         else if a.count == 3, a[1] == "--time" { try timeExport(URL(fileURLWithPath: a[2])) }
@@ -68,6 +80,21 @@ enum EchoTests {
         check(d?.ms == 90000 && d?.lg == 60000, "统计：AI 干活 90 秒、最长 60 秒，实际 \(d?.ms ?? 0) \(d?.lg ?? 0)")
         check(EchoStats.project(NSHomeDirectory() + "/Desktop/项目代码/NAS/伙伴云NAS应用") == "NAS", "统计：项目取大目录下一级")
         check(EchoStats.project(NSHomeDirectory() + "/Desktop/项目代码/回响/.worktrees/主页") == "回响", "统计：.worktrees 算进上一级")
+        // 已删除统计：删了照算，放回来不算两遍，同一个会话再删只留一条
+        let cdir = FileManager.default.temporaryDirectory.appendingPathComponent("回响删除统计测试-\(UUID().uuidString)/机")
+        defer { try? FileManager.default.removeItem(at: cdir.deletingLastPathComponent()) }
+        let sess = EchoSession(url: u, sessionId: "s9", computer: "机", size: 0, meta: EchoSessionMeta(title: "删掉的", cwd: "/x/y", start: "2026-11-20T02:00:00Z", end: ""))
+        try EchoDeleted.add([try EchoDeleted.make(sess)], cdir)
+        try EchoDeleted.add([try EchoDeleted.make(sess)], cdir)
+        let gone = EchoDeleted.loadAll(cdir.deletingLastPathComponent())
+        check(gone.count == 1 && gone[0].days[day]?.m == 1 && gone[0].t == "删掉的", "已删除统计：应留一条、数不变，实际 \(gone.count) 条")
+        func sessCount(_ live: [EchoSession]) -> (Int, Int) {
+            let o = try! JSONSerialization.jsonObject(with: EchoStats.build(live, deleted: gone)) as! [String: Any]
+            let ss = o["sessions"] as! [[String: Any]]
+            return (ss.count, ss.filter { $0["x"] != nil }.count)
+        }
+        check(sessCount([]) == (1, 1), "已删除统计：删了以后总览应照算，实际 \(sessCount([]))")
+        check(sessCount([sess]) == (1, 0), "已删除统计：放回来以后不应算两遍，实际 \(sessCount([sess]))")
         // Git：上级目录往下找两层里的仓库，.开头的不进；删掉的分支工作区换成主目录
         let fm = FileManager.default
         let top = fm.temporaryDirectory.appendingPathComponent("回响仓库测试-\(UUID().uuidString)").path

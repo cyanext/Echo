@@ -152,9 +152,9 @@ final class EchoState: ObservableObject {
     func rebuildOverview() {
         guard !buildingOverview else { overviewAgain = true; return }
         buildingOverview = true
-        let list = sessions
+        let list = sessions, root = EchoPrefs.backupRoot
         Task.detached(priority: .utility) {
-            let data = EchoStats.build(list)
+            let data = EchoStats.build(list, deleted: EchoDeleted.loadAll(root))
             await MainActor.run {
                 let s = EchoState.shared
                 s.overview = data
@@ -176,8 +176,9 @@ final class EchoState: ObservableObject {
         backupNow()
     }
 
-    /// 一个个删，出错的跳过，最后报第一个错
+    /// 先把要删的会话按天的数记进「已删除统计」，总览照算；记不下来就不删。再一个个删，出错的跳过，最后报第一个错
     func delete(_ list: [EchoSession]) throws {
+        try EchoDeleted.add(list.filter { EchoDelete.paths(for: $0) != nil }.map { try EchoDeleted.make($0) }, EchoPrefs.computerDir)
         var firstError: Error?
         for s in list {
             do {

@@ -1,4 +1,4 @@
-// 总览的数：每个会话每天的我的消息、AI 干活时长、各模型的 Token；每个项目的 Git 提交。
+// 总览的数：每个会话每天的我的消息、AI 干活时长、各模型的 Token；每个项目的 Git 提交；删掉的会话留下的统计。
 // 只读：会话读备份，Git 只跑 log。整理成 JSON 交给 Web/overview.js 算周、比较、折合美元（单价在 Web/prices.json）。
 // 口径见 设计/总览/说明.md「数怎么算」。
 import Foundation
@@ -11,6 +11,49 @@ struct EchoDayStat: Codable, Equatable {
     var k: [String: [Double]] = [:]   // 模型 → [输入, 输出, 读缓存, 写缓存 5 分钟, 写缓存 1 小时]
     var a = 0.0                       // 这天第一条、最后一条记录的时间（秒），用来把提交归到会话
     var b = 0.0
+}
+
+/// 删掉的会话留下的统计：只有按天的数和几项会话信息，没有对话内容。删会话前记下，总览照算
+struct EchoDeletedSession: Codable, Equatable {
+    var sid: String                   // 会话 ID
+    var t: String                     // 标题
+    var cwd: String                   // 会话目录
+    var c: String                     // 电脑
+    var deleted: String               // 删除时间（ISO 8601）
+    var days: [String: EchoDayStat]
+}
+
+/// 已删除统计：每台电脑一个文件 <备份目录>/<电脑名>/已删除统计.json，只有这台电脑写（只能删本机的会话），读的时候各台合起来
+enum EchoDeleted {
+    private struct File: Codable { var sessions: [EchoDeletedSession] = [] }
+
+    static func url(_ computerDir: URL) -> URL { computerDir.appendingPathComponent("已删除统计.json") }
+
+    static func load(_ computerDir: URL) -> [EchoDeletedSession] {
+        (try? Data(contentsOf: url(computerDir))).flatMap { try? JSONDecoder().decode(File.self, from: $0) }?.sessions ?? []
+    }
+
+    static func loadAll(_ backupRoot: URL) -> [EchoDeletedSession] {
+        let dirs = (try? FileManager.default.contentsOfDirectory(at: backupRoot, includingPropertiesForKeys: nil, options: .skipsHiddenFiles)) ?? []
+        return dirs.flatMap(load)
+    }
+
+    /// 加进这台电脑的记录，同一个会话（删了、放回、又删）只留最新一条。先写临时文件再改名，写到一半不会坏
+    static func add(_ list: [EchoDeletedSession], _ computerDir: URL) throws {
+        guard !list.isEmpty else { return }
+        let ids = Set(list.map(\.sid))
+        let all = load(computerDir).filter { !ids.contains($0.sid) } + list
+        try FileManager.default.createDirectory(at: computerDir, withIntermediateDirectories: true)
+        let enc = JSONEncoder()
+        enc.outputFormatting = [.sortedKeys]
+        try enc.encode(File(sessions: all)).write(to: url(computerDir), options: .atomic)
+    }
+
+    /// 从备份读出这个会话按天的数
+    static func make(_ s: EchoSession, at date: Date = Date()) throws -> EchoDeletedSession {
+        EchoDeletedSession(sid: s.sessionId, t: s.meta.title == s.sessionId ? "未命名会话" : s.meta.title, cwd: s.projectPath,
+                           c: s.computer, deleted: ISO8601DateFormatter().string(from: date), days: try EchoStats.read(s.url))
+    }
 }
 
 private struct EchoStatsCache: Codable {
@@ -179,7 +222,7 @@ enum EchoStats {
     // MARK: 汇总
 
     /// 整理成 overview.js 要的 JSON。同步执行，放在后台线程调用
-    static func build(_ sessions: [EchoSession]) -> Data {
+    static func build(_ sessions: [EchoSession], deleted: [EchoDeletedSession] = []) -> Data {
         let cacheURL = EchoLibrary.supportDir.appendingPathComponent("总览缓存2.json")   // 2：加了每天的起止时间
         let cache = (try? Data(contentsOf: cacheURL)).flatMap { try? JSONDecoder().decode(EchoStatsCache.self, from: $0) } ?? EchoStatsCache()
         var fresh = EchoStatsCache()
@@ -199,12 +242,20 @@ enum EchoStats {
                          "p": project(s.projectPath), "d": projectPath(s.projectPath), "c": s.computer, "days": dict])
         }
         if let d = try? JSONEncoder().encode(fresh) { try? d.write(to: cacheURL, options: .atomic) }
+        // 删掉的会话照算；从废纸篓放回来的（同一台电脑、同一个会话 ID 又读到了）用读到的，不算两遍
+        let live = Set(sessions.map { $0.computer + "/" + $0.sessionId })
+        let gone = deleted.filter { !live.contains($0.c + "/" + $0.sid) && !$0.days.isEmpty }
+        for g in gone {
+            let dict = g.days.mapValues { d -> [String: Any] in ["m": d.m, "ms": d.ms, "lg": d.lg, "k": d.k, "a": d.a, "b": d.b] }
+            list.append(["id": "deleted:" + g.c + "/" + g.sid, "x": 1, "t": g.t, "p": project(g.cwd), "d": projectPath(g.cwd), "c": g.c, "days": dict])
+        }
 
         // Git：只看本机会话的目录，从最早有会话的那天起，最多半年
         let first = list.flatMap { ($0["days"] as? [String: Any])?.keys.map { $0 } ?? [] }.min() ?? ""
         let half = Calendar.current.date(byAdding: .month, value: -6, to: Date())!
         let since = max(first, String(EchoTime.formatted(half, "yyyy-MM-dd")))
-        let cwds = Set(sessions.filter { $0.computer == EchoPrefs.computerName }.map(\.meta.cwd).filter { !$0.isEmpty })
+        let cwds = Set(sessions.filter { $0.computer == EchoPrefs.computerName }.map(\.meta.cwd).filter { !$0.isEmpty }
+                       + gone.filter { $0.c == EchoPrefs.computerName }.map(\.cwd))
         let commits = first.isEmpty ? [] : self.commits(cwds: cwds, since: since)
         let gitList = commits.map { ["p": $0.p, "d": $0.d, "s": $0.s, "a": $0.a, "r": $0.r, "f": $0.f] as [String: Any] }
 
