@@ -43,6 +43,22 @@ svg { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; s
 .head h1 { margin: 0; font-size: var(--text-xl); line-height: var(--lh-xl); font-weight: 600; }
 .wk { display: flex; align-items: center; gap: var(--space-1); color: var(--fg-muted); }
 .wk .now { margin-left: var(--space-2); padding: 0 6px; border-radius: var(--radius-2xs); background: var(--bg-subtle); font-size: var(--text-xs); line-height: var(--lh-xs); }
+/* 应用筛选（设计稿 设计/多应用/）：图标按钮加一圈细框，菜单白底细框，选中的文字主色、右边小勾 */
+.appf { position: relative; margin-left: auto; }
+.appf + .seg { margin-left: 0; }
+.appf .pb { display: inline-flex; align-items: center; gap: 3px; height: 30px; padding: 0 6px 0 8px; border: 1px solid var(--line); border-radius: var(--radius-sm); color: var(--fg-muted); cursor: pointer; }
+.appf .pb:hover { background: var(--bg-hover); }
+.appf svg { width: 16px; height: 16px; stroke-width: 1.6; }
+.appf svg.dn { width: 12px; height: 12px; }
+.appf img.ai { width: 16px; height: 16px; border-radius: 3.5px; box-shadow: 0 0 0 .5px rgba(0,0,0,.08); }
+.pmenu { position: absolute; right: 0; top: 36px; z-index: 5; width: 176px; padding: 4px; border-radius: 10px; background: var(--bg-surface); box-shadow: 0 0 0 1px var(--line), 0 6px 20px rgba(0,0,0,.08); }
+.pmenu .mi { display: flex; align-items: center; gap: 4px; height: 30px; padding: 0 10px; border-radius: 6px; font-size: var(--text-sm); color: var(--fg); cursor: pointer; }
+.pmenu .mi:hover { background: var(--bg-hover); }
+.pmenu .mi .ic { display: inline-flex; width: 24px; color: var(--fg-faint); }
+.pmenu .mi .nm { flex: 1; }
+.pmenu .mi.on { color: var(--accent); font-weight: 500; }
+.pmenu .mi .ck { width: 14px; height: 14px; stroke-width: 2; color: var(--accent); }
+
 /* 右上角切换：会话 / 备份，灰底分段，选中的白底 */
 .seg { display: inline-flex; margin-left: auto; padding: 2px; border-radius: var(--radius-sm); background: var(--bg-subtle); }
 .seg b { padding: 0 var(--space-3); border-radius: 6px; font-size: var(--text-sm); line-height: 26px; font-weight: 400; color: var(--fg-muted); cursor: pointer; }

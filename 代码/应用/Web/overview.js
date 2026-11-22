@@ -29,6 +29,7 @@
   };
 
   let DATA = null;   // 这次整理好的数据（备份卡片要用 data.backup）
+  let appF = "";     // 会话页只看某个应用（会话的 a：codex 等，没写的是 claude）；空是全部，不记上次
   let prices = {}, TODAY, weeks = [], cur = 0, open = new Set();   // open：展开了全部会话的那几天（时间戳）
 
   function price(model) {
@@ -51,7 +52,8 @@
       if (!days.has(k)) days.set(k, { tot: 0, out: 0, usd: 0, msg: 0, ms: 0, lg: 0, sess: [], parts: [0, 0, 0, 0], models: {}, commits: [] });
       return days.get(k);
     };
-    for (const s of data.sessions) {
+    const sessions = data.sessions.filter((s) => !appF || (s.a || "claude") === appF);
+    for (const s of sessions) {
       for (const [k, v] of Object.entries(s.days)) {
         const d = day(k);
         let tot = 0, usd = 0;
@@ -75,7 +77,7 @@
     // 在别的文件夹里提交的也对得上；没有的，同一项目、提交时间落在会话这天的起止之间（前后各放宽 10 分钟），几个都对得上取 Token 多的；
     // 都对不上的只算进当天的提交次数（不单独列）
     const owner = new Map(), msgKey = (m) => "m:" + Array.from((m.split("\n")[0] || "").trim()).slice(0, 30).join("");
-    for (const s of data.sessions) for (const h of s.g || []) owner.set(h.startsWith("m:") ? h : h.slice(0, 7), s.id);
+    for (const s of sessions) for (const h of s.g || []) owner.set(h.startsWith("m:") ? h : h.slice(0, 7), s.id);
     for (const d of days.values()) {
       for (const c of d.commits) {
         const sid = owner.get(c.h.slice(0, 7)) || owner.get(msgKey(c.full));
@@ -83,6 +85,8 @@
           || d.sess.filter((s) => s.p === c.p && c.time >= s.a - 6e5 && c.time <= s.b + 6e5).sort((a, b) => b.tot - a.tot)[0];
         if (hit) hit.commits.push(c);
       }
+      // 只看某个应用时，提交只算挂在这个应用会话上的
+      if (appF) d.commits = d.commits.filter((c) => d.sess.some((s) => s.commits.includes(c)));
     }
     // 从第一个有会话的周起，到这周
     const keys = [...days.keys()].filter((k) => days.get(k).sess.length).sort();
@@ -283,8 +287,27 @@
     document.querySelector(".page:not(.bkpage)").hidden = bk;
     $("backup").hidden = !bk;
     document.querySelectorAll("#view b").forEach((x) => x.classList.toggle("on", x.dataset.v === view));
+    appPick();
     if (bk) backup(); else { hero(); cal(); week(); money(); }
   }
+  // 应用筛选：会话页右上角一个图标按钮（全部是四宫格，选了一个是它的图标），点了出小菜单；只有一个应用有会话时不显示（设计稿 设计/多应用/）
+  const GRID = '<svg viewBox="0 0 24 24"><rect x="4" y="4" width="6.5" height="6.5" rx="1.6"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.6"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.6"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.6"/></svg>';
+  const appIcon = (a) => a ? `<img class="ai" src="app-${a}.svg" alt="">` : GRID;
+  function appPick() {
+    const el = $("appf"), apps = ["claude", "codex", "workbuddy"].filter((a) => DATA && DATA.sessions && DATA.sessions.some((s) => (s.a || "claude") === a));
+    el.hidden = view === "backup" || apps.length < 2;
+    if (el.hidden) return;
+    const CK = '<svg class="ck" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>';
+    el.innerHTML = `<span class="pb" data-tip="${appF ? APP[appF] : "全部应用"}">${appIcon(appF)}<svg class="dn" viewBox="0 0 24 24"><path d="m7 10 5 5 5-5"/></svg></span>`
+      + `<div class="pmenu" hidden>${["", ...apps].map((a) => `<div class="mi${a === appF ? " on" : ""}" data-a="${a}"><span class="ic">${appIcon(a)}</span><span class="nm">${a ? APP[a] : "全部"}</span>${a === appF ? CK : ""}</div>`).join("")}</div>`;
+  }
+  $("appf").onclick = (e) => {
+    const menu = $("appf").querySelector(".pmenu"), it = e.target.closest(".mi");
+    if (it) { appF = it.dataset.a; menu.hidden = true; build(DATA); draw(); return; }
+    if (e.target.closest(".pb")) { menu.hidden = !menu.hidden; e.stopPropagation(); }
+  };
+  document.addEventListener("click", (e) => { const m = document.querySelector("#appf .pmenu"); if (m && !e.target.closest("#appf")) m.hidden = true; });
+
   // 右上角切换：会话 / 备份，每次打开先看会话，不记上次
   let view = "sess";
   $("view").onclick = (e) => { const b = e.target.closest("b"); if (!b || b.dataset.v === view) return; view = b.dataset.v; draw(); };
