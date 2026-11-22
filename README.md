@@ -43,7 +43,7 @@
   1. 给号，`build.sh` 改 `VERSION`、`BUILD` 加一；这次发的需求改名「v<号>-<主题>」，页头写「已发布」和日期。
   2. `CHANGELOG.md` 最上面写一节 `## v<号>（日期）`，这次发的每篇需求一条；修已发版本的小问题写现象、原因、改法。
   3. 跑测试，`zsh 代码/应用/build.sh install` 装到本机。
-  4. 合进 main，打 tag `app-v<号>`，删掉分支工作区。推远端前先问用户。
+  4. 合进 main，打 tag `app-v<号>`，删掉分支工作区，推远端（`git push origin main --tags`）。
 
 ## 待做
 

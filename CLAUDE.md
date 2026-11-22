@@ -23,7 +23,7 @@
 
 - 编译：`swiftc` 直接编译加脚本拼 `.app`，参考 `../NAS/伙伴云NAS应用/mac/build.sh`、`mac/tools/swift-env.sh`。自用，临时签名即可。
 - 版本号、发版、版本需求、CHANGELOG：按 devguide；回响特有的（tag 前缀、发版步骤）见 README「版本和发版」。
-- git：主目录始终在 main，分支工作区只建在 `.worktrees/<主题>`，合完当场删。推远端前先问用户。
+- git：主目录始终在 main，分支工作区只建在 `.worktrees/<主题>`，合完当场删。发版合进 main 后直接推远端（main 和标签）。
 - 提交前用 `git ls-files` 查同步工具补出来的「X 2」副本。
 - 测试：瘦身、消息显示、分段规则都写回归测试，改了必跑。
 - 测试版装在 `~/Applications`，用 `env -u TZ open` 启动（终端带美国时区）。
