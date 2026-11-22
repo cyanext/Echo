@@ -197,7 +197,7 @@
       if (x.sess.length) {
         const list = all ? x.sess : x.sess.slice(0, 4), rest = x.sess.length - 4;
         h += `<div class="table">${COLS}${list.map(sessRow).join("")}</div>` + (rest > 0 ? `<div class="toggle" data-t="${t}">${all ? "收起" : `还有 ${rest} 个会话`}</div>` : "")
-          + `<div class="row sum"><div class="name">合计<span class="cnt">${x.sess.length} 个会话</span></div><span class="num strong" data-tip="折合 ${fmtU(x.usd)}">${fmtM(x.tot)}</span><span class="num">${x.msg} 条</span><span class="num">${ms ? dur(ms) : ""}</span><span></span><span class="num">${x.commits.length ? `${x.commits.length} 次` : ""}</span></div>`;
+          + `<div class="row sum"><div class="name"><b>合计</b><span class="cnt">${x.sess.length} 个会话</span></div><span class="num strong" data-tip="折合 ${fmtU(x.usd)}">${fmtM(x.tot)}</span><span class="num">${x.msg} 条</span><span class="num">${ms ? dur(ms) : ""}</span><span></span><span class="num">${x.commits.length ? `${x.commits.length} 次` : ""}</span></div>`;
       }
       if (other.length) {
         const byP = new Map();
