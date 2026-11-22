@@ -1,9 +1,10 @@
-// 左栏右上角的日期筛选：一级菜单是全部时间和最近几天，「按月份」悬停出二级的月份选择器（设计稿 设计/日期筛选/）。
-// 筛选的值是一个字符串：空是全部时间，「d7」最近 7 天，「m2026-11」某个月；都按会话最后用过的时间算
+// 左栏右上角的日期筛选：照伙伴云的日期筛选，快捷选项格子加「选择月份」（设计稿 设计/日期筛选/）。
+// 筛选的值是一个字符串（键见 EchoDateFilter.range），空是全部时间；都按会话最后用过的时间算
 import SwiftUI
 
 enum EchoDateFilter {
-    static let recent = ["", "d1", "d7", "d30", "d90"]
+    /// 快捷选项：一行一组
+    static let rows: [[String]] = [[""], ["d1", "d7"], ["d30", "d90"]]
 
     /// 「今天」从今天 0 点起，「最近 7 天」含今天共 7 天；月份是那个月 1 号 0 点到下个月 1 号
     static func range(_ key: String) -> Range<Date>? {
@@ -30,67 +31,71 @@ enum EchoDateFilter {
         return p.count == 2 ? (p[0], p[1]) : nil
     }
 
-    /// 今年的月份写「11月」，往年的写「2025年12月」
     static func title(_ key: String) -> String {
         if key.isEmpty { return "全部时间" }
         if key == "d1" { return "今天" }
         if key.hasPrefix("d") { return "最近 \(key.dropFirst()) 天" }
-        guard let (y, m) = month(key) else { return key }
-        return y == Calendar.current.component(.year, from: Date()) ? "\(m)月" : "\(y)年\(m)月"
+        if let (y, m) = month(key) { return "\(y)年\(m)月" }
+        return key
     }
 }
 
-/// 日期筛选菜单：样式照 EchoPickMenu（白底细框、圆角 10、一项 30 高，选中的文字主色加勾），不画图标栏。
-/// 「按月份」悬停或点一下，右边贴着出月份选择器，顶边和这一行对齐；悬停一级的其他项时收起（和系统菜单一样）
+/// 日期筛选面板，照伙伴云的日期筛选：上面快捷选项格子，下面「选择月份」输入框（不要分隔线，选项只留全部时间、今天和最近几天），点开在下面出月份选择器。
+/// 白底细框、圆角 10；格子 32 高、圆角 6，悬停浅底，选中主色字加浅主色底
 struct EchoDateMenu: View {
     let selected: String
     let months: Set<String>                 // 有会话的月份（「m2026-11」）
     let pick: (String) -> Void
     @State private var hover: String?
-    @State private var sub = ProcessInfo.processInfo.environment["ECHO_SHOT_SUB"] != nil   // 环境变量只给截图用：打开就展开月份选择器
+    @State private var picker = ProcessInfo.processInfo.environment["ECHO_SHOT_SUB"] != nil   // 环境变量只给截图用：打开就展开月份选择器
 
-    private let width: CGFloat = 160
-    private let rowH: CGFloat = 30
+    private let width: CGFloat = 220
 
     var body: some View {
-        VStack(spacing: 0) {
-            ForEach(EchoDateFilter.recent, id: \.self) { k in
-                row(EchoDateFilter.title(k), on: k == selected, hovered: hover == k) {
-                    if k == selected { Image(systemName: "checkmark").font(.system(size: 11, weight: .semibold)).foregroundStyle(EchoColor.accent) }
+        VStack(spacing: 2) {
+            ForEach(EchoDateFilter.rows, id: \.self) { row in
+                HStack(spacing: 2) { ForEach(row, id: \.self) { cell($0) } }
+            }
+            field.padding(.top, 6)
+            // 月份选择器挂在输入框下面 4，和输入框左对齐、一样宽：挂在输入框下沿一个 0 高的视图上，往下长
+            Color.clear.frame(height: 0).overlay(alignment: .top) {
+                if picker {
+                    EchoMonthPicker(selected: selected, months: months, width: width - 16, pick: pick)
+                        .fixedSize(horizontal: false, vertical: true).offset(y: 2)
                 }
-                .onHover { if $0 { hover = k; sub = false } else if hover == k { hover = nil } }
-                .onTapGesture { pick(k) }
             }
-            Color.clear.frame(height: 4)
-            let monthOn = selected.hasPrefix("m")
-            row("按月份", on: monthOn, hovered: sub) {
-                if monthOn { Text(EchoDateFilter.title(selected)).font(.system(size: 12)).foregroundStyle(EchoColor.accentText) }
-                Image(systemName: "chevron.right").font(.system(size: 9, weight: .semibold)).foregroundStyle(EchoColor.fg3)
-            }
-            .onHover { if $0 { hover = nil; sub = true } }
-            .onTapGesture { sub.toggle() }
         }
-        .padding(4)
+        .padding(8)
         .frame(width: width)
         .background(RoundedRectangle(cornerRadius: 10).fill(EchoColor.surface))
         .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(EchoColor.line, lineWidth: 1))
         .shadow(color: .black.opacity(0.08), radius: 10, y: 4)
-        .overlay(alignment: .topLeading) {
-            // 顶边对齐「按月份」那行：菜单内边距 4、五项、空 4，再减去选择器自己的上内边距 4
-            if sub { EchoMonthPicker(selected: selected, months: months, pick: pick).offset(x: width - 4, y: 4 + rowH * 5 + 4 - 4) }
-        }
     }
 
-    private func row<Trailing: View>(_ title: String, on: Bool, hovered: Bool, @ViewBuilder trailing: () -> Trailing) -> some View {
-        HStack(spacing: 6) {
-            Text(title).font(.system(size: 13, weight: on ? .medium : .regular)).lineLimit(1)
-                .foregroundStyle(on ? EchoColor.accentText : EchoColor.fg)
-            Spacer(minLength: 8)
-            trailing()
+    private func cell(_ k: String) -> some View {
+        let on = k == selected
+        return Text(EchoDateFilter.title(k)).font(.system(size: 13, weight: on ? .medium : .regular)).lineLimit(1)
+            .foregroundStyle(on ? EchoColor.accentText : EchoColor.fg)
+            .frame(maxWidth: .infinity).frame(height: 32)
+            .background(RoundedRectangle(cornerRadius: 6).fill(on ? EchoColor.sel : hover == k ? EchoColor.onSideHover : .clear))
+            .contentShape(Rectangle())
+            .onHover { if $0 { hover = k } else if hover == k { hover = nil } }
+            .onTapGesture { pick(k) }
+    }
+
+    /// 选了月份时写「2026年10月」，没选时灰字「选择月份」；右边日历图标。点一下展开、收起月份选择器
+    private var field: some View {
+        let on = selected.hasPrefix("m")
+        return HStack(spacing: 6) {
+            Text(on ? EchoDateFilter.title(selected) : "选择月份").font(.system(size: 13, weight: on ? .medium : .regular))
+                .foregroundStyle(on ? EchoColor.accentText : EchoColor.fg3)
+            Spacer(minLength: 4)
+            Image(systemName: "calendar").font(.system(size: 13)).foregroundStyle(on ? EchoColor.accent : EchoColor.fg2)
         }
-        .padding(.horizontal, 10).frame(height: rowH)
-        .background(RoundedRectangle(cornerRadius: 6).fill(hovered ? EchoColor.onSideHover : .clear))
+        .padding(.horizontal, 10).frame(height: 32)
+        .background(RoundedRectangle(cornerRadius: 8).strokeBorder(picker ? EchoColor.accent : EchoColor.line, lineWidth: 1))
         .contentShape(Rectangle())
+        .onTapGesture { picker.toggle() }
     }
 }
 
@@ -99,6 +104,7 @@ struct EchoDateMenu: View {
 struct EchoMonthPicker: View {
     let selected: String
     let months: Set<String>
+    var width: CGFloat = 204
     let pick: (String) -> Void
     @State private var year = Calendar.current.component(.year, from: Date())
     @State private var hover: Int?
@@ -121,7 +127,7 @@ struct EchoMonthPicker: View {
             }
         }
         .padding(.top, 4).padding(.horizontal, 6).padding(.bottom, 6)
-        .frame(width: 204)
+        .frame(width: width)
         .background(RoundedRectangle(cornerRadius: 10).fill(EchoColor.surface))
         .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(EchoColor.line, lineWidth: 1))
         .shadow(color: .black.opacity(0.08), radius: 10, y: 4)
