@@ -37,11 +37,12 @@ enum EchoStorage {
         return (.system, false)
     }
 
-    /// 一台电脑的备份（备份/<电脑名>/projects）各类占多少。多个文件同时读
+    /// 一台电脑的备份（各应用的会话目录，见 EchoLayout.sessionRoots）各类占多少。多个文件同时读
     static func backup(_ computerDir: URL) -> Backup {
         let fm = FileManager.default
-        guard let en = fm.enumerator(at: computerDir.appendingPathComponent("projects"), includingPropertiesForKeys: nil, options: .skipsHiddenFiles) else { return Backup() }
-        let files = en.compactMap { $0 as? URL }.filter { $0.pathExtension == "jsonl" }
+        let files = EchoLayout.sessionRoots(computerDir).flatMap { r -> [URL] in
+            (fm.enumerator(at: r.root, includingPropertiesForKeys: nil, options: .skipsHiddenFiles)?.allObjects ?? []).compactMap { $0 as? URL }.filter { $0.pathExtension == "jsonl" }
+        }
         let parts = EchoParallel.map(files) { u -> Backup in
             var r = Backup()
             try? EchoLines.each(u) { line in

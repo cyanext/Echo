@@ -42,6 +42,8 @@ enum EchoPrefs {
     }
 
     static var computerDir: URL { backupRoot.appendingPathComponent(computerName) }
+    /// 这台电脑 Claude 的备份：projects/、备份记录.json、移动记录.json（0.8 起分应用放，见 EchoLayout）
+    static var claudeDir: URL { EchoLayout.dir(computerDir, .claude) }
 
     private static func int(_ key: String, _ def: Int) -> Int { d.object(forKey: key) == nil ? def : d.integer(forKey: key) }
 
@@ -99,8 +101,9 @@ final class EchoState: ObservableObject {
 
     func start() {
         EchoPrefs.moveOldBackup()
+        do { try EchoLayout.migrate(EchoPrefs.computerDir) } catch { NSLog("回响：Claude 的备份没挪进 claude/：%@", error.localizedDescription) }
         overview = EchoStats.loadLast()   // 先显示上次整理好的总览，后台再刷新
-        lastSuccess = EchoBackupRecord.load(EchoPrefs.computerDir.appendingPathComponent("备份记录.json")).lastSuccess
+        lastSuccess = EchoBackupRecord.load(EchoPrefs.claudeDir.appendingPathComponent("备份记录.json")).lastSuccess
         cleanupDays = EchoBackup.cleanupDays()
         backupIfNeeded()
         // 每小时看一次：电脑每天第一次开机或唤醒后就会备份，不用固定时间点
@@ -132,11 +135,11 @@ final class EchoState: ObservableObject {
         done = 0
         total = 0
         cleanupDays = EchoBackup.cleanupDays()
-        let dir = EchoPrefs.computerDir
+        let dir = EchoPrefs.computerDir, claudeDir = EchoPrefs.claudeDir
         Task.detached(priority: .utility) {
             var last = Date.distantPast
             let r = Result {
-                try EchoBackup.run(source: EchoBackup.source, computerDir: dir, policy: EchoPrefs.policy) { n, t in
+                try EchoBackup.run(source: EchoBackup.source, computerDir: claudeDir, policy: EchoPrefs.policy) { n, t in
                     guard n == t || Date().timeIntervalSince(last) > 0.3 else { return }
                     last = Date()
                     Task { @MainActor in EchoState.shared.done = n; EchoState.shared.total = t }
@@ -144,7 +147,7 @@ final class EchoState: ObservableObject {
             }
             if case .success(let res) = r, res.failures.isEmpty {
                 EchoState.cleanIfDue(dir)
-                EchoState.autoDeleteIfOn(dir)
+                EchoState.autoDeleteIfOn(claudeDir)
             }
             await MainActor.run {
                 let s = EchoState.shared
@@ -152,7 +155,7 @@ final class EchoState: ObservableObject {
                 switch r {
                 case .success(let res):
                     s.failures = res.failures.map(\.path)
-                    s.lastSuccess = EchoBackupRecord.load(dir.appendingPathComponent("备份记录.json")).lastSuccess
+                    s.lastSuccess = EchoBackupRecord.load(claudeDir.appendingPathComponent("备份记录.json")).lastSuccess
                     NSLog("回响备份：共 %d 个文件，写入 %d，跳过 %d，失败 %d，%.1f 秒", res.total, res.copied, res.skipped, res.failures.count, res.seconds)
                     for f in res.failures { NSLog("回响备份失败：%@：%@", f.path, f.message) }
                 case .failure(let e):
@@ -180,7 +183,7 @@ final class EchoState: ObservableObject {
         }
     }
 
-    /// 备份成功后删 Claude 里不活跃、已备份完整的会话（设置里打开时）。在后台线程调用
+    /// 备份成功后删 Claude 里不活跃、已备份完整的会话（设置里打开时）。dir 是 Claude 的备份（claude/）。在后台线程调用
     nonisolated static func autoDeleteIfOn(_ dir: URL) {
         guard EchoPrefs.autoDelete else { return }
         let list = EchoAutoDelete.candidates(source: EchoBackup.source, computerDir: dir, days: EchoPrefs.autoDeleteDays)
@@ -265,7 +268,7 @@ final class EchoState: ObservableObject {
                 done.append(s)
             } catch { firstError = firstError ?? error }
         }
-        try? EchoMoved.add(moves, EchoPrefs.computerDir)
+        try? EchoMoved.add(moves, EchoPrefs.claudeDir)
         if !keys.isEmpty {
             let cols = EchoCollections.load(root)
             let updated = cols.map { c in EchoCollection(id: c.id, title: c.title, members: c.members.map { keys[$0] ?? $0 }, created: c.created) }

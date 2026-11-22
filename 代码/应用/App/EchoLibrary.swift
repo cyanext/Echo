@@ -202,11 +202,15 @@ enum EchoLibrary {
         var items: [Item] = []
         let keys: Set<URLResourceKey> = [.fileSizeKey, .contentModificationDateKey]
         for c in list(backupRoot, [.isDirectoryKey]) {
-            let moved = EchoMoved.load(c)   // 挪过文件夹的会话按新文件夹显示
-            for p in list(c.appendingPathComponent("projects")) {
-                for f in list(p, Array(keys)) where f.pathExtension == "jsonl" {
-                    guard let v = try? f.resourceValues(forKeys: keys) else { continue }
-                    items.append(Item(f: f, c: c, stamp: EchoFileStamp(size: Int64(v.fileSize ?? 0), mtime: v.contentModificationDate?.timeIntervalSince1970 ?? 0), moved: moved))
+            // Claude 的备份在 claude/projects，没升级的电脑还在电脑这一级的 projects；两处都有同一个会话时用 claude/ 里的
+            var seen = Set<String>()
+            for r in EchoLayout.sessionRoots(c) where r.source == .claude {
+                let moved = EchoMoved.load(r.root.deletingLastPathComponent())   // 挪过文件夹的会话按新文件夹显示
+                for p in list(r.root) {
+                    for f in list(p, Array(keys)) where f.pathExtension == "jsonl" {
+                        guard seen.insert(f.lastPathComponent).inserted, let v = try? f.resourceValues(forKeys: keys) else { continue }
+                        items.append(Item(f: f, c: c, stamp: EchoFileStamp(size: Int64(v.fileSize ?? 0), mtime: v.contentModificationDate?.timeIntervalSince1970 ?? 0), moved: moved))
+                    }
                 }
             }
         }

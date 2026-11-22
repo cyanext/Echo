@@ -1,4 +1,4 @@
-// 备份：~/.claude/projects → 备份目录/<电脑名>/projects，结构不变。~/.claude 只读。
+// 备份：~/.claude/projects → 备份目录/<电脑名>/claude/projects，结构不变。~/.claude 只读。
 // 流程见立项方案（需求文档/归档/方案.md）第六节：比大小和修改时间，变了才写；先写到本机暂存目录再挪进备份目录；原文件被删时备份保留。
 import Foundation
 
@@ -54,7 +54,7 @@ struct EchoBackupResult {
 enum EchoBackup {
     static var source: URL { URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".claude/projects") }
 
-    /// 同步执行，放在后台线程调用。progress(已处理, 总数)
+    /// computerDir 是这个应用的备份文件夹（备份/<电脑名>/claude/）。同步执行，放在后台线程调用。progress(已处理, 总数)
     static func run(source: URL, computerDir: URL, policy: EchoPolicy = EchoPolicy(), progress: (Int, Int) -> Void = { _, _ in }) throws -> EchoBackupResult {
         let t0 = Date()
         let fm = FileManager.default

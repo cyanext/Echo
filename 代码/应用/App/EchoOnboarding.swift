@@ -17,7 +17,8 @@ enum EchoOnboarding {
     static var needed: Bool {
         let d = UserDefaults.standard
         if d.bool(forKey: "onboarded") { return false }
-        if FileManager.default.fileExists(atPath: EchoPrefs.computerDir.appendingPathComponent("备份记录.json").path) {
+        let dir = EchoPrefs.computerDir   // 备份记录在 claude/ 里，还没挪的在电脑这一级
+        if [EchoPrefs.claudeDir, dir].contains(where: { FileManager.default.fileExists(atPath: $0.appendingPathComponent("备份记录.json").path) }) {
             d.set(true, forKey: "onboarded")
             return false
         }

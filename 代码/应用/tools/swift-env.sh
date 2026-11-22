@@ -1,6 +1,6 @@
 # build.sh、tests/run.sh 共用的编译设置，用法：source "$D/tools/swift-env.sh" <临时目录>，之后用 $SWIFT_FLAGS。照伙伴云NAS应用 mac/tools/swift-env.sh。
 # 1. 桌面同步工具会补出「X 2.swift」这种副本，一编译就报重复定义：先查出来停下，和原文件比对一致再删
-# 2. zstd：Codex 的旧会话是 .jsonl.zst，静态链接 Homebrew 的 libzstd.a（模块定义在 tools/zstd/），没装时提示
+# 2. zstd：Codex 的旧会话是 .jsonl.zst，静态链接 Homebrew 的 libzstd.a（模块定义在 tools/zstd/），没装时提示。Homebrew 的库按本机系统（26）编，链接时报「比 14 新」的警告，自用不影响
 # 3. 本机命令行工具有重复定义 SwiftBridging 模块的问题，用 vfsoverlay 屏蔽 bridging.modulemap
 swift_dups=("$D"/App/*\ 2.*(N) "$D"/Web/*\ 2.*(N) "$D"/tests/*\ 2.*(N) "$D"/tools/*\ 2.*(N))
 if (( ${#swift_dups} )); then

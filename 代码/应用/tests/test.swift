@@ -15,7 +15,7 @@ enum EchoTests {
 
     static func main() throws {
         let a = CommandLine.arguments
-        if a.count == 3, a[1] == "--rules" { rules(); try renameTest(fixture: URL(fileURLWithPath: a[2])); try statsTest(); timeTest(); try cleanTest(); try autoDeleteTest(); try claudeSettingsTest() }
+        if a.count == 3, a[1] == "--rules" { rules(); try renameTest(fixture: URL(fileURLWithPath: a[2])); try statsTest(); timeTest(); try cleanTest(); try layoutTest(); try autoDeleteTest(); try claudeSettingsTest() }
         else if a.count == 4, a[1] == "--overview" {   // 手动排查：按应用的方式整理总览数据，写到文件，看用了多久
             let t0 = Date()
             let list = EchoLibrary.scan(backupRoot: URL(fileURLWithPath: a[2]))
@@ -65,7 +65,7 @@ enum EchoTests {
             print("  扫到 \(list.count) 个会话")
             let fm = FileManager.default
             for c in (try? fm.contentsOfDirectory(at: URL(fileURLWithPath: a[2]), includingPropertiesForKeys: nil, options: .skipsHiddenFiles)) ?? [] {
-                for p in (try? fm.contentsOfDirectory(at: c.appendingPathComponent("projects"), includingPropertiesForKeys: nil, options: .skipsHiddenFiles)) ?? [] {
+                for p in EchoLayout.sessionRoots(c).flatMap({ (try? fm.contentsOfDirectory(at: $0.root, includingPropertiesForKeys: nil, options: .skipsHiddenFiles)) ?? [] }) {
                     for f in (try? fm.contentsOfDirectory(at: p, includingPropertiesForKeys: [.fileSizeKey], options: .skipsHiddenFiles)) ?? [] where f.lastPathComponent.hasPrefix(a[3]) {
                         print("  目录里有：\(f.lastPathComponent)，扩展名 \(f.pathExtension)，属性 \(String(describing: try? f.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey]).fileSize))")
                         do { let m = try EchoSessionScan.read(f); print("  读出：标题「\(m.title)」开始 \(m.start)") } catch { print("  读出错：\(error)") }
@@ -203,6 +203,47 @@ enum EchoTests {
         check(r5.skipped < 2, "清理：到了最早到期的那天应重新看，实际跳过 \(r5.skipped)")
         check(EchoSlim.sizeText(512) == "512 B" && EchoSlim.sizeText(3482) == "3.4 KB" && EchoSlim.sizeText(130 << 20) == "130 MB" && EchoSlim.sizeText(1288490189) == "1.2 GB", "大小写法不对")
         print("  清理 9 项")
+    }
+
+    /// 备份分应用放（0.8）：老布局挪进 claude/、挪一次就好、清理记录跟着改；没升级的电脑照样读；同一个会话两处都有只算一次；合集的键不变
+    static func layoutTest() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent("echo-layout-\(getpid())")
+        defer { try? fm.removeItem(at: root) }
+        let me = root.appendingPathComponent("本机"), other = root.appendingPathComponent("另一台")
+        func line(_ o: [String: Any]) -> String { String(data: try! JSONSerialization.data(withJSONObject: o, options: [.sortedKeys]), encoding: .utf8)! + "\n" }
+        func session(_ dir: URL, _ sid: String, _ text: String) throws {
+            try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+            try line(["type": "user", "uuid": sid, "timestamp": "2026-11-20T00:00:00Z", "cwd": "/tmp/p", "message": ["role": "user", "content": text]])
+                .write(to: dir.appendingPathComponent(sid + ".jsonl"), atomically: true, encoding: .utf8)
+        }
+        try session(me.appendingPathComponent("projects/-p"), "s1", "本机的会话")
+        try Data("{}".utf8).write(to: me.appendingPathComponent("备份记录.json"))
+        try Data(#"{"s1":"/tmp/挪过"}"#.utf8).write(to: me.appendingPathComponent("移动记录.json"))
+        try session(other.appendingPathComponent("projects/-p"), "s2", "另一台没升级")
+        let oldPath = me.appendingPathComponent("projects/-p/s1.jsonl").path
+        EchoCleanRecord.merge([oldPath: .init(stamp: EchoFileStamp(size: 1, mtime: 1), policy: "k", next: 9)])
+        let key0 = EchoCollections.key(EchoSession(url: URL(fileURLWithPath: oldPath), sessionId: "s1", computer: "本机", size: 0, meta: .init()), root: root)
+
+        let n = try EchoLayout.migrate(me)
+        let claude = me.appendingPathComponent("claude")
+        check(n == 3 && !fm.fileExists(atPath: me.appendingPathComponent("projects").path)
+              && ["projects/-p/s1.jsonl", "备份记录.json", "移动记录.json"].allSatisfy { fm.fileExists(atPath: claude.appendingPathComponent($0).path) },
+              "分应用：老布局应整个挪进 claude/，实际挪了 \(n) 样")
+        let rec = EchoCleanRecord.load()
+        check(rec[oldPath] == nil && rec[claude.appendingPathComponent("projects/-p/s1.jsonl").path]?.next == 9, "分应用：清理记录的路径应跟着换")
+        check((try? EchoLayout.migrate(me)) == 0, "分应用：挪过的再跑不应再动")
+
+        try session(other.appendingPathComponent("claude/projects/-p"), "s2", "两处都有")   // 另一台挪到一半：两处都有 s2
+        let list = EchoLibrary.scan(backupRoot: root)
+        let s1 = list.first { $0.sessionId == "s1" }
+        check(list.count == 2 && s1?.projectPath == "/tmp/挪过" && list.filter { $0.sessionId == "s2" }.count == 1
+              && list.first { $0.sessionId == "s2" }?.url.path.contains("/claude/") == true,
+              "分应用：新旧布局都应读到、同一个会话只算一次（用 claude/ 里的）、移动记录照用，实际 \(list.map { $0.computer + "/" + $0.sessionId })")
+        check(s1.map { EchoCollections.key($0, root: root) } == key0, "分应用：合集的键应不变，实际 \(s1.map { EchoCollections.key($0, root: root) } ?? "")")
+        let est = try EchoClean.run(computerDir: me, policy: EchoPolicy(), dryRun: true)
+        check(est.files == 1, "分应用：清理应找到 claude/ 里的会话，实际 \(est.files) 个")
+        print("  分应用 6 项")
     }
 
     /// 自动删除：只挑超过期限、备份完整（连同名目录）、没开着的；只删原会话，备份不动

@@ -207,7 +207,7 @@ final class EchoStorageModel: ObservableObject {
 
     func countAutoDelete() {
         autoDelete = nil
-        let dir = EchoPrefs.computerDir, days = EchoPrefs.autoDeleteDays
+        let dir = EchoPrefs.claudeDir, days = EchoPrefs.autoDeleteDays
         Task.detached(priority: .utility) {
             let list = EchoAutoDelete.candidates(source: EchoBackup.source, computerDir: dir, days: days)
             await MainActor.run { self.autoDelete = (list.count, list.reduce(0) { $0 + $1.bytes }) }

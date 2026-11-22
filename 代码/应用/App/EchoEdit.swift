@@ -74,8 +74,13 @@ enum EchoCollections {
         try enc.encode(list).write(to: url(root), options: .atomic)
     }
 
+    /// 合集成员的键：相对备份目录的路径。Claude 的会话 0.8 起挪进了 <电脑名>/claude/，键照旧写成 <电脑名>/projects/…，
+    /// 以前建的合集不用改，另一台电脑升级前后也对得上
     static func key(_ s: EchoSession, root: URL) -> String {
-        String(s.url.standardizedFileURL.path.dropFirst(root.standardizedFileURL.path.count + 1))
+        let rel = String(s.url.standardizedFileURL.path.dropFirst(root.standardizedFileURL.path.count + 1))
+        var parts = rel.split(separator: "/", omittingEmptySubsequences: false)
+        if parts.count > 2, parts[1] == Substring(EchoSource.claude.folder), parts[2] == "projects" { parts.remove(at: 1) }
+        return parts.joined(separator: "/")
     }
 
     /// 合集里还在的会话，按开始时间排
@@ -115,15 +120,16 @@ extension EchoExport {
 enum EchoDelete {
     struct Paths {
         var original: URL          // ~/.claude/projects/<项目目录>/<会话ID>.jsonl
-        var backup: URL            // 备份/<电脑名>/projects/<项目目录>/<会话ID>.jsonl
-        var record: URL            // 备份/<电脑名>/备份记录.json
+        var backup: URL            // 备份/<电脑名>/claude/projects/<项目目录>/<会话ID>.jsonl
+        var record: URL            // 备份/<电脑名>/claude/备份记录.json（没升级的布局在电脑这一级，跟着备份文件走）
         var rel: String            // <项目目录>/<会话ID>.jsonl
     }
 
     static func paths(for s: EchoSession) -> Paths? {
         guard let orig = EchoRename.originalURL(for: s) else { return nil }
         let rel = s.url.deletingLastPathComponent().lastPathComponent + "/" + s.url.lastPathComponent
-        return Paths(original: orig, backup: s.url, record: EchoPrefs.computerDir.appendingPathComponent("备份记录.json"), rel: rel)
+        let record = s.url.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("备份记录.json")
+        return Paths(original: orig, backup: s.url, record: record, rel: rel)
     }
 
     /// remove 默认移到废纸篓，测试时换成移到临时目录
@@ -252,7 +258,7 @@ enum EchoMoved {
 enum EchoAutoDelete {
     struct Candidate { let original: URL; let rel: String; let bytes: Int64 }
 
-    /// source 是 ~/.claude/projects，computerDir 是 备份/<电脑名>/。open 测试时替换
+    /// source 是 ~/.claude/projects，computerDir 是 Claude 的备份（备份/<电脑名>/claude/）。open 测试时替换
     static func candidates(source: URL, computerDir: URL, days: Int, now: Date = Date(),
                            open: (String) -> Bool = { EchoMove.isOpen($0) }) -> [Candidate] {
         let fm = FileManager.default
