@@ -59,15 +59,16 @@ enum EchoTime {
     }
 
     /// 今天 14:05；11月18日 14:05；2025年3月2日
+    /// 左栏每行都调，格式器建一次反复用（每次新建很慢，拖动排序后重画会卡）
+    nonisolated(unsafe) private static let shortFormats: [DateFormatter] = ["今天 HH:mm", "昨天 HH:mm", "M月d日 HH:mm", "yyyy年M月d日"].map {
+        let f = DateFormatter(); f.locale = Locale(identifier: "zh_CN"); f.dateFormat = $0; return f
+    }
+
     static func short(_ d: Date?) -> String {
         guard let d else { return "" }
-        let cal = Calendar.current, f = DateFormatter()
-        f.locale = Locale(identifier: "zh_CN")
-        if cal.isDateInToday(d) { f.dateFormat = "今天 HH:mm" }
-        else if cal.isDateInYesterday(d) { f.dateFormat = "昨天 HH:mm" }
-        else if cal.isDate(d, equalTo: Date(), toGranularity: .year) { f.dateFormat = "M月d日 HH:mm" }
-        else { f.dateFormat = "yyyy年M月d日" }
-        return f.string(from: d)
+        let cal = Calendar.current
+        let i = cal.isDateInToday(d) ? 0 : cal.isDateInYesterday(d) ? 1 : cal.isDate(d, equalTo: Date(), toGranularity: .year) ? 2 : 3
+        return shortFormats[i].string(from: d)
     }
 }
 
@@ -229,6 +230,23 @@ enum EchoOrder {
         guard let keys, !keys.isEmpty else { return items }
         let pos = Dictionary(keys.enumerated().map { ($1, $0) }, uniquingKeysWith: { a, _ in a })
         return items.filter { pos[key($0)] == nil } + items.filter { pos[key($0)] != nil }.sorted { pos[key($0)]! < pos[key($1)]! }
+    }
+
+    /// 只重排一组，其余原样：拖完排序时用，不用把整棵树按全部顺序再排一遍。只往这一组所在的那条路径上走
+    static func apply(_ dirs: [EchoDir], group: String, keys: [String]) -> [EchoDir] {
+        if group == "/" { return sorted(dirs, keys, key: \.path) }
+        let target = group.hasPrefix("s:") ? String(group.dropFirst(2)) : group
+        return dirs.map { d in
+            if !group.hasPrefix("s:"), d.path == target {
+                return EchoDir(path: d.path, name: d.name, children: sorted(d.children, keys, key: \.path), sessions: d.sessions)
+            }
+            if group.hasPrefix("s:"), d.path == target {
+                return EchoDir(path: d.path, name: d.name, children: d.children, sessions: sorted(d.sessions, keys, key: \.sessionId))
+            }
+            let base = d.path.hasSuffix("/") ? d.path : d.path + "/"
+            guard target.hasPrefix(base) else { return d }
+            return EchoDir(path: d.path, name: d.name, children: apply(d.children, group: group, keys: keys), sessions: d.sessions)
+        }
     }
 
     /// 把 moving 这几项挪到 target 前面（after 为真时后面），其余相对顺序不变；返回整组新顺序

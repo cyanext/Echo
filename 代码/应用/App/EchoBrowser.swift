@@ -25,6 +25,10 @@ struct EchoBrowserView: View {
     @State private var currentID: String?                              // 当前打开的会话；数据变了算一次，不在每行里找
     @State private var multiComputer = false                           // 有几台电脑的会话，会话行才写电脑名
     @State private var openState: [String: Bool] = [:]                 // dirStateRaw 解析好的展开状态
+    @State private var recentLocalDirs: [String] = []                  // 本机最近用过的会话目录（「移动到」用），数据变了算一次
+    @State private var baseTree: [EchoDir] = []                        // 按最近用过分好的树，会话数据变了才重建；排序只在它上面套顺序
+    @State private var orderMap: [String: [String]] = [:]              // orderRaw 解析好的顺序
+    @State private var orderSaving = false                             // 拖完排序时界面已先改好，存顺序那次 onChange 不再重排
     @State private var tree: [EchoDir] = []                            // 会话列表变了才重新分组，不在每次刷新时算
     @State private var showAll: Set<String> = []                       // 点过「再显示」的项目
     @State private var showOverview = true                             // 打开窗口默认停在总览
@@ -118,10 +122,13 @@ struct EchoBrowserView: View {
         .foregroundStyle(EchoColor.fg)
         .ignoresSafeArea()
         .frame(minWidth: 860, minHeight: 560)
-        .onAppear(perform: regroup)
+        .onAppear { orderMap = decodeOrder(); regroup() }
         .onChange(of: state.sessions) { _, _ in regroup() }
         .onChange(of: computer) { _, _ in regroup() }
-        .onChange(of: orderRaw) { _, _ in regroup() }
+        .onChange(of: orderRaw) { _, _ in
+            orderMap = decodeOrder()
+            if orderSaving { orderSaving = false } else { tree = EchoOrder.arrange(baseTree, orderMap) }   // 别处改了顺序：只套顺序，不重建树
+        }
         .onChange(of: sessionID) { _, _ in currentID = session?.id }
         .onChange(of: dirStateRaw) { _, _ in openState = dirState }
     }
@@ -174,19 +181,10 @@ struct EchoBrowserView: View {
         }
     }
 
-    /// 「移动到」里列的文件夹：本机最近用过的会话目录，去掉这几个会话现在所在的，最多 8 个
+    /// 「移动到」里列的文件夹：本机最近用过的会话目录（regroup 时算好），去掉这几个会话现在所在的，最多 8 个
     private func recentDirs(except list: [EchoSession]) -> [String] {
         let skip = Set(list.map(\.projectPath))
-        var seen = Set<String>(), out: [String] = []
-        let local = state.sessions.filter { $0.computer == EchoPrefs.computerName }
-            .sorted { ($0.endDate ?? .distantPast) > ($1.endDate ?? .distantPast) }
-        for s in local {
-            let p = s.projectPath
-            guard !skip.contains(p), p.hasPrefix("/"), seen.insert(p).inserted, FileManager.default.fileExists(atPath: p) else { continue }
-            out.append(p)
-            if out.count == 8 { break }
-        }
-        return out
+        return Array(recentLocalDirs.filter { !skip.contains($0) }.prefix(8))
     }
 
     private func pickFolder(_ list: [EchoSession]) {
@@ -225,10 +223,12 @@ struct EchoBrowserView: View {
         if group.count > 1 {
             Button("把 \(group.count) 个会话连起来看") { link(group) }
         }
-        Button(EchoRename.originalURL(for: s) == nil ? "改名…（会话在 \(s.computer) 上）" : "改名…") { startRename(.session(s)) }
-            .disabled(EchoRename.originalURL(for: s) == nil)
+        // 菜单在每次画行时就会构造，这里只按是不是本机的会话判断，不查文件；点下去时改名、删除、挪各自再查
+        let local = s.computer == EchoPrefs.computerName
+        Button(local ? "改名…" : "改名…（会话在 \(s.computer) 上）") { startRename(.session(s)) }
+            .disabled(!local)
         let targets = group.count > 1 ? group : [s]
-        let movable = targets.allSatisfy { EchoRename.originalURL(for: $0) != nil }
+        let movable = targets.allSatisfy { $0.computer == EchoPrefs.computerName }
         Menu(!movable ? "移动到（会话在 \(s.computer) 上）" : group.count > 1 ? "把 \(group.count) 个会话移动到" : "移动到") {
             ForEach(recentDirs(except: targets), id: \.self) { d in
                 Button((d as NSString).abbreviatingWithTildeInPath) { doMove(targets, d) }
@@ -241,12 +241,12 @@ struct EchoBrowserView: View {
         if group.count > 1 {
             Button("把 \(group.count) 个会话移到废纸篓…") { deleting = group }
         } else {
-            Button(EchoDelete.paths(for: s) == nil ? "移到废纸篓…（会话在 \(s.computer) 上）" : "移到废纸篓…") { deleting = [s] }
-                .disabled(EchoDelete.paths(for: s) == nil)
+            Button(local ? "移到废纸篓…" : "移到废纸篓…（会话在 \(s.computer) 上）") { deleting = [s] }
+                .disabled(!local)
         }
         if group.count < 2 {
             Divider()
-            Text("⌘ 点选几个会话，可以连起来看、一起挪或一起删；把会话拖到目录上也能挪")
+            Text("⌘ 点选可多选")
         }
     }
 
@@ -309,10 +309,19 @@ struct EchoBrowserView: View {
     }
 
     private func regroup() {
-        tree = EchoOrder.arrange(EchoLibrary.dirTree(computer.isEmpty ? state.sessions : state.sessions.filter { $0.computer == computer }), order)
+        baseTree = EchoLibrary.dirTree(computer.isEmpty ? state.sessions : state.sessions.filter { $0.computer == computer })
+        tree = EchoOrder.arrange(baseTree, orderMap)
         multiComputer = Set(state.sessions.map(\.computer)).count > 1
         currentID = session?.id
         openState = dirState
+        var seen = Set<String>(), dirs: [String] = []
+        for s in state.sessions.filter({ $0.computer == EchoPrefs.computerName }).sorted(by: { ($0.endDate ?? .distantPast) > ($1.endDate ?? .distantPast) }) {
+            let p = s.projectPath
+            guard p.hasPrefix("/"), seen.insert(p).inserted, FileManager.default.fileExists(atPath: p) else { continue }
+            dirs.append(p)
+            if dirs.count == 12 { break }
+        }
+        recentLocalDirs = dirs
     }
 
     /// 目录展开收起：点过的按点的来；没点过的，顶层默认展开，当前会话所在的那几级也展开
@@ -480,7 +489,7 @@ struct EchoBrowserView: View {
 
     // MARK: 拖动：照 NAS 网站的拖放公共层（lib/dnd.js）。开始拖记下拖的是什么；拖过某行判断能不能放，只重画那一行的标记和底部提示（状态在 EchoDragState，左栏的树不跟着重画）；松开再判断一次、收掉，能放才执行
 
-    private var order: [String: [String]] {
+    private func decodeOrder() -> [String: [String]] {
         (try? JSONDecoder().decode([String: [String]].self, from: Data(orderRaw.utf8))) ?? [:]
     }
 
@@ -503,7 +512,7 @@ struct EchoBrowserView: View {
         if let dir = it.dir {
             guard dir != d.path else { drag.set(nil); return }
             drag.set(it.group == group
-                ? EchoDropHint(key: d.path, mode: y < 17 ? .before : .after, ok: true, text: "松开排到「\(d.name)」\(y < 17 ? "前面" : "后面")")
+                ? EchoDropHint(key: d.path, mode: y < 17 ? .before : .after, ok: true, text: "")
                 : EchoDropHint(key: d.path, mode: .into, ok: false, text: "目录只能在同一级里排序"))
             return
         }
@@ -525,7 +534,7 @@ struct EchoBrowserView: View {
         } else if it.sessions.contains(s) {
             drag.set(nil)
         } else if it.group == "s:" + s.projectPath {
-            drag.set(EchoDropHint(key: s.sessionId, mode: y < 24 ? .before : .after, ok: true, text: "松开排到这里"))
+            drag.set(EchoDropHint(key: s.sessionId, mode: y < 24 ? .before : .after, ok: true, text: ""))
         } else {
             drag.set(EchoDropHint(key: s.sessionId, mode: .into, ok: false, text: "要挪到这个目录，拖到目录那一行上"))
         }
@@ -557,9 +566,17 @@ struct EchoBrowserView: View {
         else if group.hasPrefix("s:") { keys = find(tree, String(group.dropFirst(2)))?.sessions.map(\.sessionId) ?? [] }
         else { keys = find(tree, group)?.children.map(\.path) ?? [] }
         guard !keys.isEmpty else { return false }
-        var all = order
-        all[group] = EchoOrder.move(keys, moving: moving, to: target, after: after)
-        if let d = try? JSONEncoder().encode(all) { orderRaw = String(decoding: d, as: UTF8.self) }
+        let next = EchoOrder.move(keys, moving: moving, to: target, after: after)
+        guard next != keys else { return true }
+        // 先改界面：只重排这一组，松手当下就看到新顺序；存顺序放到下一刻，不挡这一帧
+        tree = EchoOrder.apply(tree, group: group, keys: next)
+        orderMap[group] = next
+        let all = orderMap
+        DispatchQueue.main.async {
+            guard let d = try? JSONEncoder().encode(all) else { return }
+            orderSaving = true
+            orderRaw = String(decoding: d, as: UTF8.self)
+        }
         return true
     }
 
@@ -681,7 +698,7 @@ struct EchoDropTip: View {
     @ObservedObject var drag: EchoDragState
 
     var body: some View {
-        if drag.item != nil, let h = drag.hint {
+        if drag.item != nil, let h = drag.hint, !h.text.isEmpty {   // 排序时不出提示条，只有插入线
             Text(h.text).font(.system(size: 12)).lineLimit(1)
                 .padding(.horizontal, 14).padding(.vertical, 8)
                 .background(RoundedRectangle(cornerRadius: 8).fill(EchoColor.fg).shadow(color: .black.opacity(0.18), radius: 6, y: 2))

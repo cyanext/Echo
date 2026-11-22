@@ -36,6 +36,10 @@ eq(keys.map((k) => `${k.kind}:${k.label}`).join(" | "),
 eq(keys[3].sub, "把阶段总结做成定位条上的点", "手动压缩的说明取压缩前最后一条有内容的消息，跳过短确认和命令");
 eq(keys[4].sub, "The user wants a timeline.", "两次压缩之间没有消息时从摘要里取");
 eq(keys.map((k) => k.id).join(","), "k0,k1,k2,k3,k4,k5", "关键点编号连续");
+// 号改过、同一个号后来给了别的事：两件事各标一条，不合成一条（回响 0.6.0 先是「删除后保留统计」，改号后给了「整理会话目录」）
+eq(keyPoints([{ role: "assistant", ts: "2026-11-20T01:00:00Z", blocks: [bash('git commit -m "v0.6.0 删除后保留统计"'), bash('git commit -m "v0.6.1 展开按钮"'),
+     bash('git commit -m "v0.7.0 会话移动"'), bash('git commit -m "拖动排序（待发）"'), bash('git commit -m "v0.6.0 整理会话目录"')] }]).map((k) => k.label).join(" | "),
+   "v0.6.0 删除后保留统计 | v0.6.1 展开按钮 | v0.7.0 会话移动 | v0.6.0 整理会话目录", "同一个号后来给了别的事时各标一条");
 eq(keyPoints([{ role: "assistant", ts: "2026-11-20T01:00:00Z", blocks: [bash('git commit -m "Merge origin/main into lib-v0.8.0"'), bash('git commit -m "0.8.0：公共层"')] }]).map((k) => k.label).join(" | "),
    "0.8.0：公共层", "解决冲突后的合并提交不标");
 // 模块：只认说明开头的「模块 v版本号」；冒号、括号、句子中间的都不算

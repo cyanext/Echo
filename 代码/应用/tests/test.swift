@@ -298,7 +298,12 @@ enum EchoTests {
                          sessions: [mvSess, EchoSession(url: mvSess.url, sessionId: "y2", computer: "机", size: 1, meta: mvSess.meta)])
         let arranged = EchoOrder.arrange([od], ["/p": ["/p/y", "/p/x"], "s:/p": ["y2", "y1"]])
         check(arranged[0].children.map(\.name) == ["y", "x"] && arranged[0].sessions.map(\.sessionId) == ["y2", "y1"], "子目录、会话没按记的顺序")
-        print("  顺序 5 项")
+        let one = EchoOrder.apply([od, EchoDir(path: "/q", name: "q", children: [], sessions: [])], group: "s:/p", keys: ["y2", "y1"])
+        check(one[0].sessions.map(\.sessionId) == ["y2", "y1"] && one[0].children.map(\.name) == ["x", "y"] && one[1].path == "/q", "只重排一组时别的动了")
+        let deep = EchoOrder.apply([od], group: "/p", keys: ["/p/y", "/p/x"])
+        check(deep[0].children.map(\.name) == ["y", "x"], "子目录那一组没重排")
+        check(EchoOrder.apply([od, EchoDir(path: "/q", name: "q", children: [], sessions: [])], group: "/", keys: ["/q", "/p"]).map(\.path) == ["/q", "/p"], "顶层没重排")
+        print("  顺序 8 项")
 
         // 带隐藏标记的会话文件也要列出来；名字以「.」开头的临时文件不列
         let lib = dir.appendingPathComponent("库/机/projects/-p")
