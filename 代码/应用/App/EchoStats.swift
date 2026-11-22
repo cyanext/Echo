@@ -370,10 +370,45 @@ enum EchoStats {
         let commits = first.isEmpty ? [] : self.commits(cwds: cwds, since: since)
         let gitList = commits.map { ["h": $0.h, "p": $0.p, "d": $0.d, "s": $0.s, "a": $0.a, "r": $0.r, "f": $0.f] as [String: Any] }
 
-        let out: [String: Any] = ["today": EchoTime.formatted(Date(), "yyyy-MM-dd"), "sessions": list, "commits": gitList]
+        let out: [String: Any] = ["today": EchoTime.formatted(Date(), "yyyy-MM-dd"), "sessions": list, "commits": gitList, "backup": backupSummary(sessions)]
         let data = (try? JSONSerialization.data(withJSONObject: out)) ?? Data("{}".utf8)
         try? data.write(to: lastURL, options: .atomic)
         return data
+    }
+
+    /// 总览「备份」页的数：这台电脑各应用备份了几个会话、原会话多大（备份记录里记的大小）、备份多大（备份文件夹里的文件）、
+    /// 几个会话的原文件已经不在了（Claude 清理、自动清理后只在备份里），加上上次备份时间和备份日志
+    static func backupSummary(_ sessions: [EchoSession]) -> [String: Any] {
+        let fm = FileManager.default, comp = EchoPrefs.computerDir, me = EchoPrefs.computerName
+        var apps: [[String: Any]] = []
+        let dirs: [(EchoSource, URL, URL)] = [(.claude, EchoLayout.claudeDirs(comp).first ?? EchoPrefs.claudeDir, EchoBackup.source),
+                                              (.codex, EchoPrefs.codexDir, EchoBackup.codexSource)]
+        for (src, dir, origin) in dirs {
+            let rec = EchoBackupRecord.load(dir.appendingPathComponent("备份记录.json"))
+            guard !rec.files.isEmpty else { continue }
+            let srcBytes = rec.files.values.reduce(Int64(0)) { $0 + $1.size }
+            var bak: Int64 = 0
+            for case let u as URL in fm.enumerator(at: dir, includingPropertiesForKeys: [.fileSizeKey, .isRegularFileKey], options: .skipsHiddenFiles)?.allObjects ?? [] {
+                if let v = try? u.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey]), v.isRegularFile == true { bak += Int64(v.fileSize ?? 0) }
+            }
+            // 原文件不在了的会话：Claude 看 <项目目录>/<会话>.jsonl；Codex 同一个会话可能在 sessions 和 archived_sessions 都记过，按文件名算
+            var gone = 0
+            if src == .claude {
+                gone = rec.files.keys.filter { $0.hasSuffix(".jsonl") && $0.split(separator: "/").count == 2 && !fm.fileExists(atPath: origin.appendingPathComponent($0).path) }.count
+            } else {
+                var alive: [String: Bool] = [:]
+                for k in rec.files.keys where k.contains("rollout-") {
+                    let name = (k as NSString).lastPathComponent.replacingOccurrences(of: ".zst", with: "")
+                    alive[name] = (alive[name] ?? false) || fm.fileExists(atPath: origin.appendingPathComponent(k).path)
+                }
+                gone = alive.values.filter { !$0 }.count
+            }
+            apps.append(["app": src.rawValue, "sessions": sessions.filter { $0.computer == me && $0.app == src }.count,
+                         "src": srcBytes, "bak": bak, "gone": gone])
+        }
+        var out: [String: Any] = ["apps": apps, "log": EchoBackupLog.load(comp)]
+        if let d = EchoPrefs.lastSuccess { out["last"] = ISO8601DateFormatter().string(from: d) }
+        return out
     }
 
     /// 上次整理好的总览：应用打开时先显示它，后台整理完再换

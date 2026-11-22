@@ -385,14 +385,12 @@ struct EchoBrowserView: View {
     /// 展开后先列子目录，再列直接在这一级开的会话
     private func dirSection(_ d: EchoDir, level: Int, group: String) -> AnyView {
         let open = isOpen(d, level: level)
-        let parts = d.name.components(separatedBy: " / ")
         return AnyView(Group {
             EchoRow(fill: nil) {
                 HStack(spacing: 6) {
                     // 展开按钮：照 NAS 网站目录树，收起朝右、展开朝下，自己有悬停底
                     EchoTwist(open: open) { toggle(d, level: level) }
-                    (Text(parts[0]).foregroundColor(EchoColor.fg)
-                        + Text(parts.count > 1 ? " / " + parts.dropFirst().joined(separator: " / ") : "").foregroundColor(EchoColor.fg3))
+                    Text(d.name).foregroundStyle(EchoColor.fg)
                         .font(.system(size: 13)).lineLimit(1)
                     Spacer(minLength: 4)
                     Text("\(d.count)").font(.system(size: 12)).foregroundStyle(EchoColor.fg3).monospacedDigit()

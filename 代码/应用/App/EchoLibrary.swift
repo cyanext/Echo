@@ -20,7 +20,7 @@ struct EchoSession: Identifiable, Hashable {
     var projectPath: String { meta.cwd.isEmpty ? url.deletingLastPathComponent().lastPathComponent : meta.cwd }
 }
 
-/// 目录树的一级：名字（合成一行时是「上级 / 下级」）、子目录、直接在这一级开的会话
+/// 目录树的一级：名字、子目录、直接在这一级开的会话
 struct EchoDir: Identifiable, Hashable {
     var id: String { path }
     let path: String
@@ -286,8 +286,7 @@ enum EchoLibrary {
     }
 
     /// 多级目录（规范「组件」目录树）：第一级是大目录（~/Desktop/项目代码、~/伙伴云NAS/客户文档 这一级，跳过 Desktop 这类外层），
-    /// 下面按真实目录一级级往下；以「.」开头的目录（.worktrees、.claude）算进它的上一级。
-    /// 只有一个子目录、自己又没有会话的层级合成一行，名字写成「上级 / 下级」
+    /// 下面按真实目录一级级往下；以「.」开头的目录（.worktrees、.claude）算进它的上一级。每一级各占一行
     static func dirTree(_ sessions: [EchoSession]) -> [EchoDir] {
         final class Node {
             let path: String, name: String
@@ -312,15 +311,11 @@ enum EchoLibrary {
             node.sessions.append(s)
         }
         let byEnd: (EchoSession, EchoSession) -> Bool = { ($0.endDate ?? .distantPast) > ($1.endDate ?? .distantPast) }
+        // 每一级各占一行（「示例客户-面料 / 11.06 生产手册」这种应该两层，不合成一行）
         func build(_ n: Node, top: Bool) -> EchoDir {
-            var d = EchoDir(path: n.path, name: n.name,
-                            children: n.kids.values.map { build($0, top: false) }.sorted { ($0.last ?? .distantPast) > ($1.last ?? .distantPast) },
-                            sessions: n.sessions.sorted(by: byEnd))
-            if !top, d.sessions.isEmpty, d.children.count == 1 {   // 中间一层只有一个子目录：合成一行
-                let c = d.children[0]
-                d = EchoDir(path: c.path, name: d.name + " / " + c.name, children: c.children, sessions: c.sessions)
-            }
-            return d
+            EchoDir(path: n.path, name: n.name,
+                    children: n.kids.values.map { build($0, top: false) }.sorted { ($0.last ?? .distantPast) > ($1.last ?? .distantPast) },
+                    sessions: n.sessions.sorted(by: byEnd))
         }
         return roots.values.map { build($0, top: true) }.sorted { ($0.last ?? .distantPast) > ($1.last ?? .distantPast) }
     }
