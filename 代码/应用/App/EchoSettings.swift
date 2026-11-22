@@ -251,8 +251,8 @@ struct EchoStorageSettings: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 32) {
-            EchoSourcesBlock(model: model)
             EchoBackupBlock(model: model)
+            EchoSourcesBlock(model: model)
         }
         .onAppear { model.refresh() }
     }
@@ -466,7 +466,8 @@ struct EchoBackupBlock: View {
             VStack(alignment: .leading, spacing: 2) {
                 Group {
                     if model.cleaning { Text("正在清理…") }
-                    else if let f = model.freeable { Text("按当前设置可释放 ") + Text("约 " + EchoStorage.size(f)).fontWeight(.semibold) }
+                    else if let f = model.freeable, f > 0 { Text("按当前设置可释放 ") + Text("约 " + EchoStorage.size(f)).fontWeight(.semibold) }
+                    else if model.freeable != nil { Text("暂无可清理的内容") }
                     else { Text("正在计算能释放多少…") }
                 }
                 .font(.system(size: 13)).foregroundStyle(EchoColor.fg)
