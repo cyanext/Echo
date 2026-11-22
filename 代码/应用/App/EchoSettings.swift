@@ -112,7 +112,16 @@ struct EchoGeneralSettings: View {
     @State private var hours = EchoPrefs.backupHours
     @State private var login = SMAppService.mainApp.status == .enabled
     @State private var loginError: String?
+    @State private var cliInstalled = EchoCLIInstall.installed
+    @State private var cliError: String?
     @ObservedObject private var state = EchoState.shared
+
+    /// ech 装在哪、Claude 怎么用；~/.local/bin 不在 PATH 里时提示
+    private var cliNote: String {
+        if let cliError { return cliError }
+        guard cliInstalled else { return "装好后 Claude 能用 ech 查以前会话里的原话、按时间列会话和提交，并装上配套的 skill" }
+        return EchoCLIInstall.inPath ? "已安装：~/.local/bin/ech 和 ~/.claude/skills/ech" : "已安装到 ~/.local/bin/ech，这个目录不在 PATH 里，终端要写全路径"
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -132,6 +141,12 @@ struct EchoGeneralSettings: View {
             }
             EchoSettingRow(title: "开机自动启动", note: loginError ?? "在后台备份，不弹窗口") {
                 Toggle("", isOn: $login).toggleStyle(.switch).labelsHidden().onChange(of: login) { _, on in setLogin(on) }
+            }
+            EchoSettingRow(title: "命令行工具", note: cliNote) {
+                Button(cliInstalled ? "重新安装" : "安装命令行工具") {
+                    do { try EchoCLIInstall.install(); cliError = nil } catch { cliError = error.localizedDescription }
+                    cliInstalled = EchoCLIInstall.installed
+                }
             }
         }
         .onDisappear(perform: saveName)

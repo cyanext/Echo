@@ -157,6 +157,7 @@ struct EchoOnboardingView: View {
                 feat("rectangle.compress.vertical", "精简", "图片和过程数据按期限清理，备份只有原会话的十分之一，密钥自动打码")
                 feat("clock.arrow.circlepath", "回看", "按目录找会话，按版本、压缩点跳到当时做了什么")
                 feat("chart.bar", "总览", "每周用了多少 Token、做了哪些提交")
+                feat("magnifyingglass", "查询", "ech 命令按关键词、时间查会话，读出当时的原话")
             }
             .padding(.top, 32)
         }

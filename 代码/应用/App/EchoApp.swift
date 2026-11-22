@@ -422,11 +422,20 @@ final class EchoAppDelegate: NSObject, NSApplicationDelegate {
             badge = EchoState.shared.objectWillChange.sink { _ in
                 DispatchQueue.main.async { NSApp.dockTile.badgeLabel = EchoState.shared.needsAttention ? "!" : nil }
             }
-            // 第一次打开：先走首次设置，点「完成」才开始备份
+            // 第一次打开：先走首次设置，点「完成」才开始备份，顺带装好命令行工具 ech
             if EchoOnboarding.needed {
-                EchoOnboarding.show { EchoState.shared.start(); EchoWindows.showBrowser() }
+                EchoOnboarding.show {
+                    do { try EchoCLIInstall.install() } catch { NSLog("回响：安装命令行工具失败：%@", error.localizedDescription) }
+                    EchoState.shared.start(); EchoWindows.showBrowser()
+                }
                 return
             }
+            // 升级到带 ech 的版本后第一次启动：已经走过首次设置的，自动装一次；之后以设置里的为准
+            if !UserDefaults.standard.bool(forKey: "cliAsked") {
+                UserDefaults.standard.set(true, forKey: "cliAsked")
+                if !EchoCLIInstall.installed { try? EchoCLIInstall.install() }
+            }
+            EchoCLIInstall.refreshIfInstalled()
             EchoState.shared.start()
             if !quietLaunch { EchoWindows.showBrowser() }
         }

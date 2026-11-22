@@ -45,6 +45,7 @@ enum EchoCLI {
             case "list": out = try list(a)
             case "segs": out = try segs(a)
             case "read": out = try read(a)
+            case "context": out = try context(a)
             case "backup": out = try backup(a)
             case "index": out = try index()
             case "schema": out = try schema(a)
@@ -70,6 +71,7 @@ enum EchoCLI {
       ech list [--since 7d|本周|上周|日期] [--until 日期] [--project 词] [--app 名]       按时间列会话、消息、Token、提交
       ech segs <会话>                                列一个会话的分段（每段一个引用，如 ce57ce36#3）
       ech read <引用> [--tools]                       把一段读成对话文字：ce57ce36#3 第 3 段，ce57ce36#L1200-1500 这几行，只写会话读最后一段
+      ech context <会话> [--tools]                    续上一个会话：最近一次压缩的阶段总结和之后的对话
       ech backup                                     备份并更新索引（和回响的「立即备份」一样）
       ech index                                      只更新索引和总览数据，不备份
       ech schema [命令]                              各命令的参数（JSON）
@@ -309,6 +311,21 @@ enum EchoCLI {
             try nx.bind([f.fid, st.int(0) + 1])
             hi = try nx.step() ? nx.int(0) - 1 : Int.max
         }
+        return try render(f, lo, hi, label, a, again: ["ech", "read"] + a.pos)
+    }
+
+    /// 续上一个会话：最近一次压缩的阶段总结和之后的全部对话，和 Claude Code 续这个会话时读进去的一样；没压缩过的从头读
+    static func context(_ a: Args) throws -> String {
+        guard let key = a.pos.first else { throw Fail(text: "用法：ech context <会话>") }
+        let db = try openIndex()
+        let f = try resolve(db, key)
+        var lo = 0, label = "从头"
+        try db.rows("SELECT n, l0 FROM segs WHERE fid=? AND kind='压缩' ORDER BY n DESC LIMIT 1", [f.fid]) { lo = $0.int(1); label = "第 \($0.int(0)) 段起（最近一次压缩之后）" }
+        return try render(f, lo, Int.max, label, a, again: ["ech", "context"] + a.pos)
+    }
+
+    /// 把会话文件里 lo 到 hi 行的对话写成文字：我的消息、回复、阶段总结，工具调用一行概述（--tools 带输出）
+    static func render(_ f: (fid: Int, path: String, title: String, sid: String, computer: String), _ lo: Int, _ hi: Int, _ label: String, _ a: Args, again: [String]) throws -> String {
         let d = try EchoExport.export(URL(fileURLWithPath: f.path), computer: f.computer, withLines: true)
         let tools = a.flags.contains("tools")
         var out = ["\(f.title) · \(f.computer) · \(short(f.sid)) · \(label)" + (lo > 0 ? "（第 \(lo) 行起）" : "")]
@@ -350,7 +367,7 @@ enum EchoCLI {
         }
         if a.flags.contains("json") { return json(["session": f.sid, "title": f.title, "range": label, "items": items]) }
         if out.count == 1 { out.append("（这一段没有对话）") }
-        return paged(out.joined(separator: "\n"), a, shell(["ech", "read"] + a.pos + (tools ? ["--tools"] : [])))
+        return paged(out.joined(separator: "\n"), a, shell(again + (tools ? ["--tools"] : [])))
     }
 
     // MARK: list
@@ -475,6 +492,8 @@ enum EchoCLI {
         ["command": "segs", "summary": "列一个会话的分段：段号、起止行、时间、版本、第一句（只读）", "args": [["name": "会话", "required": true, "desc": "会话 ID 前 8 位或备份文件路径"]], "options": [["name": "--json"]]],
         ["command": "read", "summary": "把一段读成对话文字（只读）", "args": [["name": "引用", "required": true, "desc": "会话#段号（ce57ce36#3）、会话#L起-止（ce57ce36#L1200-1500），只写会话读最后一段"]],
          "options": [["name": "--tools", "desc": "带上工具输出，每条前 2000 字"], ["name": "--page"], ["name": "--json"]]],
+        ["command": "context", "summary": "续上一个会话：最近一次压缩的阶段总结和之后的全部对话，新会话开头读它就能接着做（只读）",
+         "args": [["name": "会话", "required": true]], "options": [["name": "--tools"], ["name": "--page"], ["name": "--json"]]],
         ["command": "backup", "summary": "备份、更新索引和总览数据（和回响的「立即备份」一样，会写备份目录）"],
         ["command": "index", "summary": "只更新索引和总览数据，不备份"],
         ["command": "schema", "summary": "各命令的参数", "args": [["name": "命令", "required": false]]],
@@ -520,5 +539,42 @@ enum EchoCLI {
         let installed = skillVersion(skillDir)
         guard installed != bundled else { return nil }
         return installed == nil ? "（还没装 ech skill：运行 ech install-skill）" : "（ech skill 是 \(installed!)，回响是 \(app)：运行 ech install-skill 更新）"
+    }
+}
+
+/// 装命令行工具：~/.local/bin/ech 指向应用里的程序，再装 skill。首次设置完成时装一次，设置「通用」里能手动装；
+/// 装过的每次启动时检查一遍（应用挪了位置、升级了），替身和 skill 跟上
+enum EchoCLIInstall {
+    static var link: URL { URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".local/bin/ech") }
+    static var target: String? { Bundle.main.executablePath }
+
+    /// 已经装过：~/.local/bin/ech 是个替身（指向哪都算，启动时会修正）
+    static var installed: Bool { (try? FileManager.default.destinationOfSymbolicLink(atPath: link.path)) != nil }
+
+    /// ~/.local/bin 在不在终端的 PATH 里（Claude Code 的终端也是从登录 shell 继承的）
+    static var inPath: Bool {
+        (ProcessInfo.processInfo.environment["PATH"] ?? "").split(separator: ":").contains { $0 == link.deletingLastPathComponent().path }
+    }
+
+    static func install() throws {
+        guard let target else { throw EchoCLI.Fail(text: "找不到回响的程序") }
+        let fm = FileManager.default
+        try fm.createDirectory(at: link.deletingLastPathComponent(), withIntermediateDirectories: true)
+        if installed || fm.fileExists(atPath: link.path) {
+            guard installed else { throw EchoCLI.Fail(text: "\(link.path) 已有别的文件，没有覆盖") }
+            try fm.removeItem(at: link)
+        }
+        try fm.createSymbolicLink(atPath: link.path, withDestinationPath: target)
+        _ = try EchoCLI.installSkill()
+    }
+
+    /// 启动时：装过的，替身不指向当前程序就重建，skill 和应用版本不一致就重装
+    static func refreshIfInstalled() {
+        guard installed, let target else { return }
+        let dest = try? FileManager.default.destinationOfSymbolicLink(atPath: link.path)
+        let staleSkill = EchoCLI.bundledSkill.flatMap(EchoCLI.skillVersion) != EchoCLI.skillVersion(EchoCLI.skillDir)
+        if dest != target || staleSkill {
+            do { try install() } catch { NSLog("回响：更新命令行工具失败：%@", error.localizedDescription) }
+        }
     }
 }
