@@ -94,8 +94,8 @@ h2.sec { margin: var(--space-4) var(--space-1) 0; }
 .day-head .date:hover { color: var(--accent); }
 .day-head .today { font-size: var(--text-xs); color: var(--accent); }
 .day-head .cnt, .row.sum .cnt { font-size: var(--text-xs); color: var(--fg-faint); }
-/* 每天的合计：会话表底下一行，上面一条细线，数字对齐各列 */
-.row.sum { margin: var(--space-1) 0 0; padding-left: 0; padding-right: 0; border-top: 1px solid var(--line); border-radius: 0; font-weight: 600; }
+/* 每天的合计：会话表底下一行，主色浅底，数字对齐各列 */
+.row.sum { margin-top: var(--space-1); background: var(--accent-soft); font-weight: 600; }   /* 合计不要分割线，用底色区分 */
 .row.sum .name { display: flex; align-items: baseline; gap: var(--space-2); font-size: var(--text-sm); }
 .row.sum .cnt { font-weight: 400; }
 .row.sum .num { color: var(--fg); font-weight: 600; }
