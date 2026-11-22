@@ -118,6 +118,7 @@ h2.sec { margin: var(--space-4) var(--space-1) 0; }
 /* 每天的合计：会话表底下一行，字重 500，数字对齐各列 */
 .row.sum { margin-top: var(--space-1); font-weight: 500; }   /* 不要分割线、不铺底、不用主色 */
 .row.sum .name { display: flex; align-items: baseline; gap: var(--space-2); font-size: var(--text-sm); }
+.row.sum .name b { font-weight: 600; color: var(--fg); }   /* 「合计」和会话标题一样（<b> 默认 700 比标题粗） */
 .row.sum .cnt { font-weight: 400; }
 .row.sum .num { color: var(--fg); font-weight: 500; }   /* 合计太粗，600 → 500 */
 
