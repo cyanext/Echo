@@ -358,6 +358,10 @@ struct EchoBrowserView: View {
             }
             .disabled(!movable)
         }
+        // 在访达中选中回响的备份文件：原会话可能已被清理、在别的电脑上，备份一直在
+        Button(group.count > 1 ? "在访达中显示 \(group.count) 个备份" : "在访达中显示备份") {
+            NSWorkspace.shared.activateFileViewerSelecting(targets.map(\.url))
+        }
         Divider()
         if group.count > 1 {
             Button("将 \(group.count) 个会话移到废纸篓…") { confirmDelete(group) }
