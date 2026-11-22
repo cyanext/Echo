@@ -2,7 +2,7 @@
 # 编译 回响.app（Apple 芯片，macOS 14+），输出 dist/回响.app。临时签名，自用。
 # 用法：zsh 代码/应用/build.sh；装到 ~/Applications 并重新打开：zsh 代码/应用/build.sh install
 set -e
-VERSION=0.7.0; BUILD=9                           # 版本号只改这里
+VERSION=0.6.0; BUILD=10                           # 版本号只改这里
 D="${0:A:h}"; T=$(mktemp -d); APP="$T/回响.app"
 trap 'rm -rf "$T"' EXIT
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources/Web"
@@ -30,7 +30,19 @@ cat > "$APP/Contents/Info.plist" <<P
 </dict></plist>
 P
 plutil -lint -s "$APP/Contents/Info.plist"
-codesign --force -s - "$APP"
+# 签名：固定自签名证书「Echo Local Signing」，指定要求是「标识符 + 证书指纹」，每版不变，macOS 给的授权（访问桌面等）重装后还在。
+# 证书在专用钥匙串，密码在登录钥匙串（服务 echo-sign-keychain）；没有证书时退回临时签名（每次重装都会重新问授权）。
+# 证书备份在密码管理器，换电脑恢复的步骤写在那条的备注里
+SIGN=(-s -)
+SIGN_KC="$HOME/Library/Keychains/echo-sign.keychain-db"
+if [[ -f "$SIGN_KC" ]] && KPW=$(security find-generic-password -s echo-sign-keychain -w 2>/dev/null); then
+  security unlock-keychain -p "$KPW" "$SIGN_KC"; unset KPW
+  SIGN=(-s "Echo Local Signing" --keychain "$SIGN_KC")
+else
+  echo "警告：没有签名证书，改用临时签名，每次重装都会重新问授权（恢复见密码管理器）" >&2
+fi
+codesign --force "${SIGN[@]}" "$APP"
+codesign --verify --strict "$APP"
 rm -rf "$D/dist"; mkdir -p "$D/dist"; ditto "$APP" "$D/dist/回响.app"
 echo "已生成 $D/dist/回响.app（$VERSION，build $BUILD）"
 if [[ "$1" == install ]]; then

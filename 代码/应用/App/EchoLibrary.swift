@@ -214,3 +214,30 @@ enum EchoLibrary {
         return roots.values.map { build($0, top: true) }.sorted { ($0.last ?? .distantPast) > ($1.last ?? .distantPast) }
     }
 }
+
+/// 左栏的手动顺序：拖动排好的顺序记在本机，每组一个列表。组名：顶层目录「/」，子目录用上一级目录的路径，会话用「s:目录路径」；
+/// 目录按路径记，会话按会话 ID 记（挪了文件夹也认得）。没排过的（新出现的）按最近用过排在前面，排过的跟在后面按记的顺序
+enum EchoOrder {
+    static func arrange(_ dirs: [EchoDir], _ order: [String: [String]], group: String = "/") -> [EchoDir] {
+        sorted(dirs, order[group], key: \.path).map { d in
+            EchoDir(path: d.path, name: d.name, children: arrange(d.children, order, group: d.path),
+                    sessions: sorted(d.sessions, order["s:" + d.path], key: \.sessionId))
+        }
+    }
+
+    static func sorted<T>(_ items: [T], _ keys: [String]?, key: (T) -> String) -> [T] {
+        guard let keys, !keys.isEmpty else { return items }
+        let pos = Dictionary(keys.enumerated().map { ($1, $0) }, uniquingKeysWith: { a, _ in a })
+        return items.filter { pos[key($0)] == nil } + items.filter { pos[key($0)] != nil }.sorted { pos[key($0)]! < pos[key($1)]! }
+    }
+
+    /// 把 moving 这几项挪到 target 前面（after 为真时后面），其余相对顺序不变；返回整组新顺序
+    static func move(_ keys: [String], moving: [String], to target: String, after: Bool) -> [String] {
+        let set = Set(moving)
+        guard !set.contains(target) else { return keys }
+        var rest = keys.filter { !set.contains($0) }
+        guard let i = rest.firstIndex(of: target) else { return keys }
+        rest.insert(contentsOf: keys.filter { set.contains($0) }, at: after ? i + 1 : i)
+        return rest
+    }
+}
