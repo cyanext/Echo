@@ -184,6 +184,9 @@ struct EchoGeneralSettings: View {
 final class EchoStorageModel: ObservableObject {
     @Published var backup: EchoStorage.Backup?
     @Published var claude: (sessions: Int, bytes: Int64)?
+    @Published var codex: (sessions: Int, bytes: Int64)?
+    @Published var codexLoaded = false                 // Codex 统计完了（nil 表示本机没有 Codex 会话）
+    @Published var codexAutoDelete: (count: Int, bytes: Int64)?
     @Published var freeable: Int64?
     @Published var autoDelete: (count: Int, bytes: Int64)?
     @Published var cleaning = false
@@ -196,6 +199,8 @@ final class EchoStorageModel: ObservableObject {
         Task.detached(priority: .userInitiated) {
             let b = EchoStorage.backup(dir), c = EchoStorage.claude()
             await MainActor.run { self.backup = b; self.claude = c }
+            let x = EchoStorage.codex()
+            await MainActor.run { self.codex = x; self.codexLoaded = true }
         }
         estimate()
         countAutoDelete()
@@ -216,10 +221,15 @@ final class EchoStorageModel: ObservableObject {
 
     func countAutoDelete() {
         autoDelete = nil
-        let dir = EchoPrefs.claudeDir, days = EchoPrefs.autoDeleteDays
+        codexAutoDelete = nil
+        let dir = EchoPrefs.claudeDir, days = EchoPrefs.autoDeleteDays, cdir = EchoPrefs.codexDir, cdays = EchoPrefs.autoDeleteCodexDays
         Task.detached(priority: .utility) {
             let list = EchoAutoDelete.candidates(source: EchoBackup.source, computerDir: dir, days: days)
-            await MainActor.run { self.autoDelete = (list.count, list.reduce(0) { $0 + $1.bytes }) }
+            let cx = EchoAutoDelete.codexCandidates(source: EchoBackup.codexSource, dir: cdir, days: cdays)
+            await MainActor.run {
+                self.autoDelete = (list.count, list.reduce(0) { $0 + $1.bytes })
+                self.codexAutoDelete = (cx.count, cx.reduce(0) { $0 + $1.bytes })
+            }
         }
     }
 
@@ -267,12 +277,15 @@ struct EchoStorageSettings: View {
     }
 }
 
-/// 来源：一个应用一张卡片（现在只有 Claude Code），工具自己的清理选项接在卡片里
+/// 来源：一个应用一张卡片（Claude Code、Codex，WorkBuddy 暂无本地会话、灰着），应用自己的清理选项接在卡片里
 struct EchoSourcesBlock: View {
     @ObservedObject var model: EchoStorageModel
     @AppStorage("backupClaude") private var on = true
     @AppStorage("autoDelete") private var autoDelete = true
     @AppStorage("autoDeleteDays") private var days = 30
+    @AppStorage("backupCodex") private var codexOn = true
+    @AppStorage("autoDeleteCodex") private var codexAutoDelete = true
+    @AppStorage("autoDeleteCodexDays") private var codexDays = 30
     /// 首次设置里：只画卡片头（第 3 步）或带清理选项（第 4 步），Claude 的自动清理用开关，点「完成」时才改
     var onboarding = false
     var showCleanup = true
@@ -281,36 +294,54 @@ struct EchoSourcesBlock: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             if !onboarding { EchoBlockHeader(title: "来源", sum: "勾选要备份的应用") }
-            EchoSourceCard(icon: EchoSettingsStyle.claudeIcon, name: "Claude Code", meta: meta, on: $on) {
+            EchoSourceCard(icon: EchoSettingsStyle.claudeIcon, name: "Claude Code", meta: meta(model.claude, .claude), on: $on) {
                 if showCleanup { cleanup }
             }
+            if model.codexLoaded && model.codex == nil {
+                EchoSourceCard(icon: EchoSettingsStyle.appIcon(.codex), name: "Codex", meta: "暂无本地会话", on: .constant(false), enabled: false) {}
+            } else {
+                EchoSourceCard(icon: EchoSettingsStyle.appIcon(.codex), name: "Codex", meta: meta(model.codex, .codex), on: $codexOn) {
+                    if showCleanup { codexCleanup }
+                }
+            }
+            EchoSourceCard(icon: EchoSettingsStyle.appIcon(.workbuddy), name: "WorkBuddy", meta: "暂无本地会话", on: .constant(false), enabled: false) {}
         }
     }
 
-    private var meta: String {
-        guard let c = model.claude else { return "正在统计…" }
-        let msgs = model.backup.map { "\($0.messages.formatted()) 条消息 · " } ?? ""
+    private func meta(_ c: (sessions: Int, bytes: Int64)?, _ app: EchoSource) -> String {
+        guard let c else { return "正在统计…" }
+        let msgs = model.backup.map { "\(($0.messagesBy[app] ?? 0).formatted()) 条消息 · " } ?? ""
         return "\(c.sessions) 个会话 · \(msgs)\(EchoStorage.size(c.bytes))"
+    }
+
+    /// 自动清理的开关、期限、会清理几个：Claude、Codex 共用一个样子（「清理」不写「删除」）
+    @ViewBuilder private func autoClean(_ on: Binding<Bool>, _ days: Binding<Int>, _ count: (count: Int, bytes: Int64)?) -> some View {
+        EchoSettingRow(title: "自动清理非活跃会话", note: "仅清理已完整备份的会话，移到废纸篓；正在使用的会话不受影响") {
+            Toggle("", isOn: on).toggleStyle(.switch).labelsHidden()
+        }
+        EchoSettingRow(title: "非活跃期限") {
+            Picker("", selection: days) { ForEach([30, 60, 90, 180], id: \.self) { Text("\($0) 天").tag($0) } }
+                .labelsHidden().frame(width: 112)
+                .onChange(of: days.wrappedValue) { _, _ in model.countAutoDelete() }
+        }
+        .disabled(!on.wrappedValue)
+        Group {
+            if let a = count {
+                (Text("按当前设置将清理 ") + Text("\(a.count) 个会话").fontWeight(.semibold) + Text("，释放 \(EchoStorage.size(a.bytes))"))
+            } else { Text("正在统计会清理几个…") }
+        }
+        .font(.system(size: 12)).foregroundStyle(EchoColor.fg2).padding(.vertical, 4)
+        .opacity(on.wrappedValue ? 1 : 0.4)
+    }
+
+    /// Codex 自己不删会话，一直攒着：只有回响的自动清理
+    @ViewBuilder private var codexCleanup: some View {
+        VStack(alignment: .leading, spacing: 0) { autoClean($codexAutoDelete, $codexDays, model.codexAutoDelete) }
     }
 
     @ViewBuilder private var cleanup: some View {
         VStack(alignment: .leading, spacing: 0) {
-            EchoSettingRow(title: "自动删除非活跃会话", note: "仅删除已完整备份的会话，移到废纸篓；正在使用的会话不受影响") {
-                Toggle("", isOn: $autoDelete).toggleStyle(.switch).labelsHidden()
-            }
-            EchoSettingRow(title: "非活跃期限") {
-                Picker("", selection: $days) { ForEach([30, 60, 90, 180], id: \.self) { Text("\($0) 天").tag($0) } }
-                    .labelsHidden().frame(width: 112)
-                    .onChange(of: days) { _, _ in model.countAutoDelete() }
-            }
-            .disabled(!autoDelete)
-            Group {
-                if let a = model.autoDelete {
-                    (Text("按当前设置将删除 ") + Text("\(a.count) 个会话").fontWeight(.semibold) + Text("，释放 \(EchoStorage.size(a.bytes))"))
-                } else { Text("正在统计会删几个…") }
-            }
-            .font(.system(size: 12)).foregroundStyle(EchoColor.fg2).padding(.vertical, 4)
-            .opacity(autoDelete ? 1 : 0.4)
+            autoClean($autoDelete, $days, model.autoDelete)
             claudeCleanup.padding(.top, 8)
         }
     }
@@ -332,7 +363,7 @@ struct EchoSourcesBlock: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("建议关闭 Claude 的自动清理").font(.system(size: 13)).foregroundStyle(EchoColor.fg)
                     Text("它会直接删除 \(model.claudeCleanupDays) 天未使用的会话，不等回响备份完").font(.system(size: 12)).foregroundStyle(EchoColor.fg2)
-                    Text("关闭后由回响删除：确认已备份，再移到废纸篓").font(.system(size: 12)).foregroundStyle(EchoColor.fg2)
+                    Text("关闭后由回响清理：确认已备份，再移到废纸篓").font(.system(size: 12)).foregroundStyle(EchoColor.fg2)
                 }
                 Spacer(minLength: 0)
                 Button("关闭自动清理") { model.turnOffClaudeCleanup() }
