@@ -56,6 +56,9 @@ enum EchoDeleted {
     }
 }
 
+/// 一个仓库上次的 git log 结果：key 是起始日期加各分支指向的提交
+struct GitLogCache: Codable { var key: String; var log: String }
+
 private struct EchoStatsCache: Codable {
     struct Entry: Codable { var stamp: EchoFileStamp; var days: [String: EchoDayStat] }
     var entries: [String: Entry] = [:]
@@ -69,47 +72,85 @@ enum EchoStats {
 
     /// 本机时区的「年-月-日」
     static func dayKey(_ ts: String) -> String? {
-        guard let d = EchoTime.parse(ts) else { return nil }
-        let c = Calendar.current.dateComponents([.year, .month, .day], from: d)
-        return String(format: "%04d-%02d-%02d", c.year!, c.month!, c.day!)
+        guard let t = epoch(ts) else { return nil }
+        var offsets: [Int: Int] = [:]
+        return localDay(t, &offsets)
     }
 
-    /// 读一个会话文件，按天汇总。同一次回复拆成几行记录，按 requestId 去重
+    static func epoch(_ s: String) -> Double? { EchoTime.parse(s)?.timeIntervalSince1970 }
+
+    /// 秒数对应的本地「年-月-日」：时区偏移按小时缓存在调用方（夏令时也对），日期自己算
+    static func localDay(_ t: Double, _ offsets: inout [Int: Int]) -> String {
+        let hour = Int((t / 3600).rounded(.down))
+        let off: Int
+        if let o = offsets[hour] { off = o } else {
+            off = TimeZone.current.secondsFromGMT(for: Date(timeIntervalSince1970: t))
+            offsets[hour] = off
+        }
+        let z = Int(((t + Double(off)) / 86400).rounded(.down)) + 719468
+        let era = (z >= 0 ? z : z - 146096) / 146097
+        let doe = z - era * 146097
+        let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365
+        let doy = doe - (365 * yoe + yoe / 4 - yoe / 100)
+        let mp = (5 * doy + 2) / 153
+        let d = doy - (153 * mp + 2) / 5 + 1
+        let m = mp < 10 ? mp + 3 : mp - 9
+        let y = yoe + era * 400 + (m <= 2 ? 1 : 0)
+        return String(format: "%04d-%02d-%02d", y, m, d)
+    }
+
+    private static let needleToolResult = Array("\"tool_result\"".utf8)
+    private static let kType = RawJSON.quoted("type"), kTs = RawJSON.quoted("timestamp"), kMessage = RawJSON.quoted("message")
+    private static let kUsage = RawJSON.quoted("usage"), kModel = RawJSON.quoted("model"), kRequestId = RawJSON.quoted("requestId")
+    private static let kId = RawJSON.quoted("id"), kSubtype = RawJSON.quoted("subtype"), kDuration = RawJSON.quoted("durationMs")
+    private static let kCacheCreation = RawJSON.quoted("cache_creation")
+
+    /// 读一个会话文件，按天汇总。同一次回复拆成几行记录，按 requestId 去重。
+    /// 只取要用的几个字段：用保留原文的解析器（RawJSON，不建字典），只有不带工具结果的用户消息才完整解析，判断是不是人打的字
     static func read(_ url: URL) throws -> [String: EchoDayStat] {
-        var days: [String: EchoDayStat] = [:], seen = Set<String>()
+        var days: [String: EchoDayStat] = [:], seen = Set<String>(), offsets: [Int: Int] = [:]
+        func str(_ v: RawJSON?) -> String? { v?.stringRaw.flatMap { EchoSlim.decode($0) } }
+        func num(_ v: RawJSON?) -> Double {
+            guard case .scalar(let b)? = v else { return 0 }
+            return Double(String(decoding: b, as: UTF8.self)) ?? 0
+        }
         try EchoLines.each(url) { line in
             let b = EchoLines.trim(line)
             let isUser = EchoLines.has(b, needleUser)
             let isUsage = !isUser && EchoLines.has(b, needleAsst) && EchoLines.has(b, needleUsage)
             let isTurn = !isUser && !isUsage && EchoLines.has(b, needleTurn)
-            guard isUser || isUsage || isTurn,
-                  let d = try? JSONSerialization.jsonObject(with: Data(buffer: b)) as? [String: Any],
-                  let ts = d["timestamp"] as? String, let day = dayKey(ts), let t = EchoTime.parse(ts)?.timeIntervalSince1970 else { return }
+            guard isUser || isUsage || isTurn, let j = RawJSON.parse(b),
+                  let ts = str(j[kTs]), let t = epoch(ts) else { return }
+            let day = localDay(t, &offsets)
             var span = days[day, default: .init()]
             span.a = span.a == 0 ? t : min(span.a, t)
             span.b = max(span.b, t)
             days[day] = span
+            let type = str(j[kType])
             if isUser {
-                guard d["type"] as? String == "user", EchoExport.userRole(d)?.role == "user" else { return }
+                // 带工具结果的是工具输出，不是人打的字，不用解析内容
+                guard type == "user", !EchoLines.has(b, needleToolResult),
+                      let d = try? JSONSerialization.jsonObject(with: Data(buffer: b)) as? [String: Any],
+                      EchoExport.userRole(d)?.role == "user" else { return }
                 days[day, default: .init()].m += 1
             } else if isUsage {
-                guard d["type"] as? String == "assistant", let msg = d["message"] as? [String: Any],
-                      let u = msg["usage"] as? [String: Any] else { return }
-                let rid = d["requestId"] as? String ?? msg["id"] as? String ?? UUID().uuidString
+                guard type == "assistant", let msg = j[kMessage], let u = msg[kUsage], case .object = u else { return }
+                let rid = str(j[kRequestId]) ?? str(msg[kId]) ?? UUID().uuidString
                 guard seen.insert(rid).inserted else { return }
-                let model = msg["model"] as? String ?? "?"
+                let model = str(msg[kModel]) ?? "?"
                 guard model != "<synthetic>" else { return }
-                func n(_ k: String) -> Double { (u[k] as? NSNumber)?.doubleValue ?? 0 }
-                let cc = u["cache_creation"] as? [String: Any]
-                var w5 = (cc?["ephemeral_5m_input_tokens"] as? NSNumber)?.doubleValue ?? 0
-                let w1 = (cc?["ephemeral_1h_input_tokens"] as? NSNumber)?.doubleValue ?? 0
+                func n(_ k: String) -> Double { num(u[RawJSON.quoted(k)]) }
+                let cc = u[kCacheCreation]
+                var w5 = num(cc?[RawJSON.quoted("ephemeral_5m_input_tokens")])
+                let w1 = num(cc?[RawJSON.quoted("ephemeral_1h_input_tokens")])
                 w5 += max(0, n("cache_creation_input_tokens") - w5 - w1)
                 let add = [n("input_tokens"), n("output_tokens"), n("cache_read_input_tokens"), w5, w1]
                 var s = days[day, default: .init()]
                 s.k[model] = zip(s.k[model] ?? [0, 0, 0, 0, 0], add).map { $0 + $1 }
                 days[day] = s
             } else {
-                guard d["subtype"] as? String == "turn_duration", let ms = (d["durationMs"] as? NSNumber)?.doubleValue else { return }
+                guard str(j[kSubtype]) == "turn_duration" else { return }
+                let ms = num(j[kDuration])
                 var s = days[day, default: .init()]
                 s.ms += ms
                 s.lg = max(s.lg, ms)
@@ -191,13 +232,25 @@ enum EchoStats {
             }
         }
         let repos = Set(tops.joined()).sorted()
-        var logs = [String](repeating: "", count: repos.count)
+        // git log --numstat 在大仓库上要好几秒：每个仓库先用 rev-parse --all（很快）取各分支指向的提交当指纹，
+        // 指纹和起始日期都没变就用上次的结果，只重跑变了的仓库
+        let cacheURL = EchoLibrary.supportDir.appendingPathComponent("总览git缓存.json")
+        let cache = (try? Data(contentsOf: cacheURL)).flatMap { try? JSONDecoder().decode([String: GitLogCache].self, from: $0) } ?? [:]
+        var logs = [String](repeating: "", count: repos.count), keys = [String](repeating: "", count: repos.count)
         logs.withUnsafeMutableBufferPointer { buf in
-            DispatchQueue.concurrentPerform(iterations: repos.count) { i in
-                buf[i] = git(["-C", repos[i], "log", "--all", "--no-merges", "--since=\(since)", "--date=iso-strict",
-                              "--pretty=format:%x1e%H%x1f%aI%x1f%s", "--numstat"])
+            keys.withUnsafeMutableBufferPointer { kb in
+                DispatchQueue.concurrentPerform(iterations: repos.count) { i in
+                    let key = since + "\n" + git(["-C", repos[i], "rev-parse", "--all"])
+                    kb[i] = key
+                    if let c = cache[repos[i]], c.key == key { buf[i] = c.log; return }
+                    buf[i] = git(["-C", repos[i], "log", "--all", "--no-merges", "--since=\(since)", "--date=iso-strict",
+                                  "--pretty=format:%x1e%H%x1f%aI%x1f%s", "--numstat"])
+                }
             }
         }
+        var fresh: [String: GitLogCache] = [:]
+        for (i, r) in repos.enumerated() { fresh[r] = GitLogCache(key: keys[i], log: logs[i]) }
+        if let d = try? JSONEncoder().encode(fresh) { try? d.write(to: cacheURL, options: .atomic) }
         var seen = Set<String>(), out: [Commit] = []
         for (r, log) in zip(repos, logs) {
             for rec in log.split(separator: "\u{1e}") {
@@ -228,12 +281,21 @@ enum EchoStats {
         var fresh = EchoStatsCache()
         var list: [[String: Any]] = []
         let keys: Set<URLResourceKey> = [.fileSizeKey, .contentModificationDateKey]
-        for s in sessions {
-            guard let v = try? s.url.resourceValues(forKeys: keys) else { continue }
-            let stamp = EchoFileStamp(size: Int64(v.fileSize ?? 0), mtime: v.contentModificationDate?.timeIntervalSince1970 ?? 0)
+        // 缓存里没有、或文件变了的，并发读（第一次打开时一百多个文件，一个个读要十几秒）
+        let stamps = sessions.map { s -> EchoFileStamp? in
+            guard let v = try? s.url.resourceValues(forKeys: keys) else { return nil }
+            return EchoFileStamp(size: Int64(v.fileSize ?? 0), mtime: v.contentModificationDate?.timeIntervalSince1970 ?? 0)
+        }
+        var read = [[String: EchoDayStat]?](repeating: nil, count: sessions.count)
+        let todo = sessions.indices.filter { i in stamps[i] != nil && cache.entries[sessions[i].url.path]?.stamp != stamps[i] }
+        read.withUnsafeMutableBufferPointer { buf in
+            DispatchQueue.concurrentPerform(iterations: todo.count) { n in buf[todo[n]] = try? self.read(sessions[todo[n]].url) }
+        }
+        for (i, s) in sessions.enumerated() {
+            guard let stamp = stamps[i] else { continue }
             let days: [String: EchoDayStat]
             if let e = cache.entries[s.url.path], e.stamp == stamp { days = e.days }
-            else if let d = try? read(s.url) { days = d }
+            else if let d = read[i] { days = d }
             else { continue }
             fresh.entries[s.url.path] = .init(stamp: stamp, days: days)
             guard !days.isEmpty else { continue }

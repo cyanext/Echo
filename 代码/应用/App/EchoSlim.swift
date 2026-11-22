@@ -176,6 +176,15 @@ struct EchoPolicy {
         guard let ts else { return false }
         return now.timeIntervalSince(ts) > Double(days) * 86400
     }
+
+    /// 没到期、留着的内容哪天到期（记进 Stats.nextExpiry）
+    func expiry(_ days: Int, _ ts: Date?) -> Double {
+        guard days > 0, let ts else { return .infinity }
+        return ts.timeIntervalSince1970 + Double(days) * 86400
+    }
+
+    /// 期限的写法，清理记录里比对用（期限改了要重新看）
+    var key: String { "\(toolUse),\(toolResult),\(thinking),\(system)" }
 }
 
 /// 一个文件从头处理到尾时要记住的：git 提交、合并命令的调用编号（它的结果也一直留着）
@@ -186,6 +195,8 @@ final class EchoSlimState {
 enum EchoSlim {
     struct Stats: Equatable {
         var bytesIn = 0, bytesOut = 0, droppedLines = 0, changedLines = 0
+        /// 留着的内容里最早什么时候有到期的（秒数）；没有会到期的是无穷大。清理按它跳过还不用看的文件
+        var nextExpiry = Double.infinity
     }
 
     static let cleanedKey = "已清理"
@@ -299,7 +310,7 @@ enum EchoSlim {
     }
 
     /// 按保留期限换思考、工具数据、附件。返回新节点和改没改
-    static func applyPolicy(_ obj: RawJSON, _ policy: EchoPolicy, _ state: EchoSlimState) -> (RawJSON, Bool) {
+    static func applyPolicy(_ obj: RawJSON, _ policy: EchoPolicy, _ state: EchoSlimState, next: inout Double) -> (RawJSON, Bool) {
         guard case .object(var items) = obj, let t = obj[kType]?.stringRaw else { return (obj, false) }
         let ts = obj[kTimestamp]?.stringRaw.flatMap { EchoTime.parse(String(decoding: $0.dropFirst().dropLast(), as: UTF8.self)) }
         func index(_ k: [UInt8]) -> Int? { items.lastIndex(where: { $0.key == k }) }
@@ -308,22 +319,28 @@ enum EchoSlim {
         if t == vAssistant || t == vUser, let mi = index(kMessage), case .object(var msg) = items[mi].value,
            let ci = msg.lastIndex(where: { $0.key == kContent }), case .array(var content) = msg[ci].value {
             var hitResult = false
-            if t == vUser, !policy.expired(policy.toolResult, ts) { return (obj, false) }
+            let resultExpired = t == vUser && policy.expired(policy.toolResult, ts)
             for (n, b) in content.enumerated() {
                 guard case .object(var bi) = b, let bt = b[kType]?.stringRaw else { continue }
                 if t == vAssistant, bt == vThinking || bt == vRedacted {
                     if policy.expired(policy.thinking, ts) {
                         content[n] = textBlock(placeholder("思考过程", rawLen(b)))
                         changed = true
-                    }
+                    } else { next = min(next, policy.expiry(policy.thinking, ts)) }
                 } else if t == vAssistant, bt == vToolUse {
                     if keepsGit(b) { if let id = b[kId]?.stringRaw { state.gitIds.insert(id) } }
-                    else if policy.expired(policy.toolUse, ts), let ii = bi.lastIndex(where: { $0.key == kInput }), !isCleaned(bi[ii].value) {
-                        bi[ii].value = cleanedObject("工具参数，原 \(sizeText(rawLen(bi[ii].value)))")
-                        content[n] = .object(bi)
-                        changed = true
+                    else if let ii = bi.lastIndex(where: { $0.key == kInput }), !isCleaned(bi[ii].value) {
+                        if policy.expired(policy.toolUse, ts) {
+                            bi[ii].value = cleanedObject("工具参数，原 \(sizeText(rawLen(bi[ii].value)))")
+                            content[n] = .object(bi)
+                            changed = true
+                        } else { next = min(next, policy.expiry(policy.toolUse, ts)) }
                     }
                 } else if t == vUser, bt == vToolResult, !(b[kToolUseId]?.stringRaw.map { state.gitIds.contains($0) } ?? false) {
+                    guard resultExpired else {
+                        if let c = b[kContent], !isCleaned(c) { next = min(next, policy.expiry(policy.toolResult, ts)) }
+                        continue
+                    }
                     hitResult = true
                     if let ii = bi.lastIndex(where: { $0.key == kContent }), !isCleaned(bi[ii].value) {
                         bi[ii].value = .string(jsonString(placeholder("工具结果", rawLen(bi[ii].value))))
@@ -340,6 +357,8 @@ enum EchoSlim {
                 items[ri].value = .string(jsonString(placeholder("工具结果", rawLen(items[ri].value))))
                 changed = true
             }
+        } else if t == vAttachment, !policy.expired(policy.system, ts), obj[kAttachment]?[kCleaned] == nil {
+            next = min(next, policy.expiry(policy.system, ts))
         } else if t == vAttachment, policy.expired(policy.system, ts), let ai = index(kAttachment),
                   case .object = items[ai].value, items[ai].value[kCleaned] == nil {
             let a = items[ai].value
@@ -360,7 +379,7 @@ enum EchoSlim {
         var bytes: [UInt8]? = nil   // 改写过的这一行（不含换行），nil 表示原样
         if needlesParse.contains(where: { EchoLines.has(body, $0) }), let j = RawJSON.parse(body) {
             let (a, c1) = stripBase64(j)
-            let (b, c2) = applyPolicy(a, policy, state)
+            let (b, c2) = applyPolicy(a, policy, state, next: &stats.nextExpiry)
             if c1 || c2 {
                 var o = [UInt8]()
                 b.write(to: &o)

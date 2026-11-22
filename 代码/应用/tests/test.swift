@@ -15,7 +15,7 @@ enum EchoTests {
 
     static func main() throws {
         let a = CommandLine.arguments
-        if a.count == 3, a[1] == "--rules" { rules(); try renameTest(fixture: URL(fileURLWithPath: a[2])); try statsTest(); try cleanTest(); try autoDeleteTest(); try claudeSettingsTest() }
+        if a.count == 3, a[1] == "--rules" { rules(); try renameTest(fixture: URL(fileURLWithPath: a[2])); try statsTest(); timeTest(); try cleanTest(); try autoDeleteTest(); try claudeSettingsTest() }
         else if a.count == 4, a[1] == "--overview" {   // 手动排查：按应用的方式整理总览数据，写到文件，看用了多久
             let t0 = Date()
             let list = EchoLibrary.scan(backupRoot: URL(fileURLWithPath: a[2]))
@@ -131,6 +131,24 @@ enum EchoTests {
     }
 
     /// 清理备份：到期的换成占位、行数不变；旧文件进废纸篓（这里换成临时目录）；再跑一遍不动；没到门槛不重写，第一次（force）照样重写；估算不改文件
+    /// 手写的时间解析和本地日期，要和系统格式器、Calendar 算的一样
+    static func timeTest() {
+        let f = ISO8601DateFormatter(); f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let g = ISO8601DateFormatter()
+        for s in ["2026-11-04T11:41:10.072Z", "2026-02-28T23:59:59.999Z", "2024-02-29T16:00:00Z", "2000-01-01T00:00:00.5Z", "2026-12-31T15:59:60Z"] {
+            let want = (f.date(from: s) ?? g.date(from: s))?.timeIntervalSince1970
+            let got = EchoTime.fastEpoch(s)
+            check(want == nil || abs((got ?? -1) - want!) < 0.001, "时间解析 \(s)：\(String(describing: got))，格式器 \(String(describing: want))")
+            if let t = got {
+                var o: [Int: Int] = [:]
+                let c = Calendar.current.dateComponents([.year, .month, .day], from: Date(timeIntervalSince1970: t))
+                check(EchoStats.localDay(t, &o) == String(format: "%04d-%02d-%02d", c.year!, c.month!, c.day!), "本地日期 \(s) 不对")
+            }
+        }
+        check(EchoTime.fastEpoch("2026-11-04 11:41:10") == nil && EchoTime.parse("2026-11-04T11:41:10+08:00") != nil, "认不出的格式应退回格式器")
+        print("  时间解析 11 项")
+    }
+
     static func cleanTest() throws {
         let fm = FileManager.default
         let dir = fm.temporaryDirectory.appendingPathComponent("echo-clean-\(getpid())")
@@ -143,6 +161,7 @@ enum EchoTests {
         let big = String(repeating: "旧参数", count: 2000)
         let a = line(["type": "assistant", "uuid": "a", "timestamp": "2026-09-01T00:00:00Z", "message": ["id": "m", "content": [["type": "tool_use", "id": "t", "name": "Read", "input": ["x": big]]]]])
             + line(["type": "user", "uuid": "b", "timestamp": "2026-11-20T00:00:00Z", "message": ["role": "user", "content": "新消息"]])
+            + line(["type": "assistant", "uuid": "e", "timestamp": "2026-11-20T00:00:00Z", "message": ["id": "m3", "content": [["type": "tool_use", "id": "t3", "name": "Read", "input": ["x": "新参数，12-20 到期"]]]]])
         let f = proj.appendingPathComponent("a.jsonl")
         try a.write(to: f, atomically: true, encoding: .utf8)
         // 门槛：大文件里只有一小块能清，不重写；force 时重写
@@ -171,8 +190,15 @@ enum EchoTests {
         let r3 = try EchoClean.run(computerDir: dir, policy: policy, force: true, remove: move)
         let gText = try String(contentsOf: g, encoding: .utf8)
         check(r3.rewritten == 1 && gText.contains("已清理"), "清理：第一次全部过一遍时没到门槛的也重写，实际 \(r3.rewritten)")
+        // 记了清理记录：没到期的文件下次直接跳过
+        let r4 = try EchoClean.run(computerDir: dir, policy: policy, remove: move)
+        check(r4.skipped == 2 && r4.rewritten == 0, "清理：清理记录在、还没到期的应跳过，实际跳过 \(r4.skipped)")
+        var later = policy
+        later.now = EchoTime.parse("2026-12-31T00:00:00Z")!
+        let r5 = try EchoClean.run(computerDir: dir, policy: later, dryRun: true, remove: move)
+        check(r5.skipped < 2, "清理：到了最早到期的那天应重新看，实际跳过 \(r5.skipped)")
         check(EchoSlim.sizeText(512) == "512 B" && EchoSlim.sizeText(3482) == "3.4 KB" && EchoSlim.sizeText(130 << 20) == "130 MB" && EchoSlim.sizeText(1288490189) == "1.2 GB", "大小写法不对")
-        print("  清理 7 项")
+        print("  清理 9 项")
     }
 
     /// 自动删除：只挑超过期限、备份完整（连同名目录）、没开着的；只删原会话，备份不动

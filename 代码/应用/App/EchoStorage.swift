@@ -37,17 +37,24 @@ enum EchoStorage {
         return (.system, false)
     }
 
-    /// 一台电脑的备份（备份/<电脑名>/projects）各类占多少
+    /// 一台电脑的备份（备份/<电脑名>/projects）各类占多少。多个文件同时读
     static func backup(_ computerDir: URL) -> Backup {
-        var r = Backup()
         let fm = FileManager.default
-        guard let en = fm.enumerator(at: computerDir.appendingPathComponent("projects"), includingPropertiesForKeys: nil, options: .skipsHiddenFiles) else { return r }
-        for case let u as URL in en where u.pathExtension == "jsonl" {
+        guard let en = fm.enumerator(at: computerDir.appendingPathComponent("projects"), includingPropertiesForKeys: nil, options: .skipsHiddenFiles) else { return Backup() }
+        let files = en.compactMap { $0 as? URL }.filter { $0.pathExtension == "jsonl" }
+        let parts = EchoParallel.map(files) { u -> Backup in
+            var r = Backup()
             try? EchoLines.each(u) { line in
                 let (k, m) = kind(EchoLines.trim(line))
                 r.bytes[k, default: 0] += Int64(line.count)
                 if m { r.messages += 1 }
             }
+            return r
+        }
+        var r = Backup()
+        for x in parts {
+            for (k, v) in x.bytes { r.bytes[k, default: 0] += v }
+            r.messages += x.messages
         }
         return r
     }

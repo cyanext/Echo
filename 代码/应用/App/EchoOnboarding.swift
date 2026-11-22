@@ -55,18 +55,18 @@ enum EchoOnboarding {
     /// 首次备份大约多大：按当前保留期限把 Claude 会话过一遍（只算不写），图片等不备份的文件不算
     static func estimate(policy: EchoPolicy) -> Int64 {
         let fm = FileManager.default
-        var total: Int64 = 0
         guard let en = fm.enumerator(at: EchoBackup.source, includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey]) else { return 0 }
         let base = EchoBackup.source.standardizedFileURL.path + "/"
-        for case let u as URL in en {
-            guard let v = try? u.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]), v.isRegularFile == true else { continue }
+        let files = en.compactMap { $0 as? URL }
+        // 多个文件同时算
+        return EchoParallel.map(files) { u -> Int64 in
+            guard let v = try? u.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]), v.isRegularFile == true else { return 0 }
             switch EchoBackupRule.action(for: String(u.standardizedFileURL.path.dropFirst(base.count))) {
-            case .slim: total += Int64((try? EchoSlim.slimFile(u, to: nil, policy: policy).bytesOut) ?? 0)
-            case .copy: total += Int64(v.fileSize ?? 0)
-            case .skip: break
+            case .slim: return Int64((try? EchoSlim.slimFile(u, to: nil, policy: policy).bytesOut) ?? 0)
+            case .copy: return Int64(v.fileSize ?? 0)
+            case .skip: return 0
             }
-        }
-        return total
+        }.reduce(0, +)
     }
 }
 
