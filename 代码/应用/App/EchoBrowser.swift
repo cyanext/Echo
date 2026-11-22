@@ -449,6 +449,21 @@ struct EchoBrowserView: View {
         .allowsHitTesting(false)
     }
 
+    /// 顶层目录里重名的名字，regroup 时算
+    private var dupRoots: Set<String> {
+        var seen = Set<String>(), dup = Set<String>()
+        for d in tree where !seen.insert(d.name).inserted { dup.insert(d.name) }
+        return dup
+    }
+
+    /// 上一级文件夹的名字，系统文件夹写中文（照访达）；在家目录下直接的写「~」
+    static func parentName(_ path: String) -> String {
+        let parent = (path as NSString).deletingLastPathComponent
+        if parent == NSHomeDirectory() { return "~" }
+        let n = (parent as NSString).lastPathComponent
+        return ["Desktop": "桌面", "Documents": "文稿", "Downloads": "下载"][n] ?? n
+    }
+
     /// 每级缩进 18，正好是小三角加间距的宽度。下一级从上一级的文字起点开始：子目录的三角、会话的标题都和上一级目录名字对齐
     private let indentStep: CGFloat = 18
 
@@ -464,6 +479,10 @@ struct EchoBrowserView: View {
                     EchoTwist(open: open) { toggle(d, level: level) }
                     Text(d.name).foregroundStyle(EchoColor.fg)
                         .font(.system(size: 13)).lineLimit(1)
+                    // 顶层有同名目录（~/伙伴云NAS/客户文档 和 ~/Desktop/客户文档）：名字后面用灰色小字写上一级文件夹
+                    if level == 0, dupRoots.contains(d.name) {
+                        Text(Self.parentName(d.path)).font(.system(size: 12)).foregroundStyle(EchoColor.fg3).lineLimit(1)
+                    }
                     Spacer(minLength: 4)
                     Text("\(d.count)").font(.system(size: 12)).foregroundStyle(EchoColor.fg3).monospacedDigit()
                 }
@@ -586,7 +605,7 @@ struct EchoBrowserView: View {
         func no(_ t: String) -> EchoDropHint { EchoDropHint(key: d.path, mode: .into, ok: false, text: t) }
         if list.contains(where: { $0.app != .claude }) { return no("Codex 会话不支持移动") }
         if let s = list.first(where: { $0.computer != EchoPrefs.computerName }) { return no("会话在 \(s.computer) 上，不能移动") }
-        if list.allSatisfy({ ($0.projectPath as NSString).standardizingPath == d.path }) { return no("会话已在\(name)中") }
+        if list.allSatisfy({ EchoPath.real($0.projectPath) == d.path }) { return no("会话已在\(name)中") }
         var isDir: ObjCBool = false
         if !FileManager.default.fileExists(atPath: d.path, isDirectory: &isDir) || !isDir.boolValue { return no("\(name)在本机已不存在（可能已改名或移走），不能移动到这里") }
         return EchoDropHint(key: d.path, mode: .into, ok: true, text: list.count > 1 ? "将 \(list.count) 个会话移动到\(name)" : "移动到\(name)")
@@ -597,7 +616,7 @@ struct EchoBrowserView: View {
         guard let it = drag.item, let h = drag.hint, h.key == d.path, h.ok else { return false }
         if !it.sessions.isEmpty {
             // 先让放下结束（拖影收回），再弹确认
-            let list = it.sessions.filter { ($0.projectPath as NSString).standardizingPath != d.path }
+            let list = it.sessions.filter { EchoPath.real($0.projectPath) != d.path }
             DispatchQueue.main.async { confirmMove(list, to: d) }
             return true
         }

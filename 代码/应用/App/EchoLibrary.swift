@@ -34,14 +34,47 @@ struct EchoDir: Identifiable, Hashable {
 }
 
 /// 会话目录拆成各级名字：家目录下的去掉家目录；以「.」开头的目录（.worktrees、.claude）和它下面的算进上一级。
+/// 先把路径里的替身（符号链接）换成真实路径：~/Desktop/客户文档 是 ~/伙伴云NAS/客户文档 的替身，从两边打开的会话归到同一个目录。
 /// 左栏目录树、总览的项目归类共用这一套
 enum EchoPath {
     static func parts(_ path: String) -> (home: Bool, comps: [String]) {
+        let path = real(path)
         let home = NSHomeDirectory()
         let under = path == home || path.hasPrefix(home + "/")
         var comps = (under ? String(path.dropFirst(home.count)) : path).split(separator: "/").map(String.init)
         if let dot = comps.firstIndex(where: { $0.hasPrefix(".") }), dot >= 2 { comps = Array(comps[..<dot]) }
         return (under, comps)
+    }
+
+    private static var cache: [String: String] = [:]
+    private static let lock = NSLock()
+
+    /// 一级一级往下查，遇到替身换成它指向的位置；查到不存在的那一级为止，后面原样接上（会话的文件夹可能已经删了、改名了）。
+    /// 同一个路径只查一次
+    static func real(_ path: String) -> String {
+        guard path.hasPrefix("/") else { return path }
+        lock.lock(); let hit = cache[path]; lock.unlock()
+        if let hit { return hit }
+        let fm = FileManager.default
+        var cur = "/", hops = 0
+        var rest = path.split(separator: "/").map(String.init)
+        while !rest.isEmpty {
+            let next = (cur as NSString).appendingPathComponent(rest[0])
+            if let dest = try? fm.destinationOfSymbolicLink(atPath: next), hops < 16 {
+                hops += 1
+                rest.removeFirst()
+                let target = dest.hasPrefix("/") ? dest : (cur as NSString).appendingPathComponent(dest)
+                rest = target.split(separator: "/").map(String.init) + rest
+                cur = "/"
+                continue
+            }
+            guard fm.fileExists(atPath: next) else { break }
+            cur = next
+            rest.removeFirst()
+        }
+        let out = (rest.reduce(cur) { ($0 as NSString).appendingPathComponent($1) } as NSString).standardizingPath
+        lock.lock(); cache[path] = out; lock.unlock()
+        return out
     }
 }
 
