@@ -221,21 +221,53 @@
     $("money").innerHTML = `<h2>用量<span class="note">这周折合 ${fmtU(w.usd)}</span></h2>` + row("按用途", parts) + row("按模型", models);
   }
 
-  // 备份：这台电脑各应用备份了多少会话、原会话多大、备份多大（Swift 整理时一并给 data.backup）；没有数据就不显示
+  // 备份：累计（顶上三个数）、各应用（会话数、原会话 → 备份）、备份日志（一天一行，由每次备份追加的记录汇总）。
+  // 数据由 Swift 整理时一并给 data.backup：{last, apps: [{app, sessions, src, bak, gone}], log: [{t, app, files, written, failed, in, out, cleanFreed, autoDel, autoDelBytes}]}
+  // 顶上不放密钥打码数（「密钥不用了」）
   const APP = { claude: "Claude Code", codex: "Codex", workbuddy: "WorkBuddy" };
-  const fmtB = (n) => { if (n < 1024) return n + " B"; let v = n; for (const u of ["KB", "MB", "GB", "TB"]) { v /= 1024; if (v < 1000 || u === "TB") return (v < 10 ? v.toFixed(1) : Math.round(v)) + " " + u; } };
+  const fmtB = (n) => { if (!n) return "0"; if (n < 1024) return n + " B"; let v = n; for (const u of ["KB", "MB", "GB", "TB"]) { v /= 1024; if (v < 1000 || u === "TB") return (v < 10 ? v.toFixed(1) : Math.round(v)) + " " + u; } };
+  let logAll = false;
   function backup() {
     const b = DATA && DATA.backup, el = $("backup");
     el.hidden = !(b && b.apps && b.apps.length);
     if (el.hidden) return;
-    const when = b.last ? (() => { const d = new Date(b.last), t = new Date(d.getFullYear(), d.getMonth(), d.getDate()); return `上次备份 ${+t === +TODAY ? "今天" : md(d)} ${hm(+d)}`; })() : "还没有备份过";
+    const dayOf = (iso) => { const d = new Date(iso); return new Date(d.getFullYear(), d.getMonth(), d.getDate()); };
+    const when = b.last ? `上次备份 ${+dayOf(b.last) === +TODAY ? "今天" : md(dayOf(b.last))} ${hm(+new Date(b.last))}` : "还没有备份过";
+    const log = b.log || [], sum = (f) => log.reduce((a, x) => a + (x[f] || 0), 0);
+    const src = b.apps.reduce((a, x) => a + x.src, 0), bak = b.apps.reduce((a, x) => a + x.bak, 0);
     const gone = b.apps.reduce((a, x) => a + (x.gone || 0), 0);
-    el.innerHTML = `<h2>备份<span class="note">${when}</span></h2>` + b.apps.map((x) => {
+    const stat = (l, v, s) => `<div class="bks"><div class="l">${l}</div><div class="v">${v}</div><div class="s">${s}</div></div>`;
+    let h = `<h2>备份<span class="note">${when}</span></h2><div class="bkstats">`
+      + stat("已备份", `${fmtN(b.apps.reduce((a, x) => a + x.sessions, 0))}<small>个会话</small>`, gone ? `${fmtN(gone)} 个原文件已清理，只在备份里` : "原文件都还在")
+      + stat("占用", `${fmtB(bak)}`, `原会话 ${fmtB(src)}，省 ${src ? Math.round((1 - bak / src) * 100) : 0}%`)
+      + stat("自动删除", `${fmtN(sum("autoDel"))}<small>个会话</small>`, `腾出 ${fmtB(sum("autoDelBytes"))}，清理备份又腾出 ${fmtB(sum("cleanFreed"))}`)
+      + `</div>`;
+    h += b.apps.map((x) => {
       const pct = x.src ? Math.max(0, Math.round((1 - x.bak / x.src) * 100)) : 0;
       return `<div class="bk"><div class="bk-head"><img src="app-${x.app}.svg" alt=""><span>${APP[x.app] || x.app}</span><span class="cnt">${fmtN(x.sessions)} 个会话</span>
-        <span class="sz" data-tip="原会话 ${fmtB(x.src)}，备份 ${fmtB(x.bak)}">${fmtB(x.src)} → <b>${fmtB(x.bak)}</b></span><em>省 ${pct}%</em></div>
+        <span class="sz">${fmtB(x.src)} → <b>${fmtB(x.bak)}</b></span><em>省 ${pct}%</em></div>
         <div class="bkbar"><i style="width:${x.src ? Math.min(100, x.bak / x.src * 100) : 0}%"></i></div></div>`;
-    }).join("") + (gone ? `<div class="bk-note">${fmtN(gone)} 个会话的原文件已经清理，只在备份里</div>` : "");
+    }).join("");
+    // 备份日志：按天并起来，新的在上
+    const byDay = new Map();
+    for (const x of log) { const k = +dayOf(x.t); byDay.set(k, [...(byDay.get(k) || []), x]); }
+    const days = [...byDay.entries()].sort((a, b2) => b2[0] - a[0]);
+    if (days.length) {
+      const list = logAll ? days : days.slice(0, 7);
+      h += `<div class="bklog"><div class="use-name">备份日志</div><div class="row bkrow cols"><span>日期</span><span>次数</span><span>写入</span><span>原 → 备份</span><span>清理腾出</span><span>自动删除</span><span>结果</span></div>`
+        + list.map(([k, xs]) => {
+          const s2 = (f) => xs.reduce((a, x) => a + (x[f] || 0), 0), runs = new Set(xs.map((x) => x.t)).size, failed = s2("failed");
+          const apps = [...new Set(xs.map((x) => APP[x.app] || x.app))].join("、");
+          return `<div class="row bkrow"><span class="d" data-tip="${apps}">${+k === +TODAY ? "今天" : md(new Date(k))}</span><span class="num">${runs} 次</span>
+            <span class="num">${fmtN(s2("written"))} 个文件</span><span class="num">${s2("written") ? `${fmtB(s2("in"))} → ${fmtB(s2("out"))}` : ""}</span>
+            <span class="num">${s2("cleanFreed") ? fmtB(s2("cleanFreed")) : ""}</span><span class="num">${s2("autoDel") ? `${s2("autoDel")} 个，${fmtB(s2("autoDelBytes"))}` : ""}</span>
+            <span class="num ${failed ? "warn" : "ok"}">${failed ? `${failed} 个文件失败` : "成功"}</span></div>`;
+        }).join("")
+        + (days.length > 7 ? `<div class="toggle" id="bkmore">${logAll ? "收起" : `再显示 ${days.length - 7} 天`}</div>` : "") + `</div>`;
+    }
+    el.innerHTML = h;
+    const more = $("bkmore");
+    if (more) more.onclick = () => { logAll = !logAll; backup(); };
   }
 
   function draw() {
