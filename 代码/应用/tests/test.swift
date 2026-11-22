@@ -250,6 +250,45 @@ enum EchoTests {
               && fm.fileExists(atPath: home.appendingPathComponent("x2.jsonl").path), "还在写的会话不应该删")
         print("  删除 6 项")
 
+        // 移动：目录编码；原会话和备份连同目录挪到新项目目录，备份记录改键；开着的、还在写的、新位置已有的不挪；移动记录改显示的目录
+        check(EchoMove.projectDirName("/Users/x/项目代码/回响") == "-Users-x--------", "中文目录编码不对")
+        check(EchoMove.projectDirName("/a b/c.d_e/😀") == "-a-b-c-d-e---", "符号和表情编码不对")
+        let mvSrc = dir.appendingPathComponent("mv/claude"), mvBak = dir.appendingPathComponent("mv/备份/\(EchoPrefs.computerName)/projects")
+        for d in [mvSrc.appendingPathComponent("-old/y1/subagents"), mvBak.appendingPathComponent("-old/y1/subagents")] { try FileManager.default.createDirectory(at: d, withIntermediateDirectories: true) }
+        for d in [mvSrc.appendingPathComponent("-old"), mvBak.appendingPathComponent("-old")] {
+            try body.write(to: d.appendingPathComponent("y1.jsonl"))
+            try body.write(to: d.appendingPathComponent("y1/subagents/a.jsonl"))
+            try FileManager.default.setAttributes([.modificationDate: old], ofItemAtPath: d.appendingPathComponent("y1.jsonl").path)
+        }
+        let mvRec = mvBak.deletingLastPathComponent().appendingPathComponent("备份记录.json")
+        try EchoBackupRecord(lastSuccess: nil, files: ["-old/y1.jsonl": stamp, "-old/y1/subagents/a.jsonl": stamp, "-old/z.jsonl": stamp]).save(mvRec)
+        let mvSess = EchoSession(url: mvBak.appendingPathComponent("-old/y1.jsonl"), sessionId: "y1", computer: EchoPrefs.computerName, size: 1, meta: EchoSessionMeta(title: "t", cwd: "/old", start: "x", end: "x"))
+        let target = "/Users/x/新 目录"
+        let mp = EchoMove.paths(for: mvSess, to: target, source: mvSrc)!
+        check((try? EchoMove.move(mp, sessionId: "y1", open: { _ in true })) == nil && fm.fileExists(atPath: mp.original.path), "开着的会话不应该挪")
+        try EchoMove.move(mp, sessionId: "y1", open: { _ in false })
+        let nd = EchoMove.projectDirName(target)
+        check(fm.fileExists(atPath: mvSrc.appendingPathComponent("\(nd)/y1.jsonl").path) && fm.fileExists(atPath: mvSrc.appendingPathComponent("\(nd)/y1/subagents/a.jsonl").path)
+              && !fm.fileExists(atPath: mvSrc.appendingPathComponent("-old/y1.jsonl").path) && !fm.fileExists(atPath: mvSrc.appendingPathComponent("-old/y1").path), "原会话和目录没挪过去")
+        check(fm.fileExists(atPath: mvBak.appendingPathComponent("\(nd)/y1.jsonl").path) && fm.fileExists(atPath: mvBak.appendingPathComponent("\(nd)/y1/subagents/a.jsonl").path)
+              && !fm.fileExists(atPath: mvBak.appendingPathComponent("-old/y1.jsonl").path), "备份和目录没挪过去")
+        check(Set(EchoBackupRecord.load(mvRec).files.keys) == ["-old/z.jsonl", "\(nd)/y1.jsonl", "\(nd)/y1/subagents/a.jsonl"], "备份记录没改键：\(EchoBackupRecord.load(mvRec).files.keys.sorted())")
+        // 挪回去时旧位置又有了同一个会话：不挪
+        try body.write(to: mvSrc.appendingPathComponent("-old/y1.jsonl"))
+        let back = EchoMove.paths(for: EchoSession(url: mvBak.appendingPathComponent("\(nd)/y1.jsonl"), sessionId: "y1", computer: EchoPrefs.computerName, size: 1, meta: mvSess.meta), to: "/old", source: mvSrc)
+        try FileManager.default.setAttributes([.modificationDate: old], ofItemAtPath: mvSrc.appendingPathComponent("\(nd)/y1.jsonl").path)
+        check(back.map { (try? EchoMove.move($0, sessionId: "y1", open: { _ in false })) == nil } == true && fm.fileExists(atPath: mvSrc.appendingPathComponent("\(nd)/y1.jsonl").path), "新位置已有同一个会话时不应该挪")
+        // 还在写的不挪；别的电脑的不给挪
+        try body.write(to: mvSrc.appendingPathComponent("\(nd)/y1.jsonl"))
+        let busy = EchoMove.paths(for: EchoSession(url: mvBak.appendingPathComponent("\(nd)/y1.jsonl"), sessionId: "y1", computer: EchoPrefs.computerName, size: 1, meta: mvSess.meta), to: "/other", source: mvSrc)!
+        check((try? EchoMove.move(busy, sessionId: "y1", open: { _ in false })) == nil, "还在写的会话不应该挪")
+        check(EchoMove.paths(for: EchoSession(url: mvSess.url, sessionId: "y1", computer: "别的电脑", size: 1, meta: mvSess.meta), to: "/x", source: mvSrc) == nil, "别的电脑的会话不应该能挪")
+        // 移动记录：左栏按新文件夹显示
+        try EchoMoved.add(["y1": target], mvBak.deletingLastPathComponent())
+        let listed = EchoLibrary.scan(backupRoot: dir.appendingPathComponent("mv/备份")).first { $0.sessionId == "y1" }
+        check(listed?.projectPath == target, "挪过的会话没按新文件夹显示：\(listed?.projectPath ?? "无")")
+        print("  移动 9 项")
+
         // 带隐藏标记的会话文件也要列出来；名字以「.」开头的临时文件不列
         let lib = dir.appendingPathComponent("库/机/projects/-p")
         try FileManager.default.createDirectory(at: lib, withIntermediateDirectories: true)

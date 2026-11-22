@@ -3,6 +3,7 @@
 # 用法：zsh 代码/应用/tests/run.sh [另外要比对的会话.jsonl…]。样例/ 下有真实会话（不进 git）时一并比对。
 set -e
 D="${0:A:h:h}"; P="${D:h}/原型"; T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
+export TMPDIR="$T/"   # 测试程序的缓存目录（EchoLibrary.supportDir）落在这里，跑完一起删
 source "$D/tools/swift-env.sh" "$T"
 swiftc "${SWIFT_FLAGS[@]}" -D TEST -parse-as-library -target arm64-apple-macos14.0 "$D"/App/*.swift "$D/tests/test.swift" -o "$T/test"
 "$T/test" --rules "$D/tests/fixtures/各类记录.jsonl"
