@@ -191,13 +191,13 @@
     w.days.slice().reverse().forEach((x) => {
       if (x.fut) return;
       const t = +x.date, isToday = t === +TODAY, other = x.other || [], all = open.has(t);
-      // 卡头和下面的会话表同一套列：日期、会话数在第一列，当天的合计对齐到各自的列（「本周卡片的总计那行太丑」）
+      // 卡头只写日期；当天的合计放在会话表底下一行「合计」，对齐各列（合计挤在卡头右边太丑，放卡头按列对齐也怪）
       const has = x.tot || x.msg, ms = x.sess.reduce((a, s) => a + (s.ms || 0), 0);
-      const sums = has ? `<span class="num strong" data-tip="折合 ${fmtU(x.usd)}">${fmtM(x.tot)}</span><span class="num">${x.msg} 条</span><span class="num">${ms ? dur(ms) : ""}</span><span></span><span class="num">${x.commits.length ? `${x.commits.length} 次` : ""}</span>` : "";
-      h += `<section class="card day" data-t="${t}"><div class="row day-head"><div class="name"><b class="date" data-t="${t}">${md(x.date)} 周${WD[x.date.getDay()]}</b>${isToday ? `<span class="today">今天</span>` : ""}<span class="cnt">${has ? `${x.sess.length} 个会话` : "没有会话"}</span></div>${sums}</div>`;
+      h += `<section class="card day" data-t="${t}"><div class="day-head"><b class="date" data-t="${t}">${md(x.date)} 周${WD[x.date.getDay()]}</b>${isToday ? `<span class="today">今天</span>` : ""}${has ? "" : `<span class="cnt">没有会话</span>`}</div>`;
       if (x.sess.length) {
         const list = all ? x.sess : x.sess.slice(0, 4), rest = x.sess.length - 4;
-        h += `<div class="table">${COLS}${list.map(sessRow).join("")}</div>` + (rest > 0 ? `<div class="toggle" data-t="${t}">${all ? "收起" : `还有 ${rest} 个会话`}</div>` : "");
+        h += `<div class="table">${COLS}${list.map(sessRow).join("")}</div>` + (rest > 0 ? `<div class="toggle" data-t="${t}">${all ? "收起" : `还有 ${rest} 个会话`}</div>` : "")
+          + `<div class="row sum"><div class="name">合计<span class="cnt">${x.sess.length} 个会话</span></div><span class="num strong" data-tip="折合 ${fmtU(x.usd)}">${fmtM(x.tot)}</span><span class="num">${x.msg} 条</span><span class="num">${ms ? dur(ms) : ""}</span><span></span><span class="num">${x.commits.length ? `${x.commits.length} 次` : ""}</span></div>`;
       }
       if (other.length) {
         const byP = new Map();
