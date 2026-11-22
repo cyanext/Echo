@@ -17,7 +17,6 @@ struct EchoBrowserView: View {
     @State private var renaming: EchoTarget?
     @State private var newTitle = ""
     @State private var editError: String?
-    @State private var deleting: [EchoSession] = []
     @State private var errorTitle = "操作未完成"
     @State private var moveDone: String?                               // 挪好后的提示和恢复命令
     @State private var moveCmd: String?
@@ -85,14 +84,6 @@ struct EchoBrowserView: View {
                 Text("会话仍在进行，Claude Code 可能恢复原名称，建议在会话中使用 /rename")
             }
         }
-        .alert(deleting.count > 1 ? "将 \(deleting.count) 个会话移到废纸篓？" : "将此会话移到废纸篓？",
-               isPresented: Binding(get: { !deleting.isEmpty }, set: { if !$0 { deleting = [] } })) {
-            Button("取消", role: .cancel) {}
-            Button("移到废纸篓") { commitDelete(keepStats: true) }
-            Button("同时删除统计数据", role: .destructive) { commitDelete(keepStats: false) }
-        } message: {
-            Text(deleteMessage)
-        }
         .alert("已移动", isPresented: Binding(get: { moveDone != nil }, set: { if !$0 { moveDone = nil; moveCmd = nil } })) {
             if let c = moveCmd {
                 Button("复制恢复命令") { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(c, forType: .string) }
@@ -157,18 +148,23 @@ struct EchoBrowserView: View {
         } catch { editError = error.localizedDescription }
     }
 
-    /// 原会话在本机的和备份一起移走，不在的（清理了、在另一台电脑上）只移回响的备份；统计默认留在总览里
-    private var deleteMessage: String {
-        let local = deleting.filter { EchoRename.originalURL(for: $0) != nil }.count
-        let what = local == deleting.count ? "原会话和备份将一并移到废纸篓，可从废纸篓恢复。"
+    /// 删除确认：原会话在本机的和备份一起移走，不在的（清理了、在另一台电脑上）只移回响的备份。
+    /// 统计数据默认留在总览里，勾选「同时删除统计数据」才删（三个按钮看不懂，改成勾选）。
+    /// SwiftUI 的 alert 放不了勾选框，用 NSAlert 的勾选框（suppressionButton）
+    private func confirmDelete(_ list: [EchoSession]) {
+        let local = list.filter { EchoRename.originalURL(for: $0) != nil }.count
+        let a = NSAlert()
+        a.messageText = list.count > 1 ? "将 \(list.count) 个会话移到废纸篓？" : "将此会话移到废纸篓？"
+        a.informativeText = local == list.count ? "原会话和备份将一并移到废纸篓，可从废纸篓恢复。"
             : local == 0 ? "原会话已不在本机，仅将备份移到废纸篓，可从废纸篓恢复。"
             : "其中 \(local) 个原会话在本机，将与备份一并移到废纸篓；其余仅移除备份。均可从废纸篓恢复。"
-        return what + "总览中的统计数据（消息数、Token、时长）默认保留。"
-    }
-
-    private func commitDelete(keepStats: Bool) {
-        let list = deleting
-        deleting = []
+        a.addButton(withTitle: "移到废纸篓")
+        a.addButton(withTitle: "取消")
+        a.showsSuppressionButton = true
+        a.suppressionButton?.title = "同时删除统计数据（消息数、Token、时长）"
+        a.suppressionButton?.state = .off
+        guard a.runModal() == .alertFirstButtonReturn else { return }
+        let keepStats = a.suppressionButton?.state != .on
         picked = []
         if list.contains(where: { $0.id == sessionID }) { sessionID = nil }
         do { try state.delete(list, keepStats: keepStats) } catch { editError = error.localizedDescription }
@@ -264,9 +260,9 @@ struct EchoBrowserView: View {
         }
         Divider()
         if group.count > 1 {
-            Button("将 \(group.count) 个会话移到废纸篓…") { deleting = group }
+            Button("将 \(group.count) 个会话移到废纸篓…") { confirmDelete(group) }
         } else {
-            Button("移到废纸篓…") { deleting = [s] }   // 原会话不在本机时只删回响的备份
+            Button("移到废纸篓…") { confirmDelete([s]) }   // 原会话不在本机时只删回响的备份
         }
         if group.count < 2 {
             Divider()
