@@ -39,12 +39,30 @@ struct EchoDir: Identifiable, Hashable {
 enum EchoPath {
     static func parts(_ path: String) -> (home: Bool, comps: [String]) {
         let path = real(path)
+        if let g = group(path) { return (false, [g]) }
         let home = NSHomeDirectory()
         let under = path == home || path.hasPrefix(home + "/")
         var comps = (under ? String(path.dropFirst(home.count)) : path).split(separator: "/").map(String.init)
         if let dot = comps.firstIndex(where: { $0.hasPrefix(".") }), dot >= 2 { comps = Array(comps[..<dot]) }
         return (under, comps)
     }
+
+    /// 看着抽象的文件夹归成一个好懂的目录，下面不再分级（「codex 的路径都有点抽象」）：
+    /// Claude 后台任务调 Codex（codex exec）时在 ~/.claude/jobs/<编号>/tmp 下；Codex 桌面版不选项目时在 ~/Documents/Codex/<日期>/<名字>；
+    /// 各种临时目录（/tmp、/var/folders、Claude 的 scratchpad）
+    static func group(_ path: String) -> String? {
+        let home = NSHomeDirectory()
+        if path.hasPrefix(home + "/.claude/jobs/") { return "Claude 后台任务" }
+        if path.hasPrefix(home + "/Documents/Codex/") { return "Codex 临时对话" }
+        if ["/private/tmp/", "/tmp/", "/private/var/folders/", "/var/folders/"].contains(where: { path.hasPrefix($0) }) || path == "/private/tmp" { return "临时文件夹" }
+        return nil
+    }
+
+    /// 左栏里归出来的目录（不是真的文件夹）：路径是「/」加名字
+    static func isGroup(_ path: String) -> Bool { ["/Claude 后台任务", "/Codex 临时对话", "/临时文件夹"].contains(path) }
+
+    /// 真实存在、但名字看不出是什么的文件夹，左栏和总览换个名字显示，路径不变：Codex 默认建的「New project」
+    static let alias = [NSHomeDirectory() + "/Documents/New project": "Codex 默认项目"]
 
     private static var cache: [String: String] = [:]
     private static let lock = NSLock()
@@ -56,26 +74,28 @@ enum EchoPath {
         lock.lock(); let hit = cache[path]; lock.unlock()
         if let hit { return hit }
         let fm = FileManager.default
-        var cur = "/", hops = 0
+        var done: [String] = [], hops = 0                      // 已经查过、确实存在的各级
         var rest = path.split(separator: "/").map(String.init)
+        var exists = true
         while !rest.isEmpty {
-            let next = (cur as NSString).appendingPathComponent(rest[0])
-            if let dest = try? fm.destinationOfSymbolicLink(atPath: next), hops < 16 {
+            let c = rest.removeFirst()
+            if c == "." || c.isEmpty { continue }
+            if c == ".." { if !done.isEmpty { done.removeLast() }; continue }
+            let next = "/" + (done + [c]).joined(separator: "/")
+            if exists, let dest = try? fm.destinationOfSymbolicLink(atPath: next), hops < 16 {
                 hops += 1
-                rest.removeFirst()
-                let target = dest.hasPrefix("/") ? dest : (cur as NSString).appendingPathComponent(dest)
-                rest = target.split(separator: "/").map(String.init) + rest
-                cur = "/"
+                if dest.hasPrefix("/") { done = [] }
+                rest = dest.split(separator: "/").map(String.init) + rest   // 相对的从当前这一级往下接，「..」在上面处理
                 continue
             }
-            guard fm.fileExists(atPath: next) else { break }
-            cur = next
-            rest.removeFirst()
+            if exists, !fm.fileExists(atPath: next) { exists = false }   // 查不到的那一级起原样接上，不再查替身
+            done.append(c)
         }
-        let out = (rest.reduce(cur) { ($0 as NSString).appendingPathComponent($1) } as NSString).standardizingPath
+        let out = "/" + done.joined(separator: "/")
         lock.lock(); cache[path] = out; lock.unlock()
         return out
     }
+
 }
 
 /// 多个文件同时处理：并发算每一项，结果按原顺序。f 要线程安全
@@ -346,7 +366,7 @@ enum EchoLibrary {
         let byEnd: (EchoSession, EchoSession) -> Bool = { ($0.endDate ?? .distantPast) > ($1.endDate ?? .distantPast) }
         // 每一级各占一行（「示例客户-面料 / 11.06 生产手册」这种应该两层，不合成一行）
         func build(_ n: Node, top: Bool) -> EchoDir {
-            EchoDir(path: n.path, name: n.name,
+            EchoDir(path: n.path, name: EchoPath.alias[n.path] ?? n.name,
                     children: n.kids.values.map { build($0, top: false) }.sorted { ($0.last ?? .distantPast) > ($1.last ?? .distantPast) },
                     sessions: n.sessions.sorted(by: byEnd))
         }

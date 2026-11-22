@@ -737,6 +737,7 @@ struct EchoBrowserView: View {
     private func moveHint(_ list: [EchoSession], to d: EchoDir) -> EchoDropHint {
         let name = "「\(d.name)」"
         func no(_ t: String) -> EchoDropHint { EchoDropHint(key: d.path, mode: .into, ok: false, text: t) }
+        if EchoPath.isGroup(d.path) { return no("\(name)不是文件夹，不能移动到这里") }
         if list.contains(where: { $0.app != .claude }) { return no("Codex 会话不支持移动") }
         if let s = list.first(where: { $0.computer != EchoPrefs.computerName }) { return no("会话在 \(s.computer) 上，不能移动") }
         if list.allSatisfy({ EchoPath.real($0.projectPath) == d.path }) { return no("会话已在\(name)中") }
