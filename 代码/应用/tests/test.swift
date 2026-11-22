@@ -60,6 +60,7 @@ enum EchoTests {
             }
             for s in list where s.url.lastPathComponent.hasPrefix(a[3]) { print("  \(s.url.lastPathComponent)：标题「\(s.meta.title)」，项目 \(s.projectPath)，开始 \(s.meta.start)") }
         }
+        else if a.count == 4, a[1] == "--export" { try compareExport(URL(fileURLWithPath: a[2]), dataJS: URL(fileURLWithPath: a[3])) }
         else if a.count == 4 { try compare(URL(fileURLWithPath: a[1]), slimmed: URL(fileURLWithPath: a[2]), dataJS: URL(fileURLWithPath: a[3])) }
         else { print("用法：test <会话.jsonl> <原型瘦身结果> <原型 data.js> 或 test --rules"); exit(2) }
         if failed > 0 { print("失败 \(failed) 项"); exit(1) }
@@ -191,7 +192,12 @@ enum EchoTests {
         check(kept >= raw, "\(name) 原样保留的行 \(kept)，原型 \(raw)")
         print("  瘦身 \(name)：\(orig.count) 行 → \(mine.count) 行，去掉请求记录 \(stats.droppedLines) 行，改写 \(stats.changedLines) 行")
 
-        // 消息显示：整理结果和原型完全一样
+        try compareExport(src, dataJS: dataJS)
+    }
+
+    /// 消息显示：整理结果和原型完全一样
+    static func compareExport(_ src: URL, dataJS: URL) throws {
+        let name = src.lastPathComponent
         var js = try String(contentsOf: dataJS, encoding: .utf8)
         js = String(js.dropFirst("window.SESSION = ".count))
         js = String(js.dropLast(2))

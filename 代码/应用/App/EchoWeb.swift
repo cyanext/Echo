@@ -32,7 +32,10 @@ enum EchoTarget: Hashable {
     /// 内容变了（会话又写了、合集成员变了、改了名）才重新整理
     var key: String {
         switch self {
-        case .session(let s): return "\(s.id)|\(s.size)"
+        case .session(let s):
+            // 读原会话时，原会话又写了也要重新整理
+            let o = EchoRename.originalURL(for: s).flatMap { try? $0.resourceValues(forKeys: [.fileSizeKey]).fileSize } ?? -1
+            return "\(s.id)|\(s.size)|\(o)"
         case .collection(let c, let m): return "\(c.id)|\(c.title)|" + m.map { "\($0.id):\($0.size)" }.joined(separator: ",")
         }
     }
@@ -40,7 +43,8 @@ enum EchoTarget: Hashable {
     func load() throws -> [String: Any] {
         switch self {
         case .session(let s):
-            var d = try EchoExport.export(s.url, computer: s.computer)
+            // 本机会话、原文件还在：从原会话整理，备份里不存的思考过程也看得到；原会话删了才读备份
+            var d = try EchoExport.export(EchoRename.originalURL(for: s) ?? s.url, computer: s.computer)
             var meta = d["meta"] as! [String: Any]
             meta["local"] = s.computer == EchoPrefs.computerName
             if !s.meta.cwd.isEmpty { meta["cwd"] = s.meta.cwd }   // 挪过文件夹的，恢复命令用新文件夹

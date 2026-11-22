@@ -17,6 +17,9 @@
   };
 
   const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  // 备份里清理掉的内容（占位「[已清理：类别，原 大小]」，旧版的「[图片已移除]」）显示成灰色小标签。用在转义之后的 HTML 上
+  const CLEANED = /\[已清理：([^，\]]+)，原 ([^\]]+)\]|\[(图片|文件)已移除\]/g;
+  const chips = (html) => html.replace(CLEANED, (_, kind, size, old) => `<span class="cleaned">${kind || old}已清理${size ? " · " + size : ""}</span>`);
   const p2 = (n) => String(n).padStart(2, "0");
   const WEEK = "日一二三四五六";
   const hm = (d) => `${p2(d.getHours())}:${p2(d.getMinutes())}`;
@@ -80,7 +83,7 @@
       while (i < lines.length && lines[i].trim() && !isBlock(lines[i])) buf.push(inline(lines[i++]));
       out.push(`<p>${buf.join("<br>")}</p>`);
     }
-    return `<div class="md">${out.join("")}</div>`;
+    return `<div class="md">${chips(out.join(""))}</div>`;
   }
 
   // 工具调用的一行说明：优先取说明，其次命令、文件路径
@@ -92,12 +95,16 @@
 
   // 思考和工具的内容可能很长，先只记下来，点开（或查找命中）时才生成，几千条的会话也不卡
   const STEPS = [];
-  function stepInput(b) { const x = b.input || {}; return x.command ? x.command : JSON.stringify(x, null, 2); }
+  function stepInput(b) {
+    const x = b.input || {};
+    if (typeof x["已清理"] === "string") return `[已清理：${x["已清理"]}]`;
+    return x.command ? x.command : JSON.stringify(x, null, 2);
+  }
   function stepText(b) { return b.kind === "thinking" ? b.text : stepInput(b) + "\n" + (b.result == null ? "" : b.result); }
   function stepBody(b) {
     if (b.kind === "thinking") return esc(b.text);
     const result = b.result == null ? "（没有返回）" : b.result;
-    return `<div class="label">输入</div><pre>${esc(stepInput(b))}</pre><div class="label">${b.isError ? "输出（出错）" : "输出"}</div><pre>${esc(result)}</pre>`;
+    return `<div class="label">输入</div><pre>${chips(esc(stepInput(b)))}</pre><div class="label">${b.isError ? "输出（出错）" : "输出"}</div><pre>${chips(esc(result))}</pre>`;
   }
   function fillStep(det) {
     const io = det.querySelector(":scope > .io");
@@ -106,6 +113,9 @@
   function renderStep(b) {
     const i = STEPS.push(b) - 1;
     const kid = b._kid ? ` id="${b._kid}"` : "";
+    if (b.kind === "thinking" && b.cleaned) {
+      return `<li class="step thinking"><div class="static"><span class="name">思考过程</span><span class="cleaned">已清理 · ${esc(b.cleaned)}</span></div></li>`;
+    }
     if (b.kind === "thinking") {
       return `<li class="step thinking"><details data-i="${i}"><summary><span class="name">思考过程</span></summary><div class="io"></div></details></li>`;
     }

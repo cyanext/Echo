@@ -22,6 +22,13 @@ enum EchoExport {
         }
     }
 
+    /// 备份里思考过程的占位「[已清理：思考过程，原 3.4 KB]」，返回原来多大（见 EchoSlim）
+    static func thinkingCleaned(_ s: String) -> String? {
+        let head = "[\(EchoSlim.cleanedKey)：思考过程，原 "
+        guard s.hasPrefix(head), s.hasSuffix("]"), !s.contains("\n") else { return nil }
+        return String(s.dropFirst(head.count).dropLast())
+    }
+
     static func textOf(_ content: Any?) -> String {
         if let s = content as? String { return s }
         let parts = (content as? [[String: Any]] ?? []).filter { $0["type"] as? String == "text" }.map { $0["text"] as? String ?? "" }
@@ -64,9 +71,12 @@ enum EchoExport {
 
     private final class Block {
         var kind: String, text = "", name = "", input: Any = [String: Any](), result: Any = NSNull(), isError = false
+        var cleaned: String?   // 备份里清理掉的思考过程：原来多大
         init(kind: String) { self.kind = kind }
         var dict: [String: Any] {
-            kind == "tool" ? ["kind": kind, "name": name, "input": input, "result": result, "isError": isError] : ["kind": kind, "text": text]
+            if kind == "tool" { return ["kind": kind, "name": name, "input": input, "result": result, "isError": isError] }
+            if let cleaned { return ["kind": kind, "text": text, "cleaned": cleaned] }
+            return ["kind": kind, "text": text]
         }
     }
 
@@ -125,7 +135,9 @@ enum EchoExport {
                 for b in message["content"] as? [[String: Any]] ?? [] {
                     switch b["type"] as? String {
                     case "text":
-                        if let s = b["text"] as? String, !s.trimmed.isEmpty { let x = Block(kind: "text"); x.text = s; turn.blocks.append(x) }
+                        guard let s = b["text"] as? String else { break }
+                        if let size = thinkingCleaned(s) { let x = Block(kind: "thinking"); x.cleaned = size; turn.blocks.append(x) }
+                        else if !s.trimmed.isEmpty { let x = Block(kind: "text"); x.text = s; turn.blocks.append(x) }
                     case "thinking":
                         if let s = b["thinking"] as? String, !s.trimmed.isEmpty { let x = Block(kind: "thinking"); x.text = s; turn.blocks.append(x) }
                     case "tool_use":

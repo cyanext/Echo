@@ -14,5 +14,8 @@ for f in "$@" "$D"/tests/fixtures/*.jsonl(N) "${D:h:h}"/样例/*.jsonl(N) "${D:h
   python3 -I "$P/slim.py" "$f" "$T/slim.jsonl" >/dev/null
   python3 -I "$P/export.py" "$f" "$T/data.js" 测试机 >/dev/null
   "$T/test" "$f" "$T/slim.jsonl" "$T/data.js"
+  # 备份里的样子（占位）也要整理得一样
+  python3 -I "$P/export.py" "$T/slim.jsonl" "$T/data2.js" 测试机 >/dev/null
+  "$T/test" --export "$T/slim.jsonl" "$T/data2.js"
 done
 echo "全部通过"
