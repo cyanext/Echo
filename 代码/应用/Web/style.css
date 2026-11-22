@@ -64,6 +64,9 @@
 .c-tt { flex: 1; min-width: 0; }
 .c-head h1 { margin: 0; font-size: 15px; line-height: 22px; font-weight: 600; overflow-wrap: anywhere; }
 .c-head h1 .ver { font-weight: 600; color: var(--accent); }
+/* 会话来自哪个应用：小字那行最前面一个 14 的官方图标（目录树里不放），白面上一圈轻边线 */
+.c-meta .c-app { width: 14px; height: 14px; margin-right: 2px; border-radius: 3px; vertical-align: -2px; box-shadow: 0 0 0 .5px rgba(0,0,0,.08); }
+@media (prefers-color-scheme: dark) { .c-meta .c-app { box-shadow: 0 0 0 .5px rgba(255,255,255,.1); } }
 .c-meta { font-size: 12px; line-height: 18px; color: var(--fg-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .c-meta span + span::before { content: "·"; margin: 0 6px; color: var(--fg-faint); }
 /* 切到关键点时标题换成它的内容，淡入一下 */
@@ -263,7 +266,7 @@
   white-space: pre-wrap; overflow: visible; overflow-wrap: anywhere; text-overflow: clip;
   font-size: 13px; line-height: 20px; color: var(--fg); transition: box-shadow .12s, background .12s;
 }
-.c-rail.right .k-row:hover .n-text { background: var(--bg-hover); }
+.c-rail.right .k-row:hover .n-text { box-shadow: 0 0 0 1px var(--line-strong); }   /* 悬停描一圈细线框，当前那条是主色框 */
 .c-rail.right .k-row.on .n-text { box-shadow: 0 0 0 1.5px var(--accent); }
 .c-rail.right .k-row.short .n-text { color: var(--fg-muted); }
 .n-time { font-size: 12px; line-height: 16px; color: var(--fg-faint); font-variant-numeric: tabular-nums; }

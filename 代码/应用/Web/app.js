@@ -273,7 +273,7 @@
 
     root.innerHTML = `
       <header class="c-head"><div class="c-head-in">
-        <div class="c-tt"><h1 id="h-title">${esc(m.title)}</h1><div class="c-meta" id="h-meta" data-tip="${esc(m.cwd + "\n" + m.id)}">${meta.map((x) => `<span>${esc(x)}</span>`).join("")}</div></div>
+        <div class="c-tt"><h1 id="h-title">${esc(m.title)}</h1><div class="c-meta" id="h-meta" data-tip="${esc(m.cwd + "\n" + m.id)}">${m.kind === "collection" ? "" : `<img class="c-app" src="app-${m.app || "claude"}.svg" alt="">`}${meta.map((x) => `<span>${esc(x)}</span>`).join("")}</div></div>
         <div class="c-actions">
           <label class="c-find" data-tip="查找（⌘F）">${ICON.find}<input id="search" type="search" placeholder="查找" autocomplete="off"><span class="hits" id="hits"></span></label>
           <div class="c-menu-wrap">

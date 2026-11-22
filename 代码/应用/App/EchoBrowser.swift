@@ -472,11 +472,6 @@ struct EchoBrowserView: View {
                         .foregroundStyle(EchoColor.fg)
                         .frame(maxWidth: .infinity, alignment: .leading)
                     HStack(spacing: 6) {
-                        // 看全部应用时，最前面一个应用小图标（不画边线，左栏灰底上看得出白底）
-                        if multiApp, appFilter.isEmpty, let i = EchoSettingsStyle.appIcon(s.app) {
-                            Image(nsImage: i).resizable().frame(width: 12, height: 12).clipShape(RoundedRectangle(cornerRadius: 2.5))
-                                .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 2 }
-                        }
                         Text(EchoTime.short(s.endDate))
                         if multiComputer { Text(s.computer).lineLimit(1) }
                         Spacer(minLength: 4)
