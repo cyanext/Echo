@@ -27,6 +27,7 @@ struct EchoBrowserView: View {
     @State private var currentID: String?                              // 当前打开的会话；数据变了算一次，不在每行里找
     @State private var multiComputer = false                           // 有几台电脑的会话，会话行才写电脑名
     @State private var openState: [String: Bool] = [:]                 // dirStateRaw 解析好的展开状态
+    @State private var missingDirs: Set<String> = []                   // 访达里已经不存在的目录（改了名、挪走了），左栏标「已不存在」，数据变了算一次
     @State private var recentLocalDirs: [String] = []                  // 本机最近用过的会话目录（「移动到」用），数据变了算一次
     @State private var baseTree: [EchoDir] = []                        // 按最近用过分好的树，会话数据变了才重建；排序只在它上面套顺序
     @State private var orderMap: [String: [String]] = [:]              // orderRaw 解析好的顺序
@@ -83,7 +84,7 @@ struct EchoBrowserView: View {
             Button("改名", action: commitRename)
         } message: {
             if case .session(let s) = renaming, let u = EchoRename.originalURL(for: s), EchoRename.isActive(u) {
-                Text("会话仍在进行，Claude Code 可能恢复原名称，建议在会话中使用 /rename")
+                Text("会话仍在进行，Claude Code 可能改回原名，建议在会话中用 /rename")
             }
         }
         .alert("已移动", isPresented: Binding(get: { moveDone != nil }, set: { if !$0 { moveDone = nil; moveCmd = nil } })) {
@@ -163,18 +164,18 @@ struct EchoBrowserView: View {
         let local = list.filter { EchoRename.originalURL(for: $0) != nil }.count
         let a = NSAlert()
         if let folder {
-            a.messageText = "将「\(folder)」下的 \(list.count) 个会话移到废纸篓？"
+            a.messageText = "将「\(folder)」中的 \(list.count) 个会话移到废纸篓？"
         } else {
             a.messageText = list.count > 1 ? "将 \(list.count) 个会话移到废纸篓？" : "将此会话移到废纸篓？"
         }
-        a.informativeText = (folder == nil ? "" : "文件夹本身不会删除。")
-            + (local == list.count ? "原会话和备份将一并移到废纸篓，可从废纸篓恢复。"
-            : local == 0 ? "原会话已不在本机，仅将备份移到废纸篓，可从废纸篓恢复。"
-            : "其中 \(local) 个原会话在本机，将与备份一并移到废纸篓；其余仅移除备份。均可从废纸篓恢复。")
+        a.informativeText = (folder == nil ? "" : "文件夹本身保留。")
+            + (local == list.count ? "原会话和备份将移到废纸篓，可从废纸篓恢复。"
+            : local == 0 ? "原会话已不在本机，仅移除备份，可从废纸篓恢复。"
+            : "其中 \(local) 个原会话在本机，将与备份一起移到废纸篓，其余仅移除备份。可从废纸篓恢复。")
         a.addButton(withTitle: "移到废纸篓")
         a.addButton(withTitle: "取消")
         a.showsSuppressionButton = true
-        a.suppressionButton?.title = "同时删除统计数据（消息数、Token、时长）"
+        a.suppressionButton?.title = "同时删除统计数据"
         a.suppressionButton?.state = .off
         guard a.runModal() == .alertFirstButtonReturn else { return }
         let keepStats = a.suppressionButton?.state != .on
@@ -192,27 +193,32 @@ struct EchoBrowserView: View {
         if let cur = sessionID, r.done.contains(where: { $0.id == cur }), let n = newIDs[cur] { sessionID = n }
         if let e = r.error {
             errorTitle = "移动失败"
-            editError = (r.done.isEmpty ? "" : "已移动 \(r.done.count) 个，其余未移动：") + e.localizedDescription
+            editError = (r.done.isEmpty ? "" : "已移动 \(r.done.count) 个，其余未移动。") + e.localizedDescription
             return
         }
         guard !r.done.isEmpty else { return }
         let shown = (dir as NSString).abbreviatingWithTildeInPath
         if r.done.count == 1, let s = r.done.first {
             moveCmd = "cd '\(dir.replacingOccurrences(of: "'", with: "'\\''"))' && claude --resume \(s.sessionId)"
-            moveDone = "已移动到 \(shown)，可在终端或 MintPop 中用恢复命令继续"
+            moveDone = "已移动到 \(shown)，可复制恢复命令继续会话"
         } else {
             moveDone = "\(r.done.count) 个会话已移动到 \(shown)"
         }
     }
 
-    /// 目录右键：移动到、在访达中显示、复制路径、移到废纸篓。删除只删会话（本机的原会话和备份一起进废纸篓，其他电脑的只删备份），文件夹本身不动
+    /// 目录右键：改名、移动到、在访达中显示、复制路径、移到废纸篓。文件夹已不存在的，第一项是「找到新位置…」。
+    /// 删除只删会话（本机的原会话和备份一起进废纸篓，其他电脑的只删备份），文件夹本身不动
     @ViewBuilder
     private func dirMenu(_ d: EchoDir) -> some View {
+        let gone = missingDirs.contains(d.path)
+        if gone {
+            Button("找到新位置…") { findNewPlace(d) }
+            Divider()
+        }
         let movable = sessionsUnder(d).filter { $0.app == .claude && $0.computer == EchoPrefs.computerName }
-        let exists = FileManager.default.fileExists(atPath: d.path)
         Button("改名…") { renameDir(d) }
-            .disabled(!exists)
-        Menu(movable.isEmpty ? "移动到（没有可移动的会话）" : "移动到") {
+            .disabled(gone || EchoPath.isGroup(d.path))
+        Menu(movable.isEmpty ? "移动到（无可移动的会话）" : "移动到") {
             ForEach(recentDirs(except: d.all).filter { !$0.hasPrefix(d.path + "/") && $0 != d.path }, id: \.self) { t in
                 Button((t as NSString).abbreviatingWithTildeInPath) { confirmDirMove(d, to: t) }
             }
@@ -221,7 +227,7 @@ struct EchoBrowserView: View {
         }
         .disabled(movable.isEmpty)
         Button("在访达中显示") { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: d.path)]) }
-            .disabled(!exists)
+            .disabled(gone || EchoPath.isGroup(d.path))
         Button("复制路径") { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(d.path, forType: .string) }
         Divider()
         Button("移到废纸篓…") { confirmDelete(d.all, folder: d.name) }
@@ -232,19 +238,15 @@ struct EchoBrowserView: View {
         state.sessions.filter { let p = EchoPath.real($0.projectPath); return p == d.path || p.hasPrefix(d.path + "/") }
     }
 
-    /// 目录改名：改访达里的文件夹名，本机的 Claude 会话一起移到新名字下（和「移动到」同一套）。
-    /// 先查一遍：有会话正在进行或在 Claude 里开着就不改；Codex 的、只剩备份的、在别的电脑上的跟不过去，确认框里写清
+    /// 目录改名：改访达里的文件夹名，本机的 Claude Code 会话一起移到新名字下（EchoDirMove，和 ech mv 同一套）
     private func renameDir(_ d: EchoDir) {
-        let all = sessionsUnder(d)
-        let local = all.filter { $0.app == .claude && $0.computer == EchoPrefs.computerName && EchoRename.originalURL(for: $0) != nil }
-        let others = all.count - local.count
         let field = NSTextField(string: d.name)
         field.frame = NSRect(x: 0, y: 0, width: 260, height: 24)
+        let preview = EchoDirMove.plan(from: d.path, to: d.path + "-", sessions: state.sessions, moveFolder: true)
         let a = NSAlert()
-        a.messageText = "将「\(d.name)」改名"
-        var info = "访达中的文件夹会一起改名" + (local.isEmpty ? "。" : "，其中 \(local.count) 个 Claude 会话移到新名字下，之后在新文件夹中恢复会话。")
-        if others > 0 { info += "\n\(others) 个 Codex、仅有备份或在其他电脑上的会话不会跟过去，左栏仍显示在原名下。" }
-        if d.path.hasPrefix(NSHomeDirectory() + "/伙伴云NAS/") { info += "\n该文件夹在伙伴云 NAS 上，改名会同步给其他人。" }
+        a.messageText = "将「\(d.name)」改名为："
+        var info = "访达中的文件夹同步改名。" + EchoDirMove.describe(preview) + "。"
+        if d.path.hasPrefix(NSHomeDirectory() + "/伙伴云NAS/") { info += "\n此文件夹在伙伴云 NAS 上，改名会同步给其他成员。" }
         a.informativeText = info
         a.accessoryView = field
         a.addButton(withTitle: "改名")
@@ -253,33 +255,27 @@ struct EchoBrowserView: View {
         guard a.runModal() == .alertFirstButtonReturn else { return }
         let name = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty, name != d.name else { return }
-        errorTitle = "改名失败"
-        guard !name.contains("/"), !name.hasPrefix(".") else { editError = "名字里不能有「/」，也不能以「.」开头"; return }
-        let fm = FileManager.default
+        guard !name.contains("/"), !name.hasPrefix(".") else { errorTitle = "改名失败"; editError = "名称不能包含「/」，也不能以「.」开头"; return }
         let target = ((d.path as NSString).deletingLastPathComponent as NSString).appendingPathComponent(name)
-        guard !fm.fileExists(atPath: target) else { editError = "同一位置已有「\(name)」"; return }
-        if let busy = local.first(where: { s in EchoRename.originalURL(for: s).map(EchoRename.isActive) == true || EchoMove.isOpen(s.sessionId) }) {
-            editError = "「\(busy.meta.title)」正在进行或在 Claude 中打开，请结束后再改名"
-            return
-        }
-        do { try fm.moveItem(atPath: d.path, toPath: target) } catch { editError = error.localizedDescription; return }
-        // 文件夹改好了，会话按子路径跟过去
-        var groups: [String: [EchoSession]] = [:]
-        for s in local {
-            let p = EchoPath.real(s.projectPath)
-            groups[target + String(p.dropFirst(d.path.count)), default: []].append(s)
-        }
-        var done = 0, firstError: Error?
-        for (to, list) in groups {
-            let r = state.move(list, to: to)
-            done += r.done.count
-            if let cur = sessionID, r.done.contains(where: { $0.id == cur }) { sessionID = nil }
-            firstError = firstError ?? r.error
-        }
-        if let e = firstError {
-            editError = "文件夹已改名，已移动 \(done) 个会话，其余未移动：" + e.localizedDescription
-        } else {
-            errorTitle = "操作未完成"
+        runDirMove(EchoDirMove.plan(from: d.path, to: target, sessions: state.sessions, moveFolder: true), title: "改名失败")
+    }
+
+    /// 执行目录移动或改名，挪完刷新列表；有错只报错（带上挪成了几个）
+    private func runDirMove(_ p: EchoDirMove.Plan, title: String) {
+        do {
+            let r = try EchoDirMove.run(p)
+            picked = []
+            if p.groups.values.joined().contains(where: { $0.id == sessionID }) { sessionID = nil }
+            state.reloadSessions()
+            if let e = r.error {
+                errorTitle = title
+                editError = "已移动 \(r.done) 个，其余未移动。" + e.localizedDescription
+            } else if !p.moveFolder, r.done > 0 {
+                moveDone = "\(r.done) 个会话已移动到 \((p.to as NSString).abbreviatingWithTildeInPath)"
+            }
+        } catch {
+            errorTitle = title
+            editError = error.localizedDescription
         }
     }
 
@@ -289,52 +285,44 @@ struct EchoBrowserView: View {
         panel.canChooseFiles = false
         panel.canCreateDirectories = true
         panel.allowsMultipleSelection = false
-        panel.prompt = "移动到这里"
-        panel.message = "选择文件夹，「\(d.name)」下的会话移动后可在该文件夹中继续；子文件夹里的会话移到新位置对应的子文件夹"
-        let parent = (d.path as NSString).deletingLastPathComponent
-        if FileManager.default.fileExists(atPath: parent) { panel.directoryURL = URL(fileURLWithPath: parent) }
+        panel.prompt = "移动到此处"
+        panel.message = "选择「\(d.name)」的新位置，子文件夹中的会话移到对应的子文件夹"
+        var parent = (d.path as NSString).deletingLastPathComponent
+        while !parent.isEmpty, parent != "/", !FileManager.default.fileExists(atPath: parent) { parent = (parent as NSString).deletingLastPathComponent }
+        panel.directoryURL = URL(fileURLWithPath: parent)
         guard panel.runModal() == .OK, let u = panel.url else { return }
         confirmDirMove(d, to: u.path)
     }
 
-    /// 目录移动：常见是文件夹在访达里改了名、挪了位置（「项目二期」改成「02 二期项目」），会话跟过去。
-    /// 每个会话挪到「新位置 + 它相对这个目录的子路径」；新位置没有对应子文件夹的、Codex 的、在别的电脑上的不挪，结束时一起说
+    /// 目录移动：会话挪到「新位置 + 它相对这个目录的子路径」，文件夹本身不动（常见是文件夹在访达里已经改了名、挪了位置）
     private func confirmDirMove(_ d: EchoDir, to target: String) {
         let target = EchoPath.real(target)
         guard target != d.path, !target.hasPrefix(d.path + "/") else { return }
-        let fm = FileManager.default
-        var groups: [String: [EchoSession]] = [:], skipped = 0, missing = 0
-        for s in sessionsUnder(d) {
-            guard s.app == .claude, s.computer == EchoPrefs.computerName else { skipped += 1; continue }
-            let real = EchoPath.real(s.projectPath)
-            let rel = real == d.path ? "" : real.hasPrefix(d.path + "/") ? String(real.dropFirst(d.path.count)) : ""
-            let to = target + rel
-            guard fm.fileExists(atPath: to) else { missing += 1; continue }
-            groups[to, default: []].append(s)
-        }
-        let n = groups.values.reduce(0) { $0 + $1.count }
+        let p = EchoDirMove.plan(from: d.path, to: target, sessions: state.sessions, moveFolder: false)
         let a = NSAlert()
-        a.messageText = "将「\(d.name)」下的 \(n) 个会话移动到「\((target as NSString).lastPathComponent)」？"
-        var info = "移动到 \((target as NSString).abbreviatingWithTildeInPath)，子文件夹里的会话移到对应的子文件夹。移动后需在新文件夹中恢复会话，会话内容不变。"
-        if skipped > 0 { info += "\n\(skipped) 个 Codex 或其他电脑上的会话不移动。" }
-        if missing > 0 { info += "\n\(missing) 个会话在新位置没有对应的子文件夹，不移动。" }
-        a.informativeText = info
-        if n > 0 { a.addButton(withTitle: "移动") }
-        a.addButton(withTitle: n > 0 ? "取消" : "好")
-        guard n > 0, a.runModal() == .alertFirstButtonReturn else { if n == 0 { a.runModal() }; return }
-        var done = 0, firstError: Error?
-        for (to, list) in groups {
-            let r = state.move(list, to: to)
-            done += r.done.count
-            if let cur = sessionID, r.done.contains(where: { $0.id == cur }) { sessionID = nil }
-            firstError = firstError ?? r.error
-        }
-        picked = []
-        if let e = firstError {
-            errorTitle = "移动失败"
-            editError = (done > 0 ? "已移动 \(done) 个，其余未移动：" : "") + e.localizedDescription
-        } else if done > 0 {
-            moveDone = "\(done) 个会话已移动到 \((target as NSString).abbreviatingWithTildeInPath)"
+        a.messageText = "将「\(d.name)」中的 \(p.count) 个会话移动到「\((target as NSString).lastPathComponent)」？"
+        a.informativeText = "子文件夹中的会话移到对应的子文件夹，移动后在新位置恢复会话。" + EchoDirMove.describe(p) + "。"
+        if p.count > 0 { a.addButton(withTitle: "移动") }
+        a.addButton(withTitle: p.count > 0 ? "取消" : "好")
+        guard a.runModal() == .alertFirstButtonReturn, p.count > 0 else { return }
+        runDirMove(p, title: "移动失败")
+    }
+
+    /// 文件夹已不存在：先猜它改成了什么（上一级里名字最像的子文件夹），问一句；猜不到或选「选择其他文件夹…」就打开选择框
+    private func findNewPlace(_ d: EchoDir) {
+        guard let g = EchoDirMove.guess(d.path) else { pickDirTarget(d); return }
+        let name = (g as NSString).lastPathComponent
+        let p = EchoDirMove.plan(from: d.path, to: g, sessions: state.sessions, moveFolder: false)
+        let a = NSAlert()
+        a.messageText = "「\(d.name)」已不存在，是否已改名为「\(name)」？"
+        a.informativeText = EchoDirMove.describe(p) + "。移动后在「\(name)」中恢复会话。"
+        a.addButton(withTitle: "移动会话")
+        a.addButton(withTitle: "选择其他文件夹…")
+        a.addButton(withTitle: "取消")
+        switch a.runModal() {
+        case .alertFirstButtonReturn: runDirMove(p, title: "移动失败")
+        case .alertSecondButtonReturn: pickDirTarget(d)
+        default: break
         }
     }
 
@@ -343,7 +331,7 @@ struct EchoBrowserView: View {
         guard !list.isEmpty else { return }
         let a = NSAlert()
         a.messageText = list.count > 1 ? "将 \(list.count) 个会话移动到「\(d.name)」？" : "将此会话移动到「\(d.name)」？"
-        a.informativeText = "移动到 \((d.path as NSString).abbreviatingWithTildeInPath)。移动后需在该文件夹中恢复会话，会话内容不变。"
+        a.informativeText = "移动后在该文件夹中恢复会话，会话内容不变。"
         a.addButton(withTitle: "移动")
         a.addButton(withTitle: "取消")
         guard a.runModal() == .alertFirstButtonReturn else { return }
@@ -362,8 +350,8 @@ struct EchoBrowserView: View {
         panel.canChooseFiles = false
         panel.canCreateDirectories = true
         panel.allowsMultipleSelection = false
-        panel.prompt = "移动到这里"
-        panel.message = "选择文件夹，会话移动后可在该文件夹中继续"
+        panel.prompt = "移动到此处"
+        panel.message = "选择会话的新位置"
         if let p = list.first?.projectPath, FileManager.default.fileExists(atPath: p) { panel.directoryURL = URL(fileURLWithPath: p) }
         guard panel.runModal() == .OK, let u = panel.url else { return }
         doMove(list, u.path)
@@ -397,17 +385,17 @@ struct EchoBrowserView: View {
         let targets = group.count > 1 ? group : [s]
         if s.app == .codex, group.count < 2 {
             // Codex 的会话：在 Codex 里改名；按日期存、不按文件夹，不挪
-            Button(local ? "复制恢复命令" : "复制恢复命令（会话在 \(s.computer) 上）") {
+            Button(local ? "复制恢复命令" : "复制恢复命令（在 \(s.computer) 上）") {
                 let cmd = "cd '\(s.meta.cwd.replacingOccurrences(of: "'", with: "'\\''"))' && codex resume \(s.sessionId)"
                 NSPasteboard.general.clearContents(); NSPasteboard.general.setString(cmd, forType: .string)
             }
             .disabled(!local)
         } else {
-            Button(local ? "改名…" : "改名…（会话在 \(s.computer) 上）") { startRename(.session(s)) }
+            Button(local ? "改名…" : "改名…（在 \(s.computer) 上）") { startRename(.session(s)) }
                 .disabled(!local)
             let movable = targets.allSatisfy { $0.computer == EchoPrefs.computerName && $0.app == .claude }
-            let why = targets.contains { $0.app != .claude } ? "（Codex 会话不支持移动）" : "（会话在 \(s.computer) 上）"
-            Menu(!movable ? "移动到" + why : group.count > 1 ? "把 \(group.count) 个会话移动到" : "移动到") {
+            let why = targets.contains { $0.app != .claude } ? "（不支持 Codex 会话）" : "（在 \(s.computer) 上）"
+            Menu(!movable ? "移动到" + why : group.count > 1 ? "将 \(group.count) 个会话移动到" : "移动到") {
                 ForEach(recentDirs(except: targets), id: \.self) { d in
                     Button((d as NSString).abbreviatingWithTildeInPath) { doMove(targets, d) }
                 }
@@ -428,7 +416,7 @@ struct EchoBrowserView: View {
         }
         if group.count < 2 {
             Divider()
-            Text("⌘ 点选可多选")
+            Text("按住 ⌘ 点选可多选")
         }
     }
 
@@ -510,6 +498,11 @@ struct EchoBrowserView: View {
             if dirs.count == 12 { break }
         }
         recentLocalDirs = dirs
+        // 本机路径（家目录下）已经不存在的目录；归出来的目录（Codex 后台任务等）不算
+        var gone = Set<String>()
+        func walk(_ ds: [EchoDir]) { for d in ds { if d.path.hasPrefix(NSHomeDirectory() + "/"), !FileManager.default.fileExists(atPath: d.path) { gone.insert(d.path) }; walk(d.children) } }
+        walk(baseTree)
+        missingDirs = gone
     }
 
     /// 目录展开收起：点过的按点的来；没点过的，顶层默认展开，当前会话所在的那几级也展开
@@ -617,6 +610,9 @@ struct EchoBrowserView: View {
                     Text(d.name).foregroundStyle(EchoColor.fg)
                         .font(.system(size: 13)).lineLimit(1)
                     // 顶层有同名目录（~/伙伴云NAS/客户文档 和 ~/Desktop/客户文档）：名字后面用灰色小字写上一级文件夹
+                    if missingDirs.contains(d.path) {
+                        Text("已不存在").font(.system(size: 12)).foregroundStyle(EchoColor.fg3).lineLimit(1)
+                    }
                     if level == 0, dupRoots.contains(d.name) {
                         Text(Self.parentName(d.path)).font(.system(size: 12)).foregroundStyle(EchoColor.fg3).lineLimit(1)
                     }
@@ -636,7 +632,7 @@ struct EchoBrowserView: View {
             } preview: { dragGhost(d.name) }
             .onDrop(of: [.text], delegate: EchoRowDrop(drag: drag, update: { dirHover(d, group: group, y: $0.y) }, exit: { leave(d.path) }, perform: { dropOnDir(d) }))
             .padding(.top, level == 0 ? 8 : 0)   // 顶层目录之间多空一点，靠留白分组，不加图标
-            .help((d.path as NSString).abbreviatingWithTildeInPath)
+            .help(missingDirs.contains(d.path) ? "\((d.path as NSString).abbreviatingWithTildeInPath) 已不存在，可右键「找到新位置…」" : (d.path as NSString).abbreviatingWithTildeInPath)
             .contextMenu { dirMenu(d) }
 
             if open {
@@ -730,19 +726,19 @@ struct EchoBrowserView: View {
         guard it.dir != d.path else { drag.set(nil); return }
         drag.set(it.group == group
             ? EchoDropHint(key: d.path, mode: y < 17 ? .before : .after, ok: true, text: "")
-            : EchoDropHint(key: d.path, mode: .into, ok: false, text: "目录只能在同一级里排序"))
+            : EchoDropHint(key: d.path, mode: .into, ok: false, text: "目录只能在同级之间排序"))
     }
 
     /// 会话拖到目录上能不能放：只有本机的 Claude 会话能移动，文件夹要在本机，已在这个文件夹里的不算
     private func moveHint(_ list: [EchoSession], to d: EchoDir) -> EchoDropHint {
         let name = "「\(d.name)」"
         func no(_ t: String) -> EchoDropHint { EchoDropHint(key: d.path, mode: .into, ok: false, text: t) }
-        if EchoPath.isGroup(d.path) { return no("\(name)不是文件夹，不能移动到这里") }
-        if list.contains(where: { $0.app != .claude }) { return no("Codex 会话不支持移动") }
-        if let s = list.first(where: { $0.computer != EchoPrefs.computerName }) { return no("会话在 \(s.computer) 上，不能移动") }
+        if EchoPath.isGroup(d.path) { return no("\(name)是分组，无法移入") }
+        if list.contains(where: { $0.app != .claude }) { return no("不支持移动 Codex 会话") }
+        if let s = list.first(where: { $0.computer != EchoPrefs.computerName }) { return no("会话在 \(s.computer) 上，无法移动") }
         if list.allSatisfy({ EchoPath.real($0.projectPath) == d.path }) { return no("会话已在\(name)中") }
         var isDir: ObjCBool = false
-        if !FileManager.default.fileExists(atPath: d.path, isDirectory: &isDir) || !isDir.boolValue { return no("\(name)在本机已不存在（可能已改名或移走），不能移动到这里") }
+        if !FileManager.default.fileExists(atPath: d.path, isDirectory: &isDir) || !isDir.boolValue { return no("\(name)已不存在，无法移入") }
         return EchoDropHint(key: d.path, mode: .into, ok: true, text: list.count > 1 ? "将 \(list.count) 个会话移动到\(name)" : "移动到\(name)")
     }
 

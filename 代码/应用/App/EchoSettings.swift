@@ -112,7 +112,16 @@ struct EchoGeneralSettings: View {
     @State private var hours = EchoPrefs.backupHours
     @State private var login = SMAppService.mainApp.status == .enabled
     @State private var loginError: String?
+    @State private var cliInstalled = EchoCLIInstall.installed
+    @State private var cliError: String?
     @ObservedObject private var state = EchoState.shared
+
+    /// ech 装在哪、AI 怎么用；~/.local/bin 不在 PATH 里时提示
+    private var cliNote: String {
+        if let cliError { return cliError }
+        guard cliInstalled else { return "AI 可通过 ech 查询以往会话、按时间列出会话和提交" }
+        return EchoCLIInstall.inPath ? "已安装 ech 和配套的 skill" : "已安装到 ~/.local/bin/ech，该目录不在 PATH 中，需写完整路径"
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -132,6 +141,12 @@ struct EchoGeneralSettings: View {
             }
             EchoSettingRow(title: "开机自动启动", note: loginError ?? "在后台备份，不弹窗口") {
                 Toggle("", isOn: $login).toggleStyle(.switch).labelsHidden().onChange(of: login) { _, on in setLogin(on) }
+            }
+            EchoSettingRow(title: "命令行工具", note: cliNote) {
+                Button(cliInstalled ? "重新安装" : "安装") {
+                    do { try EchoCLIInstall.install(); cliError = nil } catch { cliError = error.localizedDescription }
+                    cliInstalled = EchoCLIInstall.installed
+                }
             }
         }
         .onDisappear(perform: saveName)

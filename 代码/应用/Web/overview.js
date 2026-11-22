@@ -71,18 +71,12 @@
     }
     for (const c of data.commits) {
       const dt = new Date(c.d), m = VER.exec(c.s);
-      day(key(dt)).commits.push({ h: c.h || "", full: c.s, p: c.p, s: m ? c.s.slice(m[0].length) || c.s : c.s, ver: m ? m[1] : "", a: c.a, r: c.r, f: c.f, time: +dt });
+      day(key(dt)).commits.push({ h: c.h || "", o: c.o || "", full: c.s, p: c.p, s: m ? c.s.slice(m[0].length) || c.s : c.s, ver: m ? m[1] : "", a: c.a, r: c.r, f: c.f, time: +dt });
     }
-    // 提交归到会话：先看哪个会话里做了这次提交（会话的 g：git commit 输出里的提交号前 7 位，和「m:」加 git commit 命令里说明的第一行前 30 字），
-    // 在别的文件夹里提交的也对得上；没有的，同一项目、提交时间落在会话这天的起止之间（前后各放宽 10 分钟），几个都对得上取 Token 多的；
-    // 都对不上的只算进当天的提交次数（不单独列）
-    const owner = new Map(), msgKey = (m) => "m:" + Array.from((m.split("\n")[0] || "").trim()).slice(0, 30).join("");
-    for (const s of sessions) for (const h of s.g || []) owner.set(h.startsWith("m:") ? h : h.slice(0, 7), s.id);
+    // 提交归到哪个会话由 Swift 生成数据时算好（EchoStats.owner，ech 也用它）：c.o 是会话 ID，没有的只算进当天的提交次数
     for (const d of days.values()) {
       for (const c of d.commits) {
-        const sid = owner.get(c.h.slice(0, 7)) || owner.get(msgKey(c.full));
-        const hit = (sid && d.sess.find((s) => s.id === sid))
-          || d.sess.filter((s) => s.p === c.p && c.time >= s.a - 6e5 && c.time <= s.b + 6e5).sort((a, b) => b.tot - a.tot)[0];
+        const hit = c.o && d.sess.find((s) => s.id === c.o);
         if (hit) hit.commits.push(c);
       }
       // 只看某个应用时，提交只算挂在这个应用会话上的

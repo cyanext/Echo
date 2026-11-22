@@ -2,13 +2,17 @@
 # 编译 回响.app（Apple 芯片，macOS 14+），输出 dist/回响.app。临时签名，自用。
 # 用法：zsh 代码/应用/build.sh；装到 ~/Applications 并重新打开：zsh 代码/应用/build.sh install
 set -e
-VERSION=0.8.2; BUILD=16                           # 版本号只改这里
+VERSION=0.9.0; BUILD=17                           # 版本号只改这里
 D="${0:A:h}"; T=$(mktemp -d); APP="$T/回响.app"
 trap 'rm -rf "$T"' EXIT
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources/Web"
 source "$D/tools/swift-env.sh" "$T"
 swiftc -O "${SWIFT_FLAGS[@]}" -parse-as-library -target arm64-apple-macos14.0 "$D"/App/*.swift -o "$APP/Contents/MacOS/Echo"
 cp "$D"/Web/*.(html|css|js|json|svg) "$APP/Contents/Resources/Web/"
+# ech 的 skill 跟着应用发，版本号和应用一致（ech install-skill 装到 ~/.claude/skills/ech）
+mkdir -p "$APP/Contents/Resources/skills"
+cp -R "$D/skill/ech" "$APP/Contents/Resources/skills/"
+sed -i '' "s/{{VERSION}}/$VERSION/" "$APP/Contents/Resources/skills/ech/SKILL.md"
 # 图标：AppIcon.iconset 由 icon/make_icon.py 生成并提交，改图标时跑它
 iconutil -c icns "$D/icon/AppIcon.iconset" -o "$APP/Contents/Resources/AppIcon.icns"
 cat > "$APP/Contents/Info.plist" <<P

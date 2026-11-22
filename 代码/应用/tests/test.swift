@@ -15,7 +15,7 @@ enum EchoTests {
 
     static func main() throws {
         let a = CommandLine.arguments
-        if a.count == 3, a[1] == "--rules" { rules(); try renameTest(fixture: URL(fileURLWithPath: a[2])); try statsTest(); try commitMatchTest(); timeTest(); try cleanTest(); try layoutTest(); try pathTest(); try codexBackupTest(); try autoDeleteTest(); try claudeSettingsTest() }
+        if a.count == 3, a[1] == "--rules" { rules(); try renameTest(fixture: URL(fileURLWithPath: a[2])); try statsTest(); try commitMatchTest(); timeTest(); try cleanTest(); try layoutTest(); try pathTest(); try echTest(); try codexBackupTest(); try autoDeleteTest(); try claudeSettingsTest() }
         else if a.count == 4, a[1] == "--overview" {   // 手动排查：按应用的方式整理总览数据，写到文件，看用了多久
             let t0 = Date()
             let list = EchoLibrary.scan(backupRoot: URL(fileURLWithPath: a[2]))
@@ -260,6 +260,43 @@ enum EchoTests {
         check(EchoPath.parts("/private/tmp/claude-501/x/scratchpad").comps == ["临时文件夹"], "临时文件夹没归组")
         check(EchoStats.project(home + "/Documents/New project") == "Codex 默认项目", "New project 没换名字")
         print("  目录路径 7 项")
+    }
+
+    /// ech：分段（开头、版本提交后、跨天、压缩）、版本号只认说明开头、引用的写法
+    static func echTest() throws {
+        let rows = [
+            #"{"type":"user","timestamp":"2026-11-20T02:00:00Z","uuid":"u1","message":{"role":"user","content":"开始做"},"origin":{"kind":"human"}}"#,
+            #"{"type":"assistant","timestamp":"2026-11-20T02:01:00Z","uuid":"a1","message":{"id":"m1","role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"git commit -m \"v0.1.0 第一版\""}}]}}"#,
+            #"{"type":"user","timestamp":"2026-11-20T02:01:01Z","uuid":"r1","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"ok"}]}}"#,
+            #"{"type":"assistant","timestamp":"2026-11-20T02:02:00Z","uuid":"a2","message":{"id":"m2","role":"assistant","content":[{"type":"text","text":"提交好了。"}]}}"#,
+            #"{"type":"user","timestamp":"2026-11-21T02:00:00Z","uuid":"u2","message":{"role":"user","content":"第二天接着做"},"origin":{"kind":"human"}}"#,
+            #"{"type":"system","subtype":"compact_boundary","timestamp":"2026-11-21T03:00:00Z","uuid":"s1","compactMetadata":{"trigger":"manual"}}"#,
+            #"{"type":"user","timestamp":"2026-11-21T03:00:01Z","uuid":"u3","isCompactSummary":true,"message":{"role":"user","content":"压缩后的总结。"}}"#,
+            #"{"type":"user","timestamp":"2026-11-21T03:01:00Z","uuid":"u4","message":{"role":"user","content":"继续"},"origin":{"kind":"human"}}"#,
+        ]
+        let u = FileManager.default.temporaryDirectory.appendingPathComponent("回响分段测试.jsonl")
+        try rows.joined(separator: "\n").write(to: u, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: u) }
+        let turns = try EchoExport.export(u, computer: "x", withLines: true)["turns"] as! [[String: Any]]
+        let segs = EchoIndex.segments(turns)
+        check(segs.map(\.kind) == ["开头", "版本后", "跨天", "压缩"], "分段不对：\(segs.map(\.kind))")
+        check(segs.first?.vers == ["0.1.0"] && segs.first?.l1 == 2, "第 1 段应在第 2 行的版本提交结束：\(segs.first.map { "\($0.vers) \($0.l1)" } ?? "")")
+        check(segs.last?.head == "压缩后的总结。" && segs.last?.l0 == 7, "压缩段应从阶段总结开始：\(segs.last.map { "\($0.l0) \($0.head)" } ?? "")")
+        check(EchoIndex.rows(turns).map(\.role) == ["我", "工具", "AI", "我", "总结", "我"], "进索引的行不对：\(EchoIndex.rows(turns).map(\.role))")
+        check(EchoIndex.versionKey("后台接口 v0.14.2：会议改名撞名") == "后台接口 0.14.2", "模块版本号没认出")
+        check(EchoIndex.versionKey("v0.8.1 左栏日期筛选") == "0.8.1", "开头的版本号没认出")
+        check(EchoIndex.versionKey("合并「目录筛选」分支：v0.8.2") == nil, "合并提交不算版本")
+        check(EchoIndex.versionKey("总览：提交按会话挂") == nil, "没有版本号的说明不该认出版本")
+        check(EchoCLI.short("019d52b6-7616-72e1-9780-037355606bcd") == "019d52b6-7616" && EchoCLI.short("ce57ce36-7e31-45fd-b076-5262412dae73") == "ce57ce36", "引用的短写法不对")
+        check(EchoCLI.splitRef("ce57ce36#L10-20") == ("ce57ce36", "L10-20") && EchoCLI.splitRef("ce57ce36").1 == nil, "引用拆不开")
+        // 猜新位置：去掉序号后比共同的字，取最像的
+        let fm = FileManager.default
+        let t = EchoPath.real(fm.temporaryDirectory.path) + "/echo-guess-\(getpid())"
+        defer { try? fm.removeItem(atPath: t) }
+        for n in ["02 二期项目", "01 一期项目", "会议"] { try fm.createDirectory(atPath: t + "/" + n, withIntermediateDirectories: true) }
+        check(EchoDirMove.guess(t + "/项目二期") == t + "/02 二期项目", "没猜出「02 二期项目」：\(EchoDirMove.guess(t + "/项目二期") ?? "无")")
+        check(EchoDirMove.guess(t + "/客户资料") == nil, "不像的不该猜")
+        print("  ech 分段、引用、猜新位置 12 项")
     }
 
     static func layoutTest() throws {
