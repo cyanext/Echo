@@ -205,6 +205,81 @@ struct EchoBrowserView: View {
         }
     }
 
+    /// 目录右键：移动到、在访达中显示、复制路径、移到废纸篓。删除只删会话（本机的原会话和备份一起进废纸篓，其他电脑的只删备份），文件夹本身不动
+    @ViewBuilder
+    private func dirMenu(_ d: EchoDir) -> some View {
+        let movable = d.all.filter { $0.app == .claude && $0.computer == EchoPrefs.computerName }
+        let exists = FileManager.default.fileExists(atPath: d.path)
+        Menu(movable.isEmpty ? "移动到（没有可移动的会话）" : "移动到") {
+            ForEach(recentDirs(except: d.all).filter { !$0.hasPrefix(d.path + "/") && $0 != d.path }, id: \.self) { t in
+                Button((t as NSString).abbreviatingWithTildeInPath) { confirmDirMove(d, to: t) }
+            }
+            Divider()
+            Button("选择文件夹…") { pickDirTarget(d) }
+        }
+        .disabled(movable.isEmpty)
+        Button("在访达中显示") { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: d.path)]) }
+            .disabled(!exists)
+        Button("复制路径") { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(d.path, forType: .string) }
+        Divider()
+        Button("移到废纸篓…") { confirmDelete(d.all, folder: d.name) }
+    }
+
+    private func pickDirTarget(_ d: EchoDir) {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.canCreateDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.prompt = "移动到这里"
+        panel.message = "选择文件夹，「\(d.name)」下的会话移动后可在该文件夹中继续；子文件夹里的会话移到新位置对应的子文件夹"
+        let parent = (d.path as NSString).deletingLastPathComponent
+        if FileManager.default.fileExists(atPath: parent) { panel.directoryURL = URL(fileURLWithPath: parent) }
+        guard panel.runModal() == .OK, let u = panel.url else { return }
+        confirmDirMove(d, to: u.path)
+    }
+
+    /// 目录移动：常见是文件夹在访达里改了名、挪了位置（「项目二期」改成「02 二期项目」），会话跟过去。
+    /// 每个会话挪到「新位置 + 它相对这个目录的子路径」；新位置没有对应子文件夹的、Codex 的、在别的电脑上的不挪，结束时一起说
+    private func confirmDirMove(_ d: EchoDir, to target: String) {
+        let target = EchoPath.real(target)
+        guard target != d.path, !target.hasPrefix(d.path + "/") else { return }
+        let fm = FileManager.default
+        var groups: [String: [EchoSession]] = [:], skipped = 0, missing = 0
+        for s in d.all {
+            guard s.app == .claude, s.computer == EchoPrefs.computerName else { skipped += 1; continue }
+            let real = EchoPath.real(s.projectPath)
+            let rel = real == d.path ? "" : real.hasPrefix(d.path + "/") ? String(real.dropFirst(d.path.count)) : ""
+            let to = target + rel
+            guard fm.fileExists(atPath: to) else { missing += 1; continue }
+            groups[to, default: []].append(s)
+        }
+        let n = groups.values.reduce(0) { $0 + $1.count }
+        let a = NSAlert()
+        a.messageText = "将「\(d.name)」下的 \(n) 个会话移动到「\((target as NSString).lastPathComponent)」？"
+        var info = "移动到 \((target as NSString).abbreviatingWithTildeInPath)，子文件夹里的会话移到对应的子文件夹。移动后需在新文件夹中恢复会话，会话内容不变。"
+        if skipped > 0 { info += "\n\(skipped) 个 Codex 或其他电脑上的会话不移动。" }
+        if missing > 0 { info += "\n\(missing) 个会话在新位置没有对应的子文件夹，不移动。" }
+        a.informativeText = info
+        if n > 0 { a.addButton(withTitle: "移动") }
+        a.addButton(withTitle: n > 0 ? "取消" : "好")
+        guard n > 0, a.runModal() == .alertFirstButtonReturn else { if n == 0 { a.runModal() }; return }
+        var done = 0, firstError: Error?
+        for (to, list) in groups {
+            let r = state.move(list, to: to)
+            done += r.done.count
+            if let cur = sessionID, r.done.contains(where: { $0.id == cur }) { sessionID = nil }
+            firstError = firstError ?? r.error
+        }
+        picked = []
+        if let e = firstError {
+            errorTitle = "移动失败"
+            editError = (done > 0 ? "已移动 \(done) 个，其余未移动：" : "") + e.localizedDescription
+        } else if done > 0 {
+            moveDone = "\(done) 个会话已移动到 \((target as NSString).abbreviatingWithTildeInPath)"
+        }
+    }
+
     /// 拖到目录上松手后确认一次：拖动容易失手，移动会改 Claude Code 里会话所在的文件夹
     private func confirmMove(_ list: [EchoSession], to d: EchoDir) {
         guard !list.isEmpty else { return }
@@ -500,10 +575,7 @@ struct EchoBrowserView: View {
             .onDrop(of: [.text], delegate: EchoRowDrop(drag: drag, update: { dirHover(d, group: group, y: $0.y) }, exit: { leave(d.path) }, perform: { dropOnDir(d) }))
             .padding(.top, level == 0 ? 8 : 0)   // 顶层目录之间多空一点，靠留白分组，不加图标
             .help((d.path as NSString).abbreviatingWithTildeInPath)
-            .contextMenu {
-                // 只删会话（本机的原会话和备份一起进废纸篓，其他电脑的只删备份），文件夹本身不动
-                Button("将 \(d.count) 个会话移到废纸篓…") { confirmDelete(d.all, folder: d.name) }
-            }
+            .contextMenu { dirMenu(d) }
 
             if open {
                 ForEach(d.children) { c in dirSection(c, level: level + 1, group: d.path) }
