@@ -88,6 +88,9 @@ h2.sec { margin: var(--space-4) var(--space-1) 0; }
 .kpi .v { height: var(--lh-hero); margin-top: var(--space-2); font-size: var(--text-hero); line-height: var(--lh-hero); font-weight: 600; letter-spacing: -.3px; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .kpi .v small { margin-left: var(--space-1); font-size: var(--text-sm); font-weight: 400; letter-spacing: 0; color: var(--fg-muted); }
 .kpi .s { font-size: var(--text-xs); line-height: var(--lh-xs); color: var(--fg-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.kpi .s em { font-style: normal; font-variant-numeric: tabular-nums; }
+.kpi .s .usd, .kpi .s .add { color: var(--accent-text); }   /* 折合美元、增加的行数用主色文字色，删除的行数用暖橙（和趋势数同一套） */
+.kpi .s .del { color: var(--down); }
 .spark { display: flex; align-items: flex-end; gap: var(--space-1); height: 24px; margin-top: var(--space-4); }
 .spark i { flex: 1; max-width: 14px; min-height: 2px; border-radius: 2px 2px 0 0; background: var(--mute); cursor: pointer; }
 .spark i.on { background: var(--accent); }

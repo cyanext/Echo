@@ -114,10 +114,10 @@
   // 小字只留一项、写短（「指标卡的文案要精简一下」）：上万的行数写成「万」
   const wan = (n) => n >= 1e4 ? (n / 1e4).toFixed(1).replace(/\.0$/, "") + " 万" : fmtN(n);
   const KPI = [
-    { l: "Token", f: (w) => w.tot, big: (w) => [fmtM(w.tot), ""], s: (w) => `折合 ${fmtU(w.usd)}` },
+    { l: "Token", f: (w) => w.tot, big: (w) => [fmtM(w.tot), ""], s: (w) => `折合 <em class="usd">${fmtU(w.usd)}</em>` },
     { l: "我的消息", f: (w) => w.msg, big: (w) => [fmtN(w.msg), "条"], s: (w) => `${w.sids.size} 个会话` },
     { l: "AI 时长", f: (w) => w.ms / 3.6e6, big: (w) => [(w.ms / 3.6e6).toFixed(1), "小时"], s: (w) => `最长一轮 ${Math.round(w.lg / 6e4)} 分钟` },
-    { l: "Git 提交", f: (w) => w.commits, big: (w) => [fmtN(w.commits), "次"], s: (w) => `+${wan(w.add)} −${wan(w.del)} 行` },
+    { l: "Git 提交", f: (w) => w.commits, big: (w) => [fmtN(w.commits), "次"], s: (w) => `<em class="add">+${wan(w.add)}</em> <em class="del">−${wan(w.del)}</em> 行` },
   ];
   const SPAN = 8;
   // 同期：前几周只取周一到「今天是周几」那天
