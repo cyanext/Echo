@@ -13,7 +13,7 @@
 - 请求记录（api-request 三类）整行去掉。
 - 密钥打码：留前 4 位和后 4 位，中间换成 8 个「•」；不到 12 位的只留前 2 位；私钥只留首尾两行标记。
 
-Codex 的行（需求文档/版本需求/待定-多应用支持.html，每行是 {timestamp, type, payload}）同一套期限和占位：
+Codex 的行（需求文档/版本需求/v0.8.0-多应用支持.html，每行是 {timestamp, type, payload}）同一套期限和占位：
 - 对话消息（user、assistant）永久；思考（reasoning）、工具调用（function_call 参数、custom_tool_call 输入）、
   工具结果（*_output）按期限；git 提交、合并命令和它的结果一直留着。
 - 系统记录：developer 消息、系统说明、工具清单、权限沙箱设置、world_state、压缩时存的整段历史副本、

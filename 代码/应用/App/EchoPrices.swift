@@ -1,6 +1,6 @@
 // 模型单价：内置 Web/prices.json，每周从 LiteLLM 的公开价格表（GitHub 上的 model_prices_and_context_window.json，不用密钥）拉一次，
 // 只留用得到的几家（Claude、GPT、GLM、Kimi、混元），存在本机 ~/Library/Application Support/回响/价格.json；总览取价格时拿它覆盖内置的。
-// 拉不到（断网、GitHub 连不上）就接着用上次拉到的或内置的。只发一个 GET 请求，不带任何本机信息。需求见 需求文档/版本需求/待定-多应用支持.html
+// 拉不到（断网、GitHub 连不上）就接着用上次拉到的或内置的。只发一个 GET 请求，不带任何本机信息。需求见 需求文档/版本需求/v0.8.0-多应用支持.html
 import Foundation
 
 enum EchoPrices {
