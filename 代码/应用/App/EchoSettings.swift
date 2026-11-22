@@ -54,17 +54,17 @@ enum EchoSettingsStyle {
         appIcons[s] = i
         return i
     }
-    static let chrome = EchoColor.dyn(0xf6f7f7, 0x232529)
-    static let subtle = EchoColor.dyn(0xf2f4f4, 0x292e2f)
-    static let accentSoft = EchoColor.dyn(0x008081, 0x3fc0c0, 0.08, 0.14)
+    static let chrome = EchoColor.chrome
+    static let subtle = EchoColor.subtle
+    static let accentSoft = EchoColor.accentSoft
     /// 占用条和类型行的颜色：保留的几类主色由深到浅，思考、系统记录灰（默认不备份）
     static func color(_ k: EchoStorage.Kind) -> Color {
         switch k {
-        case .message: return EchoColor.dyn(0x007677, 0x5ecbcb)
-        case .toolUse: return EchoColor.dyn(0x009fa0, 0x009a9b)
-        case .toolResult: return EchoColor.dyn(0x64c3c3, 0x006d6d)
-        case .thinking: return EchoColor.dyn(0xd3dbdb, 0x364042)
-        case .system: return EchoColor.dyn(0xe6ebeb, 0x2c3536)
+        case .message: return EchoColor.q4
+        case .toolUse: return EchoColor.q3
+        case .toolResult: return EchoColor.q2
+        case .thinking: return EchoColor.mute
+        case .system: return EchoColor.mute2
         }
     }
 }

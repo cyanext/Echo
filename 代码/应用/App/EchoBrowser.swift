@@ -123,7 +123,7 @@ struct EchoBrowserView: View {
             .clipShape(UnevenRoundedRectangle(topLeadingRadius: 12, bottomLeadingRadius: 12))
             .overlay(UnevenRoundedRectangle(topLeadingRadius: 12, bottomLeadingRadius: 12).strokeBorder(EchoColor.sideLine, lineWidth: 1).padding(.trailing, -1))
         }
-        .background(EchoColor.side)
+        .background(LinearGradient(colors: [EchoColor.sideTop, EchoColor.side], startPoint: .top, endPoint: .bottom))   // 左栏：顶部带一点主色青，往下回到灰
         .foregroundStyle(EchoColor.fg)
         .ignoresSafeArea()
         .frame(minWidth: 860, minHeight: 560)

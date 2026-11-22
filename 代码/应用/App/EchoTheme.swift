@@ -12,7 +12,9 @@ enum EchoColor {
             return NSColor(srgbRed: CGFloat(v >> 16 & 0xff) / 255, green: CGFloat(v >> 8 & 0xff) / 255, blue: CGFloat(v & 0xff) / 255, alpha: isDark ? da : la)
         })
     }
+    // 颜色令牌：界面里只引用这些名字，不写色值；和网页的 Web/base.css、overview.css 同名同值
     static let side = dyn(0xedf0f0, 0x222627)
+    static let sideTop = dyn(0xe2efee, 0x1e2c2c)        // 左栏顶部：灰里掺一点主色青，往下渐变回 side（目录有点发灰）
     static let sideOn = dyn(0xffffff, 0x34353b)
     static let sideFg = dyn(0x4b5468, 0xb4b9c5)
     static let sideLine = dyn(0xe1e6e6, 0x2d3233)
@@ -21,11 +23,21 @@ enum EchoColor {
     static let fg2 = dyn(0x646a73, 0x9aa0ab)
     static let fg3 = dyn(0x8f959e, 0x6f7581)
     static let line = dyn(0xe3e5ec, 0x2c2e35)
-    static let accent = dyn(0x008081, 0x3fc0c0)          // 回响主色青绿（11-21 定，和 NAS 的靛蓝分开）
-    static let sel = dyn(0x008081, 0x3fc0c0, 0.10, 0.16)
+    static let accent = dyn(0x009293, 0x5ad3d2)          // 回响主色青绿（11-21 定，和 NAS 的靛蓝分开；11-22 调亮一档）
+    static let accentText = dyn(0x008081, 0x5ad3d2)      // 主色写小字：浅色深一档，对白底 4.8:1（主色本身 3.8:1，小字偏淡）
+    static let sel = dyn(0x009293, 0x5ad3d2, 0.10, 0.16)
     static let hover = dyn(0x1f2329, 0xffffff, 0.05, 0.06)
     static let sideHover = dyn(0xffffff, 0xffffff, 0.6, 0.06)      // 左栏行悬停：灰底上的半透明白，照 NAS 网站 --bg-side-hover
     static let onSideHover = dyn(0x1f2329, 0xffffff, 0.08, 0.08)   // 左栏里小按钮（目录展开箭头）的悬停，照 NAS 网站 --bg-on-side-hover
+    static let accentSoft = dyn(0x009293, 0x5ad3d2, 0.08, 0.14)
+    static let chrome = dyn(0xf6f7f7, 0x232529)
+    static let subtle = dyn(0xf2f4f4, 0x292e2f)
+    // 主色由浅到深的色阶（深色模式反过来，q4 最亮），和网页 overview.css 的 --q1…--q4 一致；mute 两档灰
+    static let q2 = dyn(0x64c3c3, 0x006d6d)
+    static let q3 = dyn(0x009fa0, 0x009a9b)
+    static let q4 = dyn(0x007677, 0x5ecbcb)
+    static let mute = dyn(0xd3dbdb, 0x364042)
+    static let mute2 = dyn(0xe6ebeb, 0x2c3536)
     static let good = dyn(0x12a150, 0x3ccf7e)
     static let warn = dyn(0xe08a00, 0xf0a63a)
 }
@@ -223,7 +235,7 @@ struct EchoPickMenu: View {
                 HStack(spacing: 4) {
                     it.icon.font(.system(size: 13)).foregroundStyle(on ? EchoColor.accent : EchoColor.fg3).frame(width: 24, alignment: .leading)
                     Text(it.title).font(.system(size: 13, weight: on ? .medium : .regular)).lineLimit(1)
-                        .foregroundStyle(on ? EchoColor.accent : EchoColor.fg)
+                        .foregroundStyle(on ? EchoColor.accentText : EchoColor.fg)
                     Spacer(minLength: 8)
                     if on { Image(systemName: "checkmark").font(.system(size: 11, weight: .semibold)).foregroundStyle(EchoColor.accent) }
                 }

@@ -152,7 +152,7 @@ struct EchoOnboardingView: View {
             Image(nsImage: NSApp.applicationIconImage).resizable().frame(width: 104, height: 104)
             Text("帮你记住和 AI 的每次对话").font(.system(size: 24, weight: .semibold)).foregroundStyle(EchoColor.fg).padding(.top, 16)
             // 副标语：去掉全角逗号（占一整个字宽，读着像断开），两半之间空半个字；字距收到 1，「回响」只换颜色、字重中等，不和主标语抢
-            (Text("念念不忘 必有") + Text("回响").fontWeight(.medium).foregroundColor(EchoColor.accent))
+            (Text("念念不忘 必有") + Text("回响").fontWeight(.medium).foregroundColor(EchoColor.accentText))
                 .font(.system(size: 17)).tracking(1).foregroundStyle(EchoColor.fg2).padding(.top, 8)
             VStack(alignment: .leading, spacing: 12) {
                 feat("checkmark.icloud", "备份", "Claude Code、Codex 的会话自动备份，换台电脑也看得到")

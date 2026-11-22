@@ -232,7 +232,7 @@
   // 顶上不放密钥打码数（「密钥不用了」）；Claude 里不活跃会话移进废纸篓叫「自动清理」，不写删除
   const APP = { claude: "Claude Code", codex: "Codex", workbuddy: "WorkBuddy" };
   const fmtB = (n) => { if (!n) return "0"; if (n < 1024) return n + " B"; let v = n; for (const u of ["KB", "MB", "GB", "TB"]) { v /= 1024; if (v < 1000 || u === "TB") return (v < 10 ? v.toFixed(1) : Math.round(v)) + " " + u; } };
-  let logAll = false;
+  let logAll = false, trendBy = "day", logBy = "day";   // 备份趋势、备份日志按天还是按月，不记上次
   // 备份页（要更可视化、有成果感）：四张数字卡（已备份、已备份容量、累计节省、自动清理）；
   // 空间节省（各应用一行，同一把尺子）；备份容量分析（按类型、按应用两根分段条）；备份趋势（每周新备份多少，按应用堆起来）；备份日志表
   const KIND = [["对话消息", "q4"], ["工具调用", "q3"], ["工具结果", "q2"], ["思考过程", "mute"], ["系统记录", "mute2"]];
@@ -274,42 +274,59 @@
       + (kt ? `<div class="use-name">按类型</div>` + seg(kinds.map((k) => ({ n: k.k, v: k.b, c: (KIND.find((x) => x[0] === k.k) || [0, "mute"])[1] })), kt) : "")
       + `<div class="use-name gap">按应用</div>` + seg(apps.filter((x) => x.bak).map((x) => ({ n: name(x.app), v: x.bak, c: "a-" + x.app })), bak || 1)
       + `</section>`;
-    // 备份趋势：近 30 天每天新备份了多少。一个会话的备份大小按它每天的消息数分到各天（Claude、Codex 深浅两档主色堆起来），柱顶写数
-    const days30 = [...Array(30)].map((_, i) => addDays(TODAY, i - 29)), k30 = days30.map(key), daily = k30.map(() => ({}));
+    // 备份趋势：按天（近 30 天）或按月（近 12 个月）新备份了多少。一个会话的备份大小按它每天的消息数分到各天，再按天或按月加起来；
+    // 按应用堆起来（低饱和的橙、蓝），柱顶写数。标题右边切换按天、按月
+    const tog = (id, cur) => `<span class="seg sm" data-tog="${id}"><b data-v="day"${cur === "day" ? ' class="on"' : ""}>按天</b><b data-v="month"${cur === "month" ? ' class="on"' : ""}>按月</b></span>`;
+    const monthKey = (k) => k.slice(0, 7), mLabel = (mk) => `${+mk.slice(5)}月`;
+    const thisMonth = monthKey(key(TODAY));
+    const buckets = trendBy === "day"
+      ? [...Array(30)].map((_, i) => { const d = addDays(TODAY, i - 29); return { k: key(d), label: md(d) }; })
+      : [...Array(12)].map((_, i) => { const d = new Date(TODAY.getFullYear(), TODAY.getMonth() - 11 + i, 1); const mk = key(d).slice(0, 7); return { k: mk, label: `${d.getFullYear() === TODAY.getFullYear() ? "" : d.getFullYear() + "年"}${d.getMonth() + 1}月` }; });
+    const idx = new Map(buckets.map((x, i) => [x.k, i])), vals = buckets.map(() => ({}));
     for (const s of DATA.sessions || []) {
       if (!s.z) continue;
       const ds = Object.entries(s.days || {}), m = ds.reduce((x, [, v]) => x + (v.m || 0), 0) || ds.length, a = s.a || "claude";
-      for (const [k, v] of ds) { const i = k30.indexOf(k); if (i >= 0) daily[i][a] = (daily[i][a] || 0) + s.z * ((v.m || (m === ds.length ? 1 : 0)) / m); }
+      for (const [k, v] of ds) { const i = idx.get(trendBy === "day" ? k : monthKey(k)); if (i !== undefined) vals[i][a] = (vals[i][a] || 0) + s.z * ((v.m || (m === ds.length ? 1 : 0)) / m); }
     }
-    const tot = (d) => APPS.reduce((x, a) => x + (d[a] || 0), 0), mx = Math.max(...daily.map(tot), 1), all30 = daily.reduce((x, d) => x + tot(d), 0);
-    const used = APPS.filter((a) => daily.some((d) => d[a]));
+    const tot = (d) => APPS.reduce((x, a) => x + (d[a] || 0), 0), mx = Math.max(...vals.map(tot), 1), allT = vals.reduce((x, d) => x + tot(d), 0);
+    const used = APPS.filter((a) => vals.some((d) => d[a]));
     const short = (n) => n >= 1073741824 ? (n / 1073741824).toFixed(1) + "G" : n >= 1048576 ? Math.round(n / 1048576) + "M" : n >= 1024 ? Math.round(n / 1024) + "K" : "";
-    h += `<section class="card"><h2>备份趋势<span class="note">近 30 天新增 ${fmtB(all30)}，日均 ${fmtB(all30 / 30)}</span></h2><div class="wkcols">`
-      + daily.map((d, i) => { const t = tot(d);
-        const tip = `${md(days30[i])}：` + (t ? used.filter((a) => d[a]).map((a) => `${name(a)} ${fmtB(d[a])}`).join("，") : "无新增备份");
+    const tnote = trendBy === "day" ? `近 30 天新增 ${fmtB(allT)}，日均 ${fmtB(allT / 30)}` : `近 12 个月新增 ${fmtB(allT)}，月均 ${fmtB(allT / 12)}`;
+    h += `<section class="card"><h2>备份趋势<span class="note">${tnote}</span>${tog("trend", trendBy)}</h2><div class="wkcols${trendBy === "month" ? " months" : ""}">`
+      + vals.map((d, i) => { const t = tot(d);
+        const tip = `${buckets[i].label}：` + (t ? used.filter((a) => d[a]).map((a) => `${name(a)} ${fmtB(d[a])}`).join("，") : "无新增备份");
         return `<span class="wc" data-tip="${tip}"><span class="st" style="height:${t / mx * 100}%">${t ? `<b>${short(t)}</b>` : ""}${used.slice().reverse().map((a) => d[a] ? `<i class="a-${a}" style="flex:${d[a]}"></i>` : "").join("")}</span></span>`; }).join("")
-      + `</div><div class="axis30"><span>${md(days30[0])}</span><span>${md(days30[15])}</span><span>今天</span></div>`
+      + `</div>` + (trendBy === "day"
+        ? `<div class="axis30"><span>${buckets[0].label}</span><span>${buckets[15].label}</span><span>今天</span></div>`
+        : `<div class="axis12">${buckets.map((x) => `<span>${x.k === thisMonth ? "本月" : x.label}</span>`).join("")}</div>`)
       + (used.length > 1 ? `<div class="legend">${used.map((a) => `<span><i class="a-${a}"></i>${name(a)}</span>`).join("")}</div>` : "") + `</section>`;
-    // 备份日志：按天并起来，新的在上；窄了藏掉清理、自动清理两列（悬停日期看）
-    const byDay = new Map();
-    for (const x of log) { const k = +dayOf(x.t); byDay.set(k, [...(byDay.get(k) || []), x]); }
-    const days = [...byDay.entries()].sort((a, b2) => b2[0] - a[0]);
-    if (days.length) {
-      const list = logAll ? days : days.slice(0, 7);
-      h += `<section class="card bklog"><h2>备份日志<span class="note">共 ${days.length} 天、${new Set(log.map((x) => x.t)).size} 次</span></h2><div class="row bkrow cols"><span>日期</span><span>次数</span><span>写入</span><span>原 → 备份</span><span>清理释放</span><span>自动清理</span><span>结果</span></div>`
+    // 备份日志：按天或按月并起来，新的在上；窄了藏掉清理、自动清理两列（悬停日期看）
+    const groupKey = (x) => logBy === "day" ? +dayOf(x.t) : monthKey(key(dayOf(x.t)));
+    const byG = new Map();
+    for (const x of log) { const k = groupKey(x); byG.set(k, [...(byG.get(k) || []), x]); }
+    const groups = [...byG.entries()].sort((a, b2) => (a[0] < b2[0] ? 1 : -1));
+    if (groups.length) {
+      const list = logAll ? groups : groups.slice(0, 7), unit = logBy === "day" ? "天" : "个月";
+      const glabel = (k) => logBy === "day" ? (k === +TODAY ? "今天" : md(new Date(k))) : (k === thisMonth ? "本月" : `${k.slice(0, 4) === String(TODAY.getFullYear()) ? "" : k.slice(0, 4) + "年"}${+k.slice(5)}月`);
+      h += `<section class="card bklog"><h2>备份日志<span class="note">共 ${groups.length} ${unit}、${new Set(log.map((x) => x.t)).size} 次</span>${tog("log", logBy)}</h2><div class="row bkrow cols"><span>${logBy === "day" ? "日期" : "月份"}</span><span>次数</span><span>写入</span><span>原 → 备份</span><span>清理释放</span><span>自动清理</span><span>结果</span></div>`
         + list.map(([k, xs]) => {
           const s2 = (f) => xs.reduce((a, x) => a + (x[f] || 0), 0), runs = new Set(xs.map((x) => x.t)).size, failed = s2("failed"), err = (xs.find((x) => x.error) || {}).error;
           const tip = [...new Set(xs.filter((x) => APP[x.app]).map((x) => APP[x.app]))].join("、") + (s2("autoDel") ? `；自动清理 ${s2("autoDel")} 个会话，释放 ${fmtB(s2("autoDelBytes"))}` : "") + (s2("cleanFreed") ? `；清理备份释放 ${fmtB(s2("cleanFreed"))}` : "");
-          return `<div class="row bkrow"><span class="d" data-tip="${tip}">${+k === +TODAY ? "今天" : md(new Date(k))}</span><span class="num">${runs} 次</span>
+          return `<div class="row bkrow"><span class="d" data-tip="${tip}">${glabel(k)}</span><span class="num">${runs} 次</span>
             <span class="num">${fmtN(s2("written"))} 个文件</span><span class="num">${s2("written") ? `${fmtB(s2("in"))} → ${fmtB(s2("out"))}` : ""}</span>
             <span class="num">${s2("cleanFreed") ? fmtB(s2("cleanFreed")) : ""}</span><span class="num">${s2("autoDel") ? `${s2("autoDel")} 个，${fmtB(s2("autoDelBytes"))}` : ""}</span>
             <span class="num ${failed || err ? "warn" : "ok"}"${err ? ` data-tip="${esc(err)}"` : ""}>${err ? "备份失败" : failed ? `${failed} 个文件备份失败` : "成功"}</span></div>`;
         }).join("")
-        + (days.length > 7 ? `<div class="toggle" id="bkmore">${logAll ? "收起" : `再显示 ${days.length - 7} 天`}</div>` : "") + `</section>`;
+        + (groups.length > 7 ? `<div class="toggle" id="bkmore">${logAll ? "收起" : `再显示 ${groups.length - 7} ${unit}`}</div>` : "") + `</section>`;
     }
     el.innerHTML = h;
     const more = $("bkmore");
     if (more) more.onclick = () => { logAll = !logAll; backup(); };
+    el.querySelectorAll("[data-tog]").forEach((t) => t.onclick = (e) => {
+      const b = e.target.closest("b"); if (!b) return;
+      if (t.dataset.tog === "trend") trendBy = b.dataset.v; else { logBy = b.dataset.v; logAll = false; }
+      backup();
+    });
   }
 
   function draw() {
