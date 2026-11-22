@@ -173,9 +173,11 @@ struct EchoOverviewWeb: NSViewRepresentable {
         let scheme = EchoScheme()
         weak var web: WKWebView?
 
-        /// 网页里点了会话：{open: 会话 id}
+        /// 网页里点了会话：{open: 会话 id}；点了已删除会话的「删统计」：{forget: 电脑/会话 ID}
         func userContentController(_ c: WKUserContentController, didReceive message: WKScriptMessage) {
-            guard let body = message.body as? [String: Any], let id = body["open"] as? String else { return }
+            guard let body = message.body as? [String: Any] else { return }
+            if let f = body["forget"] as? String { EchoState.shared.forgetStats(f); return }
+            guard let id = body["open"] as? String else { return }
             EchoState.shared.openAt = (body["at"] as? NSNumber)?.doubleValue
             EchoState.shared.openSessionID = id
         }

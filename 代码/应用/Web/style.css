@@ -9,8 +9,6 @@
   --fg-faint: #8f959e;
   --line: #e3e5ec;
   --line-strong: #d5d8de;
-  --accent: #008081;
-  --accent-soft: rgba(0, 128, 129, .10);
   --bubble: #f0f1f5;
   --bad: #d4383e;
   --good: #12a150;
@@ -24,7 +22,6 @@
     --bg: #1d1e23; --bg-subtle: #23252b; --bg-hover: rgba(255, 255, 255, .06);
     --fg: #e6e8ec; --fg-muted: #9aa0ab; --fg-faint: #6f7581;
     --line: #2c2e35; --line-strong: #3e414a;
-    --accent: #3fc0c0; --accent-soft: rgba(63, 192, 192, .16);
     --bubble: #2a2c33; --bad: #f0686d; --good: #3ccf7e; --hit: #6b5512;
     --shadow: 0 6px 20px rgba(0, 0, 0, .45), 0 0 0 1px rgba(255, 255, 255, .06);
     color-scheme: dark;
@@ -35,7 +32,6 @@
   --bg: #1d1e23; --bg-subtle: #23252b; --bg-hover: rgba(255, 255, 255, .06);
   --fg: #e6e8ec; --fg-muted: #9aa0ab; --fg-faint: #6f7581;
   --line: #2c2e35; --line-strong: #3e414a;
-  --accent: #3fc0c0; --accent-soft: rgba(63, 192, 192, .16);
   --bubble: #2a2c33; --bad: #f0686d; --good: #3ccf7e; --hit: #6b5512;
   --shadow: 0 6px 20px rgba(0, 0, 0, .45), 0 0 0 1px rgba(255, 255, 255, .06);
   color-scheme: dark;
@@ -63,7 +59,7 @@
 .c-head-in { display: flex; align-items: flex-start; gap: 16px; max-width: 760px; min-height: 56px; margin: 0 auto; padding: 8px 32px; }
 .c-tt { flex: 1; min-width: 0; }
 .c-head h1 { margin: 0; font-size: 15px; line-height: 22px; font-weight: 600; overflow-wrap: anywhere; }
-.c-head h1 .ver { font-weight: 600; color: var(--accent); }
+.c-head h1 .ver { font-weight: 600; color: var(--accent-text); }
 /* 会话来自哪个应用：小字那行最前面一个 14 的官方图标（目录树里不放） */
 .c-meta .c-app { width: 14px; height: 14px; margin-right: 5px; border-radius: 3px; vertical-align: -3px; }   /* 和 12 号字的中线对齐，不画线框 */
 .c-meta { font-size: 12px; line-height: 18px; color: var(--fg-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -81,7 +77,7 @@
 }
 .c-btn.icon { width: 28px; padding: 0; }
 .c-btn:hover { background: var(--bg-hover); color: var(--fg); }
-.c-btn.on { background: var(--accent-soft); color: var(--accent); }
+.c-btn.on { background: var(--accent-soft); color: var(--accent-text); }
 
 /* 查找：平时是放大镜，点了或有字时展开成搜索框 */
 .c-find {
@@ -123,7 +119,7 @@
 .msg.user.long .bubble::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 56px; background: linear-gradient(transparent, var(--bubble)); }
 .msg.user.long.open .bubble { max-height: none; }
 .msg.user.long.open .bubble::after { display: none; }
-.more { margin-top: 4px; border: 0; background: none; color: var(--accent); font-size: 13px; cursor: pointer; padding: 0 6px; }
+.more { margin-top: 4px; border: 0; background: none; color: var(--accent-text); font-size: 13px; cursor: pointer; padding: 0 6px; }
 
 .msg.ai > * + * { margin-top: 12px; }
 
@@ -188,7 +184,7 @@
 .md ul, .md ol { margin: 0 0 12px; padding-left: 24px; }
 .md li { margin: 4px 0; }
 .md blockquote { margin: 0 0 12px; padding-left: 14px; border-left: 3px solid var(--line-strong); color: var(--fg-muted); }
-.md a { color: var(--accent); text-decoration: none; }
+.md a { color: var(--accent-text); text-decoration: none; }
 .md a:hover { text-decoration: underline; }
 .md code { font-family: var(--mono); font-size: .88em; padding: 1px 5px; border-radius: 5px; background: var(--bg-subtle); }
 .md table { width: 100%; border-collapse: collapse; margin: 4px 0 14px; font-size: 14px; display: block; overflow-x: auto; }
@@ -251,7 +247,7 @@
 .c-rail.left.slim .k-row { height: 8px; background: none; }
 .c-rail.left.slim .note { display: none; }
 .note { display: flex; align-items: baseline; gap: 6px; min-width: 0; flex: 1; }
-.n-ver { flex: none; font: 600 11.5px/18px var(--mono); color: var(--accent); }
+.n-ver { flex: none; font: 600 11.5px/18px var(--mono); color: var(--accent-text); }
 .n-tag { flex: none; color: var(--fg-faint); }
 .n-text { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .n-text b { font-weight: 600; }
@@ -286,7 +282,7 @@
 .tip-label { font-size: 12px; line-height: 1.5; color: var(--fg); }
 .tip-sub { margin-top: 2px; font-size: 12px; line-height: 1.5; color: var(--fg-muted); }
 .tip-time { margin-top: 2px; font-size: 12px; color: var(--fg-faint); font-variant-numeric: tabular-nums; }
-.ver { font-weight: 600; color: var(--accent); }
+.ver { font-weight: 600; color: var(--accent-text); }
 [id^="k"], [id^="u"], .pa { scroll-margin-top: calc(var(--head-h, 72px) + 16px); }
 .step.commit::before { border-color: var(--accent); background: var(--accent); }
 @keyframes flash { from { background: var(--accent-soft); } to { background: transparent; } }
@@ -306,3 +302,8 @@
 
 /* 我的消息检索一条都没搜到 */
 .r-none[hidden] { display: none; }
+
+img[src="app-workbuddy.svg"] { transform: scale(.86); }   /* WorkBuddy 整块绿底，缩到 86% 和另两家视觉一样大 */
+
+/* Claude 的螃蟹又扁又宽，白底在白面上看不见：放大 12%、往下 1 像素，和 Codex 图标、旁边文字视觉对齐 */
+img[src="app-claude.svg"] { transform: translateY(1px) scale(1.12); }

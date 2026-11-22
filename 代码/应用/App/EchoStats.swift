@@ -50,6 +50,19 @@ enum EchoDeleted {
         try enc.encode(File(sessions: all)).write(to: url(computerDir), options: .atomic)
     }
 
+    /// 删掉某些会话的统计（总览里就不算了）：每台电脑的已删除统计里都找，id 是「电脑/会话 ID」
+    static func forget(_ ids: Set<String>, _ backupRoot: URL) {
+        let dirs = (try? FileManager.default.contentsOfDirectory(at: backupRoot, includingPropertiesForKeys: nil, options: .skipsHiddenFiles)) ?? []
+        for d in dirs {
+            let all = load(d)
+            let kept = all.filter { !ids.contains($0.c + "/" + $0.sid) }
+            guard kept.count != all.count else { continue }
+            let enc = JSONEncoder()
+            enc.outputFormatting = [.sortedKeys]
+            try? enc.encode(File(sessions: kept)).write(to: url(d), options: .atomic)
+        }
+    }
+
     /// 从备份读出这个会话按天的数
     static func make(_ s: EchoSession, at date: Date = Date()) throws -> EchoDeletedSession {
         let (days, g) = try EchoStats.readAll(s.url)
@@ -407,6 +420,7 @@ enum EchoStats {
                                       "p": project(s.projectPath), "d": projectPath(s.projectPath), "c": s.computer, "days": dict]
             if !g.isEmpty { one["g"] = g }
             if s.app != .claude { one["a"] = s.app.rawValue }
+            one["z"] = s.size   // 备份文件多大：备份页的「备份趋势」按会话开始那周累加
             list.append(one)
         }
         if let d = try? JSONEncoder().encode(fresh) { try? d.write(to: cacheURL, options: .atomic) }
@@ -465,7 +479,10 @@ enum EchoStats {
             apps.append(["app": src.rawValue, "sessions": sessions.filter { $0.computer == me && $0.app == src }.count,
                          "src": srcBytes, "bak": bak, "gone": gone])
         }
-        var out: [String: Any] = ["apps": apps, "log": EchoBackupLog.load(comp)]
+        // 备份里各类内容各占多少（要把备份读一遍，几秒；总览在后台整理）
+        let b = EchoStorage.backup(comp)
+        let kinds = EchoStorage.Kind.allCases.map { ["k": $0.rawValue, "b": b.bytes[$0] ?? 0] as [String: Any] }
+        var out: [String: Any] = ["apps": apps, "log": EchoBackupLog.load(comp), "kinds": kinds]
         if let d = EchoPrefs.lastSuccess { out["last"] = ISO8601DateFormatter().string(from: d) }
         return out
     }

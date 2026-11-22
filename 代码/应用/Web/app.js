@@ -269,7 +269,7 @@
     let span = "";
     if (s0 && s1) span = `${md0(s0)} ${hm(s0)} 至 ${dayKey(s0) === dayKey(s1) ? "" : md0(s1) + " "}${hm(s1)}`;
     const asks = S.turns.filter((t) => t.role === "user").length;
-    const meta = [span, m.kind === "collection" ? `${m.count} 个会话连起来` : "", m.computer, m.gitBranch && m.gitBranch !== "HEAD" ? m.gitBranch : "", `${asks} 次提问`].filter(Boolean);
+    const meta = [span, m.kind === "collection" ? `合并查看 ${m.count} 个会话` : "", m.computer, m.gitBranch && m.gitBranch !== "HEAD" ? m.gitBranch : "", `${asks} 次提问`].filter(Boolean);
 
     root.innerHTML = `
       <header class="c-head"><div class="c-head-in">

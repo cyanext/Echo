@@ -567,7 +567,13 @@ enum EchoTests {
         check(EchoBackupRecord.load(rec).files.keys.sorted() == ["-p/x2.jsonl"], "备份记录没去掉")
         check((try? EchoDelete.trash(.init(original: home.appendingPathComponent("x2.jsonl"), backup: bak.appendingPathComponent("x2.jsonl"), record: rec, rel: "-p/x2.jsonl"), remove: mv)) == nil
               && fm.fileExists(atPath: home.appendingPathComponent("x2.jsonl").path), "还在写的会话不应该删")
-        print("  删除 6 项")
+        // 原会话已不在（清理了、在另一台电脑上）：只移备份；另一台电脑的（record 为 nil）不改备份记录
+        try fm.removeItem(at: home.appendingPathComponent("x2.jsonl"))
+        let movedBefore = n
+        try EchoDelete.trash(.init(original: nil, backup: bak.appendingPathComponent("x2.jsonl"), record: nil, rel: "-p/x2.jsonl"), remove: mv)
+        check(n == movedBefore + 1 && !fm.fileExists(atPath: bak.appendingPathComponent("x2.jsonl").path) && EchoBackupRecord.load(rec).files.keys.sorted() == ["-p/x2.jsonl"],
+              "原会话不在时应只移备份、不改另一台电脑的备份记录")
+        print("  删除 7 项")
 
         // 移动：目录编码；原会话和备份连同目录挪到新项目目录，备份记录改键；开着的、还在写的、新位置已有的不挪；移动记录改显示的目录
         check(EchoMove.projectDirName("/Users/x/项目代码/回响") == "-Users-x--------", "中文目录编码不对")

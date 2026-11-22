@@ -3,11 +3,12 @@
    变量名照 NAS 网站 lib/tokens.css（同名同用途，从 NAS 搬样式不用换名）；数值和颜色是回响自己的，主色青绿 */
 :root {
   /* 颜色 */
-  --bg-surface: #ffffff; --bg-subtle: #f2f4f4; --bg-hover: rgba(31,35,41,.05); --accent-soft: rgba(0,128,129,.08);
+  --bg-surface: #ffffff; --bg-subtle: #f2f4f4; --bg-hover: rgba(31,35,41,.05);
   --fg: #1f2329; --fg-muted: #646a73; --fg-faint: #8f959e; --line: #e5e9e9;
-  --accent: #008081; --down: #c46a1f;
+  --down: #c46a1f;   /* 主色、主色文字、应用色等共用令牌在 base.css */
+  --bright: #009fa0;   /* 进度条、备份条：主色同色阶亮一档，主色本身不变（累计节省亮一点） */
   --q0: #eaeeee; --q1: #afdfde; --q2: #64c3c3; --q3: #009fa0; --q4: #007677;   /* 主色由浅到深，2 到 4 档用 dataviz 校验过 */
-  --mute: #d3dbdb;
+  --mute: #d3dbdb; --mute2: #e6ebeb;
   --bg-skeleton: #edf0f0;
   /* 字号 / 行高 */
   --text-xs: 12px; --lh-xs: 18px;     /* 小字：列名、灰字、数字 */
@@ -23,11 +24,12 @@
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg-surface: #1d1e23; --bg-subtle: #292e2f; --bg-hover: rgba(255,255,255,.06); --accent-soft: rgba(63,192,192,.14);
+    --bg-surface: #1d1e23; --bg-subtle: #292e2f; --bg-hover: rgba(255,255,255,.06);
     --fg: #e6e8ec; --fg-muted: #9aa0ab; --fg-faint: #6f7581; --line: #2c3334;
-    --accent: #3fc0c0; --down: #e3955a;
+    --down: #e3955a;
+    --bright: #5ecbcb;
     --q0: #2a3031; --q1: #034747; --q2: #006d6d; --q3: #009a9b; --q4: #5ecbcb;
-    --mute: #364042;
+    --mute: #364042; --mute2: #2c3536;
     --bg-skeleton: #2a2f30;
   }
 }
@@ -44,24 +46,26 @@ svg { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; s
 .wk { display: flex; align-items: center; gap: var(--space-1); color: var(--fg-muted); }
 .wk .now { margin-left: var(--space-2); padding: 0 6px; border-radius: var(--radius-2xs); background: var(--bg-subtle); font-size: var(--text-xs); line-height: var(--lh-xs); }
 /* 应用筛选（设计稿 设计/多应用/）：图标按钮加一圈细框，菜单白底细框，选中的文字主色、右边小勾 */
-.appf { position: relative; margin-left: auto; }
-.appf + .seg { margin-left: 0; }
+/* 顶栏右边：应用筛选和「会话 / 备份」放在一起靠右；切到备份时筛选按钮隐藏，切换按钮位置不动（点备份会跳一下） */
+.head-r { display: flex; align-items: center; gap: var(--space-3); margin-left: auto; }
+.appf { position: relative; }
 .appf .pb { display: inline-flex; align-items: center; gap: 3px; height: 30px; padding: 0 6px 0 8px; border: 1px solid var(--line); border-radius: var(--radius-sm); color: var(--fg-muted); cursor: pointer; }
 .appf .pb:hover { background: var(--bg-hover); }
 .appf svg { width: 16px; height: 16px; stroke-width: 1.6; }
 .appf svg.dn { width: 12px; height: 12px; }
-.appf img.ai { width: 16px; height: 16px; border-radius: 3.5px; box-shadow: 0 0 0 .5px rgba(0,0,0,.08); }
+.appf img.ai { width: 16px; height: 16px; border-radius: 3.5px; }
 .pmenu { position: absolute; right: 0; top: 36px; z-index: 5; width: 176px; padding: 4px; border-radius: 10px; background: var(--bg-surface); box-shadow: 0 0 0 1px var(--line), 0 6px 20px rgba(0,0,0,.08); }
 .pmenu .mi { display: flex; align-items: center; gap: 4px; height: 30px; padding: 0 10px; border-radius: 6px; font-size: var(--text-sm); color: var(--fg); cursor: pointer; }
 .pmenu .mi:hover { background: var(--bg-hover); }
 .pmenu .mi .ic { display: inline-flex; width: 24px; color: var(--fg-faint); }
 .pmenu .mi .nm { flex: 1; }
-.pmenu .mi.on { color: var(--accent); font-weight: 500; }
-.pmenu .mi .ck { width: 14px; height: 14px; stroke-width: 2; color: var(--accent); }
+.pmenu .mi.on { color: var(--accent-text); font-weight: 500; }
+.pmenu .mi .ck { width: 14px; height: 14px; stroke-width: 2; color: var(--accent-text); }
 
 /* 右上角切换：会话 / 备份，灰底分段，选中的白底 */
-.seg { display: inline-flex; margin-left: auto; padding: 2px; border-radius: var(--radius-sm); background: var(--bg-subtle); }
-.seg b { padding: 0 var(--space-3); border-radius: 6px; font-size: var(--text-sm); line-height: 26px; font-weight: 400; color: var(--fg-muted); cursor: pointer; }
+.seg { display: inline-flex; padding: 2px; border-radius: var(--radius-sm); background: var(--bg-subtle); }
+.seg b { display: inline-flex; align-items: center; gap: 5px; padding: 0 var(--space-3); border-radius: 6px; font-size: var(--text-sm); line-height: 26px; font-weight: 400; color: var(--fg-muted); cursor: pointer; }
+.seg b svg { width: 14px; height: 14px; stroke-width: 1.7; }   /* 会话：对话气泡；备份：带勾的云（和左栏底部的备份状态一样） */
 .seg b.on { background: var(--bg-surface); color: var(--fg); box-shadow: 0 1px 2px rgba(0,0,0,.08); }
 .main.bkview .wk { visibility: hidden; }
 .ib { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: var(--radius-2xs); color: var(--fg-muted); cursor: pointer; }
@@ -79,7 +83,7 @@ h2.sec { margin: var(--space-4) var(--space-1) 0; }
 .kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-4); }
 .kpi .l { display: flex; justify-content: space-between; font-size: var(--text-xs); line-height: var(--lh-xs); color: var(--fg-muted); }
 .kpi .l .dl { color: var(--fg-faint); font-variant-numeric: tabular-nums; }
-.kpi .l .dl.up { color: var(--accent); }            /* 趋势：涨用主色，跌用暖橙（「趋势数给个颜色」） */
+.kpi .l .dl.up { color: var(--accent-text); }            /* 趋势：涨用主色，跌用暖橙（「趋势数给个颜色」） */
 .kpi .l .dl.down { color: var(--down); }
 .kpi .v { height: var(--lh-hero); margin-top: var(--space-2); font-size: var(--text-hero); line-height: var(--lh-hero); font-weight: 600; letter-spacing: -.3px; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .kpi .v small { margin-left: var(--space-1); font-size: var(--text-sm); font-weight: 400; letter-spacing: 0; color: var(--fg-muted); }
@@ -112,8 +116,8 @@ h2.sec { margin: var(--space-4) var(--space-1) 0; }
 .day.flash { background: var(--accent-soft); transition: background .3s; }
 .day-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 var(--space-3); padding-bottom: var(--space-2); }
 .day-head .date { font-size: var(--text-md); line-height: var(--lh-md); font-weight: 600; cursor: pointer; }
-.day-head .date:hover { color: var(--accent); }
-.day-head .today { font-size: var(--text-xs); color: var(--accent); }
+.day-head .date:hover { color: var(--accent-text); }
+.day-head .today { font-size: var(--text-xs); color: var(--accent-text); }
 .day-head .cnt, .row.sum .cnt { font-size: var(--text-xs); color: var(--fg-faint); }
 /* 每天的合计：会话表底下一行，字重 500，数字对齐各列 */
 .row.sum { margin-top: var(--space-1); font-weight: 500; }   /* 不要分割线、不铺底、不用主色 */
@@ -141,22 +145,24 @@ h2.sec { margin: var(--space-4) var(--space-1) 0; }
 .row.sess.gone:hover { background: none; }
 .row.sess.gone .title { color: var(--fg-muted); }
 .gone-tag { flex: none; font-size: var(--text-xs); color: var(--fg-faint); }
+.forget { flex: none; display: none; font-size: var(--text-xs); color: var(--fg-muted); cursor: pointer; }   /* 已删除会话悬停时出现「删统计」 */
+.row.sess.gone:hover .forget { display: inline; }
+.forget:hover { color: var(--down); }
 .name { min-width: 0; }
 .name .line { display: flex; align-items: baseline; gap: var(--space-2); white-space: nowrap; overflow: hidden; }
 .name .title { flex: none; max-width: 60%; overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
 .name .path { flex: none; font-size: var(--text-xs); color: var(--fg-faint); }
-/* 版本：只有标签图标和版本号，不加底色（「去掉外部便签」）；悬停加下划线 */
+/* 版本：只有标签图标和版本号，不加底色（「去掉外部便签」）；悬停变淡 */
 .vers { display: flex; flex-wrap: wrap; gap: 2px var(--space-3); margin: 4px 0 2px; }
-.ver { display: inline-flex; align-items: center; gap: 3px; height: 20px; color: var(--accent); font: 600 var(--text-xs)/20px var(--font-mono); cursor: pointer; }
+.ver { display: inline-flex; align-items: center; gap: 3px; height: 20px; color: var(--accent-text); font: 600 var(--text-xs)/20px var(--font-mono); cursor: pointer; }
 .ver svg { width: 11px; height: 11px; }
-.ver:hover { text-decoration: underline; text-underline-offset: 2px; }
+.ver:hover, .link:hover { opacity: .6; }   /* 版本号、Git 提交悬停变淡，不变黑、不加下划线 */
 .more-ver { align-self: center; font-size: var(--text-xs); color: var(--fg-faint); }
 .num { text-align: right; font-size: var(--text-xs); line-height: var(--lh-sm); color: var(--fg-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .num.strong { color: var(--fg); font-weight: 600; }
 .num.faint { color: var(--fg-faint); }
-.link { color: var(--accent); cursor: pointer; }
-.link:hover { text-decoration: underline; }
-.toggle { padding: var(--space-1) 0 var(--space-2); font-size: var(--text-xs); color: var(--accent); cursor: pointer; }
+.link { color: var(--accent-text); cursor: pointer; }
+.toggle { padding: var(--space-1) 0 var(--space-2); font-size: var(--text-xs); color: var(--accent-text); cursor: pointer; }
 
 /* 用量：两根分段条拉满整宽，图例在条下；按用途金额多的深，按模型主色深浅加灰 */
 .use + .use { margin-top: var(--space-4); }
@@ -188,23 +194,79 @@ h2.sec { margin: var(--space-4) var(--space-1) 0; }
 .main.none .wk { visibility: hidden; }
 
 /* 备份：顶上三个累计数；每个应用一行（图标、会话数、原会话 → 备份、省了多少），下面一根条：整条是原会话，主色那段是备份；最下面备份日志一天一行 */
-.bkstats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-4); }
+.bkstats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-4); }
+@media (max-width: 900px) { .kpis.bkstats { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 440px) { .kpis.bkstats { grid-template-columns: minmax(0, 1fr); } }
+.bks .s { white-space: normal; }   /* 备份页的小字能换行，窄了不截断 */
+/* 累计节省：这页的成果，数字用主色 */
+.bks.win .v { color: var(--accent-text); }   /* 主色太亮，用主色文字色 */
+/* 已备份：各应用一根细分段条加小字 */
+.thin { display: flex; gap: 2px; height: 6px; margin: var(--space-2) 0 var(--space-1); }
+.thin i { min-width: 3px; border-radius: 3px; }
+.mini { display: flex; flex-wrap: wrap; gap: 0 var(--space-3); }
+.mini span { display: inline-flex; align-items: center; gap: 4px; }
+.mini i { width: 6px; height: 6px; border-radius: 2px; }
+/* 应用的颜色：低饱和的橙（Claude）、蓝（Codex），浅色深色各一套，dataviz 校验过（色度刚过 0.1 的下限，不发灰；色盲可分）。
+   品牌色割裂，主色深浅又奇怪 */
+.a-claude { background: var(--app-claude); } .a-codex { background: var(--app-codex); } .a-workbuddy { background: var(--app-workbuddy); }   /* 再亮一点；橙对白底 2.7:1，有图例和柱顶数字兜底 */
+.legend.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+.use-name.gap { margin-top: var(--space-6); }
+.tbar i.a-claude, .tbar i.a-codex, .tbar i.a-workbuddy { color: var(--on-dark); }
+/* 备份趋势：近 30 天每天一根，宽不过 24，按应用堆起来，段间 2 的缝，顶端圆角 4；柱顶写数 */
+.wkcols { display: flex; align-items: flex-end; gap: 4px; height: 160px; padding-top: 18px; border-bottom: 1px solid var(--line); }
+.wc { flex: 1; display: flex; align-items: flex-end; justify-content: center; height: 100%; }
+.wc .st { position: relative; display: flex; flex-direction: column; gap: 2px; width: 100%; max-width: 24px; min-height: 0; }
+.wc .st b { position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); padding-bottom: 2px; font-size: 10px; line-height: 14px; font-weight: 400; color: var(--fg-muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.wc .st b + i { border-radius: 4px 4px 0 0; }
+.wc .st i { display: block; min-height: 2px; }
+.wc .st i:first-child { border-radius: 4px 4px 0 0; }
+.wc:hover .st { opacity: .8; }
+/* 备份日志：窄了藏掉清理腾出、自动清理两列（悬停日期能看到） */
+.bklog { container-type: inline-size; }
+.row.bkrow > * { display: revert; }   /* 不受会话表那条「窄了藏第 3、5 列」的规则影响，按自己的宽度藏 */
+@container (max-width: 640px) { .row.bkrow { grid-template-columns: minmax(48px, 1fr) 48px 80px 140px 72px; } .row.bkrow > :nth-child(5), .row.bkrow > :nth-child(6) { display: none; } }
+@container (max-width: 440px) { .row.bkrow { grid-template-columns: minmax(48px, 1fr) 140px 72px; } .row.bkrow > :nth-child(2), .row.bkrow > :nth-child(3) { display: none; } }
 .bks .l { font-size: var(--text-xs); line-height: var(--lh-xs); color: var(--fg-muted); }
 .bks .v { margin-top: var(--space-1); font-size: 20px; line-height: 28px; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .bks .v small { margin-left: var(--space-1); font-size: var(--text-xs); font-weight: 400; color: var(--fg-muted); }
 .bks .s { font-size: var(--text-xs); line-height: var(--lh-xs); color: var(--fg-faint); }
-@media (max-width: 640px) { .bkstats { grid-template-columns: minmax(0, 1fr); } }
 .row.bkrow { grid-template-columns: minmax(64px, 1fr) 56px 88px 150px 80px 110px 96px; }
 .row.bkrow .d { font-size: var(--text-sm); }
 .row.bkrow .num.ok { color: var(--fg-faint); }
 .row.bkrow .num.warn { color: var(--down); }
 .bk + .bk { margin-top: var(--space-4); }
-.bk-head { display: flex; align-items: center; gap: var(--space-2); font-size: var(--text-sm); font-variant-numeric: tabular-nums; }
-.bk-head img { width: 16px; height: 16px; border-radius: 3px; box-shadow: 0 0 0 .5px rgba(0,0,0,.08); }
+.bk-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-2); font-size: var(--text-sm); font-variant-numeric: tabular-nums; }
+.bk-head img { width: 16px; height: 16px; border-radius: 3px; }
 .bk-head .cnt { color: var(--fg-faint); font-size: var(--text-xs); }
 .bk-head .sz { margin-left: auto; color: var(--fg-muted); }
 .bk-head .sz b { font-weight: 600; color: var(--fg); }
-.bk-head em { min-width: 56px; font-style: normal; text-align: right; color: var(--accent); }
-.bkbar { position: relative; height: 6px; margin-top: var(--space-2); border-radius: var(--radius-2xs); background: var(--mute); overflow: hidden; }
-.bkbar i { position: absolute; inset: 0 auto 0 0; min-width: 3px; border-radius: var(--radius-2xs); background: var(--accent); }
+.bk-head em { min-width: 96px; font-style: normal; text-align: right; color: var(--accent-text); }
+/* 空间：同一把尺子，浅色整条是原会话、主色是备份，8 高、两端圆 */
+.sbar { position: relative; height: 8px; margin-top: var(--space-2); }
+.sbar i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 4px; }
+.sbar i.src { background: var(--q1); }
+.sbar i.bak { min-width: 3px; background: var(--bright); }
+/* 备份里都是什么：28 高的分段条，块间 2 的缝，块里写占比 */
+.tbar { display: flex; gap: 2px; height: 28px; }
+.tbar i { display: flex; align-items: center; min-width: 3px; padding-left: 8px; border-radius: 4px; font: 500 var(--text-xs)/1 -apple-system, sans-serif; font-style: normal; color: var(--on-dark); overflow: hidden; white-space: nowrap; }
+.tbar i.mute, .tbar i.mute2, .tbar i.q1, .tbar i.q2 { color: var(--fg); }
+.legend i.mute, .tbar i.mute { background: var(--mute); }
+.legend i.bright { background: var(--bright); }
+.legend i.mute2, .tbar i.mute2 { background: var(--mute2); }
+@media (prefers-color-scheme: dark) { .tbar i.q4, .tbar i.q3 { color: var(--on-light); } .tbar i.q2 { color: var(--on-dark); } }   /* 深色里色阶反过来：浅块上用深字 */
+.axis30 { display: flex; justify-content: space-between; margin-top: var(--space-1); font-size: var(--text-xs); color: var(--fg-faint); }
 .bk-note { margin-top: var(--space-4); font-size: var(--text-xs); line-height: var(--lh-xs); color: var(--fg-faint); }
+
+/* 应用 logo 不画线框；WorkBuddy 整块绿底，缩到 86% 和另两家视觉一样大 */
+img[src="app-workbuddy.svg"] { transform: scale(.86); }
+
+/* Claude 的螃蟹又扁又宽，白底在白面上看不见：放大 12%、往下 1 像素，和 Codex 图标、旁边文字视觉对齐 */
+img[src="app-claude.svg"] { transform: translateY(1px) scale(1.12); }
+
+/* 卡片标题右边的小切换（按天、按月）：和顶栏「会话 / 备份」同样式，小一号 */
+h2 .seg.sm { margin-left: var(--space-3); font-weight: 400; }
+h2 .seg.sm b { padding: 0 var(--space-2); font-size: var(--text-xs); line-height: 22px; }
+/* 按月：12 根，月份写在每根下面 */
+.wkcols.months { gap: var(--space-3); }
+.axis12 { display: flex; gap: var(--space-3); margin-top: var(--space-1); font-size: var(--text-xs); color: var(--fg-faint); }
+.axis12 span { flex: 1; text-align: center; white-space: nowrap; }

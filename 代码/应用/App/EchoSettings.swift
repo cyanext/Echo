@@ -42,7 +42,6 @@ struct EchoSettingsView: View {
 
 enum EchoSettingsStyle {
     /// Claude Code 的官方图标（LobeHub 图标库的 claudecode-color），放在 Web/ 随应用打包
-    static var claudeIcon: NSImage? { webImage("logo-claudecode.svg") }
     private static func webImage(_ name: String) -> NSImage? {
         let dir = ProcessInfo.processInfo.environment["ECHO_WEB"].map { URL(fileURLWithPath: $0) } ?? Bundle.main.resourceURL?.appendingPathComponent("Web")
         return dir.flatMap { NSImage(contentsOf: $0.appendingPathComponent(name)) }
@@ -55,17 +54,17 @@ enum EchoSettingsStyle {
         appIcons[s] = i
         return i
     }
-    static let chrome = EchoColor.dyn(0xf6f7f7, 0x232529)
-    static let subtle = EchoColor.dyn(0xf2f4f4, 0x292e2f)
-    static let accentSoft = EchoColor.dyn(0x008081, 0x3fc0c0, 0.08, 0.14)
+    static let chrome = EchoColor.chrome
+    static let subtle = EchoColor.subtle
+    static let accentSoft = EchoColor.accentSoft
     /// 占用条和类型行的颜色：保留的几类主色由深到浅，思考、系统记录灰（默认不备份）
     static func color(_ k: EchoStorage.Kind) -> Color {
         switch k {
-        case .message: return EchoColor.dyn(0x007677, 0x5ecbcb)
-        case .toolUse: return EchoColor.dyn(0x009fa0, 0x009a9b)
-        case .toolResult: return EchoColor.dyn(0x64c3c3, 0x006d6d)
-        case .thinking: return EchoColor.dyn(0xd3dbdb, 0x364042)
-        case .system: return EchoColor.dyn(0xe6ebeb, 0x2c3536)
+        case .message: return EchoColor.q4
+        case .toolUse: return EchoColor.q3
+        case .toolResult: return EchoColor.q2
+        case .thinking: return EchoColor.mute
+        case .system: return EchoColor.mute2
         }
     }
 }
@@ -294,17 +293,17 @@ struct EchoSourcesBlock: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             if !onboarding { EchoBlockHeader(title: "来源", sum: "勾选要备份的应用") }
-            EchoSourceCard(icon: EchoSettingsStyle.claudeIcon, name: "Claude Code", meta: meta(model.claude, .claude), on: $on) {
+            EchoSourceCard(app: .claude, name: "Claude Code", meta: meta(model.claude, .claude), on: $on) {
                 if showCleanup { cleanup }
             }
             if model.codexLoaded && model.codex == nil {
-                EchoSourceCard(icon: EchoSettingsStyle.appIcon(.codex), name: "Codex", meta: "暂无本地会话", on: .constant(false), enabled: false) {}
+                EchoSourceCard(app: .codex, name: "Codex", meta: "暂无本地会话", on: .constant(false), enabled: false) {}
             } else {
-                EchoSourceCard(icon: EchoSettingsStyle.appIcon(.codex), name: "Codex", meta: meta(model.codex, .codex), on: $codexOn) {
+                EchoSourceCard(app: .codex, name: "Codex", meta: meta(model.codex, .codex), on: $codexOn) {
                     if showCleanup { codexCleanup }
                 }
             }
-            EchoSourceCard(icon: EchoSettingsStyle.appIcon(.workbuddy), name: "WorkBuddy", meta: "暂无本地会话", on: .constant(false), enabled: false) {}
+            EchoSourceCard(app: .workbuddy, name: "WorkBuddy", meta: "暂无本地会话", on: .constant(false), enabled: false) {}
         }
     }
 
@@ -328,7 +327,7 @@ struct EchoSourcesBlock: View {
         Group {
             if let a = count {
                 (Text("按当前设置将清理 ") + Text("\(a.count) 个会话").fontWeight(.semibold) + Text("，释放 \(EchoStorage.size(a.bytes))"))
-            } else { Text("正在统计会清理几个…") }
+            } else { Text("正在统计…") }
         }
         .font(.system(size: 12)).foregroundStyle(EchoColor.fg2).padding(.vertical, 4)
         .opacity(on.wrappedValue ? 1 : 0.4)
@@ -355,15 +354,15 @@ struct EchoSourcesBlock: View {
                 }
             }
         } else if let closeClaude {
-            EchoSettingRow(title: "关闭 Claude 的自动清理（推荐）", note: "它会直接删除 \(model.claudeCleanupDays) 天未使用的会话，不等回响备份完") {
+            EchoSettingRow(title: "关闭 Claude 的自动清理（推荐）", note: "Claude 会直接删除 \(model.claudeCleanupDays) 天未使用的会话，不确认是否已备份") {
                 Toggle("", isOn: closeClaude).toggleStyle(.switch).labelsHidden()
             }
         } else {
             HStack(spacing: 16) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("建议关闭 Claude 的自动清理").font(.system(size: 13)).foregroundStyle(EchoColor.fg)
-                    Text("它会直接删除 \(model.claudeCleanupDays) 天未使用的会话，不等回响备份完").font(.system(size: 12)).foregroundStyle(EchoColor.fg2)
-                    Text("关闭后由回响清理：确认已备份，再移到废纸篓").font(.system(size: 12)).foregroundStyle(EchoColor.fg2)
+                    Text("Claude 会直接删除 \(model.claudeCleanupDays) 天未使用的会话，不确认是否已备份").font(.system(size: 12)).foregroundStyle(EchoColor.fg2)
+                    Text("关闭后由回响清理：确认备份完整后再移到废纸篓").font(.system(size: 12)).foregroundStyle(EchoColor.fg2)
                 }
                 Spacer(minLength: 0)
                 Button("关闭自动清理") { model.turnOffClaudeCleanup() }
@@ -376,7 +375,7 @@ struct EchoSourcesBlock: View {
 
 /// 来源卡片：图标、名字、会话数等、勾选；下面接这个应用自己的选项。以后加 Codex 等只多一张卡
 struct EchoSourceCard<Content: View>: View {
-    let icon: NSImage?
+    let app: EchoSource
     let name: String
     let meta: String
     @Binding var on: Bool
@@ -386,13 +385,10 @@ struct EchoSourceCard<Content: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 12) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 8).fill(Color.white)
-                        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(EchoColor.line))
-                    if let icon { Image(nsImage: icon).resizable().frame(width: 22, height: 22) }
-                }
-                .frame(width: 32, height: 32)
-                .saturation(enabled ? 1 : 0).opacity(enabled ? 1 : 0.45)
+                // 官方 logo 直接画成 32 的圆角方块，不套白框、不画线框
+                Group { if let i = EchoSettingsStyle.appIcon(app) { EchoAppLogo(app: app, image: i, size: 32) } }
+                    .frame(width: 32, height: 32)
+                    .saturation(enabled ? 1 : 0).opacity(enabled ? 1 : 0.45)
                 VStack(alignment: .leading, spacing: 0) {
                     Text(name).font(.system(size: 13, weight: .semibold)).foregroundStyle(enabled ? EchoColor.fg : EchoColor.fg3)
                     Text(meta).font(.system(size: 12)).foregroundStyle(enabled ? EchoColor.fg2 : EchoColor.fg3)

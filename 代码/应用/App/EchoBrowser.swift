@@ -18,7 +18,7 @@ struct EchoBrowserView: View {
     @State private var newTitle = ""
     @State private var editError: String?
     @State private var deleting: [EchoSession] = []
-    @State private var errorTitle = "没改成"
+    @State private var errorTitle = "操作未完成"
     @State private var moveDone: String?                               // 挪好后的提示和恢复命令
     @State private var moveCmd: String?
     @AppStorage("sidebarOrder") private var orderRaw = ""              // 拖动排好的顺序（EchoOrder），JSON
@@ -82,17 +82,18 @@ struct EchoBrowserView: View {
             Button("改名", action: commitRename)
         } message: {
             if case .session(let s) = renaming, let u = EchoRename.originalURL(for: s), EchoRename.isActive(u) {
-                Text("会话正在进行，Claude Code 可能把名字改回去，在会话里用 /rename 更稳")
+                Text("会话仍在进行，Claude Code 可能恢复原名称，建议在会话中使用 /rename")
             }
         }
-        .alert(deleting.count > 1 ? "把 \(deleting.count) 个会话移到废纸篓？" : "把这个会话移到废纸篓？",
+        .alert(deleting.count > 1 ? "将 \(deleting.count) 个会话移到废纸篓？" : "将此会话移到废纸篓？",
                isPresented: Binding(get: { !deleting.isEmpty }, set: { if !$0 { deleting = [] } })) {
             Button("取消", role: .cancel) {}
-            Button("移到废纸篓", role: .destructive, action: commitDelete)
+            Button("移到废纸篓") { commitDelete(keepStats: true) }
+            Button("同时删除统计数据", role: .destructive) { commitDelete(keepStats: false) }
         } message: {
-            Text(Set(deleting.map(\.app)).count == 1 ? "\(deleting[0].app.title) 里的原会话和回响的备份一起移走" : "原会话和回响的备份一起移走")
+            Text(deleteMessage)
         }
-        .alert("挪好了", isPresented: Binding(get: { moveDone != nil }, set: { if !$0 { moveDone = nil; moveCmd = nil } })) {
+        .alert("已移动", isPresented: Binding(get: { moveDone != nil }, set: { if !$0 { moveDone = nil; moveCmd = nil } })) {
             if let c = moveCmd {
                 Button("复制恢复命令") { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(c, forType: .string) }
             }
@@ -100,7 +101,7 @@ struct EchoBrowserView: View {
         } message: {
             Text(moveDone ?? "")
         }
-        .alert(errorTitle, isPresented: Binding(get: { editError != nil }, set: { if !$0 { editError = nil; errorTitle = "没改成" } })) {
+        .alert(errorTitle, isPresented: Binding(get: { editError != nil }, set: { if !$0 { editError = nil; errorTitle = "操作未完成" } })) {
             Button("好", role: .cancel) {}
         } message: {
             Text(editError ?? "")
@@ -156,12 +157,21 @@ struct EchoBrowserView: View {
         } catch { editError = error.localizedDescription }
     }
 
-    private func commitDelete() {
+    /// 原会话在本机的和备份一起移走，不在的（清理了、在另一台电脑上）只移回响的备份；统计默认留在总览里
+    private var deleteMessage: String {
+        let local = deleting.filter { EchoRename.originalURL(for: $0) != nil }.count
+        let what = local == deleting.count ? "原会话和备份将一并移到废纸篓，可从废纸篓恢复。"
+            : local == 0 ? "原会话已不在本机，仅将备份移到废纸篓，可从废纸篓恢复。"
+            : "其中 \(local) 个原会话在本机，将与备份一并移到废纸篓；其余仅移除备份。均可从废纸篓恢复。"
+        return what + "总览中的统计数据（消息数、Token、时长）默认保留。"
+    }
+
+    private func commitDelete(keepStats: Bool) {
         let list = deleting
         deleting = []
         picked = []
         if list.contains(where: { $0.id == sessionID }) { sessionID = nil }
-        do { try state.delete(list) } catch { editError = error.localizedDescription }
+        do { try state.delete(list, keepStats: keepStats) } catch { editError = error.localizedDescription }
     }
 
     /// 挪会话：先算好新位置，挪完当前打开的会话跟过去；有错只报错（带上挪成了几个），全成了提示恢复命令
@@ -172,17 +182,17 @@ struct EchoBrowserView: View {
         picked = []
         if let cur = sessionID, r.done.contains(where: { $0.id == cur }), let n = newIDs[cur] { sessionID = n }
         if let e = r.error {
-            errorTitle = "没挪成"
-            editError = (r.done.isEmpty ? "" : "挪成了 \(r.done.count) 个，其余没挪：") + e.localizedDescription
+            errorTitle = "移动失败"
+            editError = (r.done.isEmpty ? "" : "已移动 \(r.done.count) 个，其余未移动：") + e.localizedDescription
             return
         }
         guard !r.done.isEmpty else { return }
         let shown = (dir as NSString).abbreviatingWithTildeInPath
         if r.done.count == 1, let s = r.done.first {
             moveCmd = "cd '\(dir.replacingOccurrences(of: "'", with: "'\\''"))' && claude --resume \(s.sessionId)"
-            moveDone = "已挪到 \(shown)，在终端或 MintPop 里用恢复命令续上"
+            moveDone = "已移动到 \(shown)，可在终端或 MintPop 中用恢复命令继续"
         } else {
-            moveDone = "\(r.done.count) 个会话已挪到 \(shown)"
+            moveDone = "\(r.done.count) 个会话已移动到 \(shown)"
         }
     }
 
@@ -198,8 +208,8 @@ struct EchoBrowserView: View {
         panel.canChooseFiles = false
         panel.canCreateDirectories = true
         panel.allowsMultipleSelection = false
-        panel.prompt = "挪到这里"
-        panel.message = "选一个文件夹，会话挪过去后在那里续上"
+        panel.prompt = "移动到这里"
+        panel.message = "选择文件夹，会话移动后可在该文件夹中继续"
         if let p = list.first?.projectPath, FileManager.default.fileExists(atPath: p) { panel.directoryURL = URL(fileURLWithPath: p) }
         guard panel.runModal() == .OK, let u = panel.url else { return }
         doMove(list, u.path)
@@ -226,7 +236,7 @@ struct EchoBrowserView: View {
         let group = picked.contains(s.id) && picked.count > 1
             ? state.sessions.filter { picked.contains($0.id) } : []
         if group.count > 1 {
-            Button("把 \(group.count) 个会话连起来看") { link(group) }
+            Button("将 \(group.count) 个会话合并查看") { link(group) }
         }
         // 菜单在每次画行时就会构造，这里只按是不是本机的会话判断，不查文件；点下去时改名、删除、挪各自再查
         let local = s.computer == EchoPrefs.computerName
@@ -242,7 +252,7 @@ struct EchoBrowserView: View {
             Button(local ? "改名…" : "改名…（会话在 \(s.computer) 上）") { startRename(.session(s)) }
                 .disabled(!local)
             let movable = targets.allSatisfy { $0.computer == EchoPrefs.computerName && $0.app == .claude }
-            let why = targets.contains { $0.app != .claude } ? "（Codex 的会话不挪）" : "（会话在 \(s.computer) 上）"
+            let why = targets.contains { $0.app != .claude } ? "（Codex 会话不支持移动）" : "（会话在 \(s.computer) 上）"
             Menu(!movable ? "移动到" + why : group.count > 1 ? "把 \(group.count) 个会话移动到" : "移动到") {
                 ForEach(recentDirs(except: targets), id: \.self) { d in
                     Button((d as NSString).abbreviatingWithTildeInPath) { doMove(targets, d) }
@@ -254,10 +264,9 @@ struct EchoBrowserView: View {
         }
         Divider()
         if group.count > 1 {
-            Button("把 \(group.count) 个会话移到废纸篓…") { deleting = group }
+            Button("将 \(group.count) 个会话移到废纸篓…") { deleting = group }
         } else {
-            Button(local ? "移到废纸篓…" : "移到废纸篓…（会话在 \(s.computer) 上）") { deleting = [s] }
-                .disabled(!local)
+            Button("移到废纸篓…") { deleting = [s] }   // 原会话不在本机时只删回响的备份
         }
         if group.count < 2 {
             Divider()
@@ -367,7 +376,7 @@ struct EchoBrowserView: View {
                 if multiApp {
                     EchoPickButton(on: false, help: EchoSource(rawValue: appFilter)?.title ?? "全部应用") {
                         if let a = EchoSource(rawValue: appFilter), let i = EchoSettingsStyle.appIcon(a) {
-                            Image(nsImage: i).resizable().frame(width: 16, height: 16).clipShape(RoundedRectangle(cornerRadius: 3.5))
+                            EchoAppLogo(app: a, image: i, size: 16)
                         } else {
                             Image(systemName: "square.grid.2x2").font(.system(size: 12.5))
                         }
@@ -583,7 +592,7 @@ struct EchoBrowserView: View {
                          selected: computer) { computer = $0; pickMenu = nil }
         } else if pickMenu == "app" {
             EchoPickMenu(width: 176, items: [("", AnyView(Image(systemName: "square.grid.2x2")), "全部")]
-                         + apps.map { a in (a.rawValue, AnyView(Group { if let i = EchoSettingsStyle.appIcon(a) { Image(nsImage: i).resizable().frame(width: 16, height: 16).clipShape(RoundedRectangle(cornerRadius: 3.5)).overlay(RoundedRectangle(cornerRadius: 3.5).strokeBorder(EchoColor.line, lineWidth: 0.5)) } }), a.title) },
+                         + apps.map { a in (a.rawValue, AnyView(Group { if let i = EchoSettingsStyle.appIcon(a) { EchoAppLogo(app: a, image: i, size: 16) } }), a.title) },
                          selected: appFilter) { appFilter = $0; pickMenu = nil }
         }
     }

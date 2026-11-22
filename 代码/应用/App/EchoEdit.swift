@@ -134,38 +134,42 @@ func sameNameDir(_ f: URL) -> URL? {
 /// 只删本机的会话；2 分钟内还在写的不删。
 enum EchoDelete {
     struct Paths {
-        var original: URL          // ~/.claude/projects/<项目目录>/<会话ID>.jsonl
+        var original: URL?         // ~/.claude/projects/<项目目录>/<会话ID>.jsonl；原会话已不在（清理了、在另一台电脑上）是 nil，只删备份
         var backup: URL            // 备份/<电脑名>/claude/projects/<项目目录>/<会话ID>.jsonl
-        var record: URL            // 备份/<电脑名>/claude/备份记录.json（没升级的布局在电脑这一级，跟着备份文件走）
-        var rel: String            // <项目目录>/<会话ID>.jsonl
+        var record: URL?           // 这台电脑的备份记录；另一台电脑的会话不改它的备份记录
+        var rel: String            // 备份记录里的键：<项目目录>/<会话ID>.jsonl；Codex 是相对 ~/.codex 的原路径（原会话不在时按文件名找）
     }
 
-    static func paths(for s: EchoSession) -> Paths? {
-        guard let orig = EchoRename.originalURL(for: s) else { return nil }
-        if s.app == .codex {   // 备份在 codex/sessions/年/月/日/，备份记录在 codex/，键是相对 ~/.codex 的原路径
+    static func paths(for s: EchoSession) -> Paths {
+        let orig = EchoRename.originalURL(for: s), mine = s.computer == EchoPrefs.computerName
+        if s.app == .codex {   // 备份在 codex/sessions/年/月/日/，备份记录在 codex/
             let codexDir = s.url.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            let rel = String(orig.standardizedFileURL.path.dropFirst(EchoBackup.codexSource.standardizedFileURL.path.count + 1))
-            return Paths(original: orig, backup: s.url, record: codexDir.appendingPathComponent("备份记录.json"), rel: rel)
+            let rel = orig.map { String($0.standardizedFileURL.path.dropFirst(EchoBackup.codexSource.standardizedFileURL.path.count + 1)) } ?? s.url.lastPathComponent
+            return Paths(original: orig, backup: s.url, record: mine ? codexDir.appendingPathComponent("备份记录.json") : nil, rel: rel)
         }
         let rel = s.url.deletingLastPathComponent().lastPathComponent + "/" + s.url.lastPathComponent
         let record = s.url.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("备份记录.json")
-        return Paths(original: orig, backup: s.url, record: record, rel: rel)
+        return Paths(original: orig, backup: s.url, record: mine ? record : nil, rel: rel)
     }
 
-    /// remove 默认移到废纸篓，测试时换成移到临时目录
+    /// remove 默认移到废纸篓，测试时换成移到临时目录。原会话在就和备份一起移走，不在就只移备份
     static func trash(_ p: Paths, remove: (URL) throws -> Void = { try FileManager.default.trashItem(at: $0, resultingItemURL: nil) }) throws {
         let fm = FileManager.default
-        if EchoRename.isActive(p.original) {
-            throw CocoaError(.fileWriteUnknown, userInfo: [NSLocalizedDescriptionKey: "会话正在进行，结束后再删"])
+        if let o = p.original, EchoRename.isActive(o) {
+            throw CocoaError(.fileWriteUnknown, userInfo: [NSLocalizedDescriptionKey: "会话仍在进行，请结束后再删除"])
         }
-        for f in [p.original, p.backup] {
+        for f in [p.original, p.backup].compactMap({ $0 }) {
             if fm.fileExists(atPath: f.path) { try remove(f) }
             if let dir = sameNameDir(f) { try remove(dir) }
         }
-        var r = EchoBackupRecord.load(p.record)
+        guard let rp = p.record else { return }
+        var r = EchoBackupRecord.load(rp)
         let prefix = (p.rel as NSString).deletingPathExtension + "/"   // 同名目录里的文件（Claude 的子代理记录）
-        r.files = r.files.filter { $0.key != p.rel && !$0.key.hasPrefix(prefix) }
-        try? r.save(p.record)
+        let name = p.backup.lastPathComponent                           // Codex 原会话不在时，按文件名（去掉 .zst）对
+        r.files = r.files.filter { k, _ in
+            k != p.rel && !k.hasPrefix(prefix) && !(k.contains("rollout-") && (k as NSString).lastPathComponent.replacingOccurrences(of: ".zst", with: "") == name)
+        }
+        try? r.save(rp)
     }
 }
 
@@ -221,8 +225,8 @@ enum EchoMove {
         let fm = FileManager.default
         guard p.rel != p.newRel else { return }
         guard p.newOriginal.deletingLastPathComponent().lastPathComponent.count <= 200 else { throw fail("文件夹路径太长，Claude Code 认不出") }
-        if EchoRename.isActive(p.original) { throw fail("会话正在进行（2 分钟内还在写），结束后再挪") }
-        if open(sessionId) { throw fail("会话正在 Claude 里开着，先关掉（MintPop 里归档那个会话，或在终端里退出 Claude）再挪") }
+        if EchoRename.isActive(p.original) { throw fail("会话仍在进行（2 分钟内有写入），请结束后再移动") }
+        if open(sessionId) { throw fail("会话正在 Claude 中打开，请先关闭（在 MintPop 中归档该会话，或在终端中退出 Claude）再移动") }
         let pairs = [(p.original, p.newOriginal), (p.backup, p.newBackup)]
         for (_, to) in pairs where fm.fileExists(atPath: to.path) || fm.fileExists(atPath: to.deletingPathExtension().path) {
             throw fail("新文件夹里已经有这个会话")

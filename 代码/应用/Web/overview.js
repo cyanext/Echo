@@ -175,7 +175,7 @@
     const vers = vs.slice(0, 6).map((c) => `<span class="ver"${s.x ? "" : ` data-sid="${esc(s.id)}" data-at="${c.time}"`} data-tip="${esc(`${c.ver}  ${hm(c.time)} · +${c.a} −${c.r}\n${c.s}${s.x ? "" : "\n点一下跳到会话里这次提交"}`)}">${IC.tag}${c.ver}</span>`).join("") + (vs.length > 6 ? `<span class="more-ver">等 ${vs.length} 个版本</span>` : "");
     // 删掉的会话（s.x）：数照算，标「已删除」，点不开
     return `<div class="row sess${s.x ? " gone" : ""}"${s.x ? "" : ` data-id="${esc(s.id)}"`}>
-      <div class="name"><div class="line"><span class="title">${esc(s.t)}</span>${s.x ? `<span class="gone-tag">已删除</span>` : ""}<span class="path">${esc(s.dir)}</span></div>${vers ? `<div class="vers">${vers}</div>` : ""}</div>
+      <div class="name"><div class="line"><span class="title">${esc(s.t)}</span>${s.x ? `<span class="gone-tag">已删除</span><span class="forget" data-forget="${esc(s.id.replace(/^deleted:/, ""))}" data-tip="备份已删除，统计数据仍计入总览">删除统计</span>` : ""}<span class="path">${esc(s.dir)}</span></div>${vers ? `<div class="vers">${vers}</div>` : ""}</div>
       <span class="num strong">${fmtM(s.tot)}</span><span class="num">${s.msg} 条</span><span class="num">${s.ms ? dur(s.ms) : ""}</span>
       <span class="num faint">${s.a ? `${hm(s.a)}–${hm(s.b)}` : ""}</span>
       <span class="num">${cs.length && s.x ? `${cs.length} 次` : cs.length ? `<a class="link" data-sid="${esc(s.id)}" data-at="${cs[0].time}" data-tip="跳到会话里最近一次提交">${cs.length} 次</a>` : ""}</span>
@@ -232,48 +232,101 @@
   // 顶上不放密钥打码数（「密钥不用了」）；Claude 里不活跃会话移进废纸篓叫「自动清理」，不写删除
   const APP = { claude: "Claude Code", codex: "Codex", workbuddy: "WorkBuddy" };
   const fmtB = (n) => { if (!n) return "0"; if (n < 1024) return n + " B"; let v = n; for (const u of ["KB", "MB", "GB", "TB"]) { v /= 1024; if (v < 1000 || u === "TB") return (v < 10 ? v.toFixed(1) : Math.round(v)) + " " + u; } };
-  let logAll = false;
+  let logAll = false, trendBy = "day", logBy = "day";   // 备份趋势、备份日志按天还是按月，不记上次
+  // 备份页（要更可视化、有成果感）：四张数字卡（已备份、已备份容量、累计节省、自动清理）；
+  // 空间节省（各应用一行，同一把尺子）；备份容量分析（按类型、按应用两根分段条）；备份趋势（每周新备份多少，按应用堆起来）；备份日志表
+  const KIND = [["对话消息", "q4"], ["工具调用", "q3"], ["工具结果", "q2"], ["思考过程", "mute"], ["系统记录", "mute2"]];
+  const APPS = ["claude", "codex", "workbuddy"];
   function backup() {
     const b = DATA && DATA.backup, el = $("backup");
     if (!(b && b.apps && b.apps.length)) { el.innerHTML = `<div class="card"><div class="empty">还没有备份过</div></div>`; return; }
     const dayOf = (iso) => { const d = new Date(iso); return new Date(d.getFullYear(), d.getMonth(), d.getDate()); };
     const when = b.last ? `上次备份 ${+dayOf(b.last) === +TODAY ? "今天" : md(dayOf(b.last))} ${hm(+new Date(b.last))}` : "还没有备份过";
     const log = b.log || [], sum = (f) => log.reduce((a, x) => a + (x[f] || 0), 0);
-    const src = b.apps.reduce((a, x) => a + x.src, 0), bak = b.apps.reduce((a, x) => a + x.bak, 0);
-    const gone = b.apps.reduce((a, x) => a + (x.gone || 0), 0);
-    // 备份页：顶上三张数字卡（和会话页的指标卡同样式）、各应用一张卡、备份日志一张卡
-    const stat = (l, v, s) => `<div class="card kpi"><div class="l">${l}</div><div class="v">${v}</div><div class="s">${s}</div></div>`;
+    const apps = b.apps.slice().sort((x, y) => APPS.indexOf(x.app) - APPS.indexOf(y.app));
+    const src = apps.reduce((a, x) => a + x.src, 0), bak = apps.reduce((a, x) => a + x.bak, 0), saved = Math.max(0, src - bak);
+    const sessions = apps.reduce((a, x) => a + x.sessions, 0), gone = apps.reduce((a, x) => a + (x.gone || 0), 0);
+    const pctSaved = src ? Math.round(saved / src * 100) : 0;
+    const name = (a) => APP[a] || a;
+    // 数字卡：累计节省的数字用主色，是这页的成果（进度条和小字说的是同一件事，去掉了）
+    const card = (l, v, s, cls = "") => `<div class="card kpi bks${cls}"><div class="l">${l}</div><div class="v">${v}</div><div class="s">${s}</div></div>`;
+    const split = `<div class="thin">${apps.map((x) => `<i class="a-${x.app}" style="flex:${x.sessions}" data-tip="${name(x.app)} ${fmtN(x.sessions)} 个会话"></i>`).join("")}</div>`
+      + `<div class="mini">${apps.map((x) => `<span><i class="a-${x.app}"></i>${name(x.app)} ${fmtN(x.sessions)}</span>`).join("")}</div>`;
     let h = `<div class="kpis bkstats">`
-      + stat("已备份", `${fmtN(b.apps.reduce((a, x) => a + x.sessions, 0))}<small>个会话</small>`, gone ? `${fmtN(gone)} 个原文件已清理，只在备份里` : "原文件都还在")
-      + stat("占用", `${fmtB(bak)}`, `原会话 ${fmtB(src)}，省 ${src ? Math.round((1 - bak / src) * 100) : 0}%`)
-      + stat("自动清理", `${fmtN(sum("autoDel"))}<small>个会话</small>`, `腾出 ${fmtB(sum("autoDelBytes"))}，清理备份又腾出 ${fmtB(sum("cleanFreed"))}`)
-      + `</div><section class="card"><h2>各应用<span class="note">${when}</span></h2>`;
-    h += b.apps.map((x) => {
+      + card("已备份", `${fmtN(sessions)}<small>个会话</small>`, split)
+      + card("已备份容量", fmtB(bak), `原会话 ${fmtB(src)}${gone ? `<br>${fmtN(gone)} 个会话的原文件已清理，仅保留备份` : ""}`)
+      + card("累计节省", fmtB(saved), `较原会话减少 ${pctSaved}%`, " win")
+      + card("自动清理", `${fmtN(sum("autoDel"))}<small>个会话</small>`, `释放 ${fmtB(sum("autoDelBytes"))}${sum("cleanFreed") ? `<br>清理备份释放 ${fmtB(sum("cleanFreed"))}` : ""}`)
+      + `</div>`;
+    // 空间节省：同一把尺子（最大的原会话占满），浅色整条是原会话、主色是备份；右边写省了多少
+    const top = Math.max(...apps.map((x) => x.src), 1);
+    h += `<section class="card"><h2>空间节省<span class="note">${when}</span></h2>` + apps.map((x) => {
       const pct = x.src ? Math.max(0, Math.round((1 - x.bak / x.src) * 100)) : 0;
-      return `<div class="bk"><div class="bk-head"><img src="app-${x.app}.svg" alt=""><span>${APP[x.app] || x.app}</span><span class="cnt">${fmtN(x.sessions)} 个会话</span>
-        <span class="sz">${fmtB(x.src)} → <b>${fmtB(x.bak)}</b></span><em>省 ${pct}%</em></div>
-        <div class="bkbar"><i style="width:${x.src ? Math.min(100, x.bak / x.src * 100) : 0}%"></i></div></div>`;
-    }).join("") + `</section>`;
-    // 备份日志：按天并起来，新的在上
-    const byDay = new Map();
-    for (const x of log) { const k = +dayOf(x.t); byDay.set(k, [...(byDay.get(k) || []), x]); }
-    const days = [...byDay.entries()].sort((a, b2) => b2[0] - a[0]);
-    if (days.length) {
-      const list = logAll ? days : days.slice(0, 7);
-      h += `<section class="card"><h2>备份日志<span class="note">共 ${days.length} 天、${new Set(log.map((x) => x.t)).size} 次</span></h2><div class="row bkrow cols"><span>日期</span><span>次数</span><span>写入</span><span>原 → 备份</span><span>清理腾出</span><span>自动清理</span><span>结果</span></div>`
+      return `<div class="bk"><div class="bk-head"><img src="app-${x.app}.svg" alt=""><span>${name(x.app)}</span><span class="cnt">${fmtN(x.sessions)} 个会话</span>
+        <span class="sz">${fmtB(x.src)} → <b>${fmtB(x.bak)}</b></span><em>节省 ${fmtB(Math.max(0, x.src - x.bak))} · ${pct}%</em></div>
+        <div class="sbar" data-tip="${name(x.app)}：原会话 ${fmtB(x.src)}，备份 ${fmtB(x.bak)}"><i class="src" style="width:${x.src / top * 100}%"></i><i class="bak" style="width:${x.bak / top * 100}%"></i></div></div>`;
+    }).join("") + `<div class="legend"><span><i class="q1"></i>原会话</span><span><i class="bright"></i>备份</span></div></section>`;
+    // 备份容量分析：按类型（颜色同存储设置的占用条）、按应用，各一根 28 高的分段条，块里写占比，下面列名字、大小
+    const kinds = (b.kinds || []).filter((k) => k.b > 0), kt = kinds.reduce((a, k) => a + k.b, 0);
+    const seg = (parts, total) => `<div class="tbar">${parts.map((p) => { const r = p.v / total * 100; return `<i class="${p.c}" style="flex:${p.v}" data-tip="${p.n} ${fmtB(p.v)}（${r < 1 ? "<1" : Math.round(r)}%）">${r >= 8 ? Math.round(r) + "%" : ""}</i>`; }).join("")}</div>`
+      + `<div class="legend grid">${parts.map((p) => `<span><i class="${p.c}"></i>${p.n}<b>${fmtB(p.v)}</b></span>`).join("")}</div>`;
+    h += `<section class="card"><h2>备份容量分析<span class="note">共 ${fmtB(bak)}</span></h2>`
+      + (kt ? `<div class="use-name">按类型</div>` + seg(kinds.map((k) => ({ n: k.k, v: k.b, c: (KIND.find((x) => x[0] === k.k) || [0, "mute"])[1] })), kt) : "")
+      + `<div class="use-name gap">按应用</div>` + seg(apps.filter((x) => x.bak).map((x) => ({ n: name(x.app), v: x.bak, c: "a-" + x.app })), bak || 1)
+      + `</section>`;
+    // 备份趋势：按天（近 30 天）或按月（近 12 个月）新备份了多少。一个会话的备份大小按它每天的消息数分到各天，再按天或按月加起来；
+    // 按应用堆起来（低饱和的橙、蓝），柱顶写数。标题右边切换按天、按月
+    const tog = (id, cur) => `<span class="seg sm" data-tog="${id}"><b data-v="day"${cur === "day" ? ' class="on"' : ""}>按天</b><b data-v="month"${cur === "month" ? ' class="on"' : ""}>按月</b></span>`;
+    const monthKey = (k) => k.slice(0, 7), mLabel = (mk) => `${+mk.slice(5)}月`;
+    const thisMonth = monthKey(key(TODAY));
+    const buckets = trendBy === "day"
+      ? [...Array(30)].map((_, i) => { const d = addDays(TODAY, i - 29); return { k: key(d), label: md(d) }; })
+      : [...Array(12)].map((_, i) => { const d = new Date(TODAY.getFullYear(), TODAY.getMonth() - 11 + i, 1); const mk = key(d).slice(0, 7); return { k: mk, label: `${d.getFullYear() === TODAY.getFullYear() ? "" : d.getFullYear() + "年"}${d.getMonth() + 1}月` }; });
+    const idx = new Map(buckets.map((x, i) => [x.k, i])), vals = buckets.map(() => ({}));
+    for (const s of DATA.sessions || []) {
+      if (!s.z) continue;
+      const ds = Object.entries(s.days || {}), m = ds.reduce((x, [, v]) => x + (v.m || 0), 0) || ds.length, a = s.a || "claude";
+      for (const [k, v] of ds) { const i = idx.get(trendBy === "day" ? k : monthKey(k)); if (i !== undefined) vals[i][a] = (vals[i][a] || 0) + s.z * ((v.m || (m === ds.length ? 1 : 0)) / m); }
+    }
+    const tot = (d) => APPS.reduce((x, a) => x + (d[a] || 0), 0), mx = Math.max(...vals.map(tot), 1), allT = vals.reduce((x, d) => x + tot(d), 0);
+    const used = APPS.filter((a) => vals.some((d) => d[a]));
+    const short = (n) => n >= 1073741824 ? (n / 1073741824).toFixed(1) + "G" : n >= 1048576 ? Math.round(n / 1048576) + "M" : n >= 1024 ? Math.round(n / 1024) + "K" : "";
+    const tnote = trendBy === "day" ? `近 30 天新增 ${fmtB(allT)}，日均 ${fmtB(allT / 30)}` : `近 12 个月新增 ${fmtB(allT)}，月均 ${fmtB(allT / 12)}`;
+    h += `<section class="card"><h2>备份趋势<span class="note">${tnote}</span>${tog("trend", trendBy)}</h2><div class="wkcols${trendBy === "month" ? " months" : ""}">`
+      + vals.map((d, i) => { const t = tot(d);
+        const tip = `${buckets[i].label}：` + (t ? used.filter((a) => d[a]).map((a) => `${name(a)} ${fmtB(d[a])}`).join("，") : "无新增备份");
+        return `<span class="wc" data-tip="${tip}"><span class="st" style="height:${t / mx * 100}%">${t ? `<b>${short(t)}</b>` : ""}${used.slice().reverse().map((a) => d[a] ? `<i class="a-${a}" style="flex:${d[a]}"></i>` : "").join("")}</span></span>`; }).join("")
+      + `</div>` + (trendBy === "day"
+        ? `<div class="axis30"><span>${buckets[0].label}</span><span>${buckets[15].label}</span><span>今天</span></div>`
+        : `<div class="axis12">${buckets.map((x) => `<span>${x.k === thisMonth ? "本月" : x.label}</span>`).join("")}</div>`)
+      + (used.length > 1 ? `<div class="legend">${used.map((a) => `<span><i class="a-${a}"></i>${name(a)}</span>`).join("")}</div>` : "") + `</section>`;
+    // 备份日志：按天或按月并起来，新的在上；窄了藏掉清理、自动清理两列（悬停日期看）
+    const groupKey = (x) => logBy === "day" ? +dayOf(x.t) : monthKey(key(dayOf(x.t)));
+    const byG = new Map();
+    for (const x of log) { const k = groupKey(x); byG.set(k, [...(byG.get(k) || []), x]); }
+    const groups = [...byG.entries()].sort((a, b2) => (a[0] < b2[0] ? 1 : -1));
+    if (groups.length) {
+      const list = logAll ? groups : groups.slice(0, 7), unit = logBy === "day" ? "天" : "个月";
+      const glabel = (k) => logBy === "day" ? (k === +TODAY ? "今天" : md(new Date(k))) : (k === thisMonth ? "本月" : `${k.slice(0, 4) === String(TODAY.getFullYear()) ? "" : k.slice(0, 4) + "年"}${+k.slice(5)}月`);
+      h += `<section class="card bklog"><h2>备份日志<span class="note">共 ${groups.length} ${unit}、${new Set(log.map((x) => x.t)).size} 次</span>${tog("log", logBy)}</h2><div class="row bkrow cols"><span>${logBy === "day" ? "日期" : "月份"}</span><span>次数</span><span>写入</span><span>原 → 备份</span><span>清理释放</span><span>自动清理</span><span>结果</span></div>`
         + list.map(([k, xs]) => {
           const s2 = (f) => xs.reduce((a, x) => a + (x[f] || 0), 0), runs = new Set(xs.map((x) => x.t)).size, failed = s2("failed"), err = (xs.find((x) => x.error) || {}).error;
-          const apps = [...new Set(xs.filter((x) => APP[x.app]).map((x) => APP[x.app]))].join("、");
-          return `<div class="row bkrow"><span class="d" data-tip="${apps}">${+k === +TODAY ? "今天" : md(new Date(k))}</span><span class="num">${runs} 次</span>
+          const tip = [...new Set(xs.filter((x) => APP[x.app]).map((x) => APP[x.app]))].join("、") + (s2("autoDel") ? `；自动清理 ${s2("autoDel")} 个会话，释放 ${fmtB(s2("autoDelBytes"))}` : "") + (s2("cleanFreed") ? `；清理备份释放 ${fmtB(s2("cleanFreed"))}` : "");
+          return `<div class="row bkrow"><span class="d" data-tip="${tip}">${glabel(k)}</span><span class="num">${runs} 次</span>
             <span class="num">${fmtN(s2("written"))} 个文件</span><span class="num">${s2("written") ? `${fmtB(s2("in"))} → ${fmtB(s2("out"))}` : ""}</span>
             <span class="num">${s2("cleanFreed") ? fmtB(s2("cleanFreed")) : ""}</span><span class="num">${s2("autoDel") ? `${s2("autoDel")} 个，${fmtB(s2("autoDelBytes"))}` : ""}</span>
-            <span class="num ${failed || err ? "warn" : "ok"}"${err ? ` data-tip="${esc(err)}"` : ""}>${err ? "没备份成" : failed ? `${failed} 个文件失败` : "成功"}</span></div>`;
+            <span class="num ${failed || err ? "warn" : "ok"}"${err ? ` data-tip="${esc(err)}"` : ""}>${err ? "备份失败" : failed ? `${failed} 个文件备份失败` : "成功"}</span></div>`;
         }).join("")
-        + (days.length > 7 ? `<div class="toggle" id="bkmore">${logAll ? "收起" : `再显示 ${days.length - 7} 天`}</div>` : "") + `</section>`;
+        + (groups.length > 7 ? `<div class="toggle" id="bkmore">${logAll ? "收起" : `再显示 ${groups.length - 7} ${unit}`}</div>` : "") + `</section>`;
     }
     el.innerHTML = h;
     const more = $("bkmore");
     if (more) more.onclick = () => { logAll = !logAll; backup(); };
+    el.querySelectorAll("[data-tog]").forEach((t) => t.onclick = (e) => {
+      const b = e.target.closest("b"); if (!b) return;
+      if (t.dataset.tog === "trend") trendBy = b.dataset.v; else { logBy = b.dataset.v; logAll = false; }
+      backup();
+    });
   }
 
   function draw() {
@@ -345,6 +398,13 @@
 
   const post = (m) => window.webkit && window.webkit.messageHandlers.echo.postMessage(m);
   const goWeek = (i) => { cur = i; open.clear(); draw(); };
+  // 已删除会话的「删除统计」：交给应用确认并删除，删完总览重新整理
+  document.addEventListener("click", (e) => {
+    const f = e.target.closest(".forget");
+    if (!f) return;
+    e.stopPropagation();
+    post({ forget: f.dataset.forget });   // 确认框由应用弹（WKWebView 里网页的 confirm 弹不出来）
+  }, true);
   $("prev").onclick = () => { if (cur > 0) goWeek(cur - 1); };
   $("next").onclick = () => { if (cur < weeks.length - 1) goWeek(cur + 1); };
   $("kpis").onclick = (e) => { const b = e.target.closest(".spark i"); if (b) goWeek(+b.dataset.i); };
