@@ -289,6 +289,17 @@ enum EchoTests {
         check(listed?.projectPath == target, "挪过的会话没按新文件夹显示：\(listed?.projectPath ?? "无")")
         print("  移动 9 项")
 
+        // 手动顺序：新出现的在前，排过的按记的顺序；挪到前、后；拖的是自己不动
+        check(EchoOrder.move(["a", "b", "c", "d"], moving: ["d"], to: "b", after: false) == ["a", "d", "b", "c"], "插到前面不对")
+        check(EchoOrder.move(["a", "b", "c", "d"], moving: ["a", "c"], to: "d", after: true) == ["b", "d", "a", "c"], "几项一起插到后面不对")
+        check(EchoOrder.move(["a", "b"], moving: ["a"], to: "a", after: true) == ["a", "b"], "拖到自己身上不该变")
+        check(EchoOrder.sorted(["new", "b", "a"], ["a", "b"], key: { $0 }) == ["new", "a", "b"], "新出现的应该排在前面")
+        let od = EchoDir(path: "/p", name: "p", children: [EchoDir(path: "/p/x", name: "x", children: [], sessions: []), EchoDir(path: "/p/y", name: "y", children: [], sessions: [])],
+                         sessions: [mvSess, EchoSession(url: mvSess.url, sessionId: "y2", computer: "机", size: 1, meta: mvSess.meta)])
+        let arranged = EchoOrder.arrange([od], ["/p": ["/p/y", "/p/x"], "s:/p": ["y2", "y1"]])
+        check(arranged[0].children.map(\.name) == ["y", "x"] && arranged[0].sessions.map(\.sessionId) == ["y2", "y1"], "子目录、会话没按记的顺序")
+        print("  顺序 5 项")
+
         // 带隐藏标记的会话文件也要列出来；名字以「.」开头的临时文件不列
         let lib = dir.appendingPathComponent("库/机/projects/-p")
         try FileManager.default.createDirectory(at: lib, withIntermediateDirectories: true)

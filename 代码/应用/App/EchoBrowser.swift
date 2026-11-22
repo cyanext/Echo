@@ -2,6 +2,7 @@
 // 照设计稿 设计/浏览窗口/：外框照伙伴云NAS应用（左栏灰底、右边白区、青绿强调色），列表不用系统 List。
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct EchoBrowserView: View {
     @EnvironmentObject var state: EchoState
@@ -19,7 +20,9 @@ struct EchoBrowserView: View {
     @State private var moveDir = ""
     @State private var moveDone: String?                               // 挪好后的提示和恢复命令
     @State private var moveCmd: String?
-    @State private var dropTarget: String?                             // 拖着会话经过的目录，标白底
+    @AppStorage("sidebarOrder") private var orderRaw = ""              // 拖动排好的顺序（EchoOrder），JSON
+    @State private var dragging: EchoDragItem?                         // 正在拖的会话或目录
+    @State private var hint: EchoDropHint?                             // 拖到哪儿了、松开会怎样
     @State private var tree: [EchoDir] = []                            // 会话列表变了才重新分组，不在每次刷新时算
     @State private var showAll: Set<String> = []                       // 点过「再显示」的项目
     @State private var showOverview = true                             // 打开窗口默认停在总览
@@ -65,6 +68,8 @@ struct EchoBrowserView: View {
         .onAppear(perform: regroup)
         .onChange(of: state.sessions) { _, _ in regroup() }
         .onChange(of: computer) { _, _ in regroup() }
+        .onChange(of: orderRaw) { _, _ in regroup() }
+        .overlay(alignment: .bottom) { dropTip }
         .onChange(of: state.openSessionID) { _, id in
             guard let id else { return }
             state.openSessionID = nil
@@ -296,7 +301,7 @@ struct EchoBrowserView: View {
     }
 
     private func regroup() {
-        tree = EchoLibrary.dirTree(computer.isEmpty ? state.sessions : state.sessions.filter { $0.computer == computer })
+        tree = EchoOrder.arrange(EchoLibrary.dirTree(computer.isEmpty ? state.sessions : state.sessions.filter { $0.computer == computer }), order)
     }
 
     /// 目录展开收起：点过的按点的来；没点过的，顶层默认展开，当前会话所在的那几级也展开
@@ -340,7 +345,7 @@ struct EchoBrowserView: View {
                     LazyVStack(alignment: .leading, spacing: 0) {
                         overviewRow
                         collectionSection
-                        ForEach(tree) { d in dirSection(d, level: 0) }
+                        ForEach(tree) { d in dirSection(d, level: 0, group: "/") }
                     }
                     .padding(.horizontal, 10).padding(.bottom, 12)
                 }
@@ -367,11 +372,12 @@ struct EchoBrowserView: View {
     /// 一级目录：展开按钮（小三角）、名字、会话数，缩进 18 一级：下一级从上一级的名字起点开始。
     /// 不加文件夹、会话图标（靠留白区隔）；各级字重一样。
     /// 展开后先列子目录，再列直接在这一级开的会话
-    private func dirSection(_ d: EchoDir, level: Int) -> AnyView {
+    private func dirSection(_ d: EchoDir, level: Int, group: String) -> AnyView {
         let open = isOpen(d, level: level)
         let parts = d.name.components(separatedBy: " / ")
         return AnyView(Group {
-            EchoRow(fill: dropTarget == d.path ? EchoColor.sideOn : nil, shadow: dropTarget == d.path) {
+            let into = hint?.key == d.path && hint?.mode == .into && hint?.ok == true
+            EchoRow(fill: into ? EchoColor.sel : nil) {
                 HStack(spacing: 6) {
                     // 展开按钮：照 NAS 网站目录树，收起朝右、展开朝下，自己有悬停底
                     EchoTwist(open: open) { toggle(d, level: level) }
@@ -387,23 +393,19 @@ struct EchoBrowserView: View {
                 toggle(d, level: level)
             }
             .background(guides(level))
-            .dropDestination(for: String.self) { items, _ in
-                // 拖来的是会话的 id（几个选中的用换行连起来）；已经在这个目录的不算
-                let ids = Set(items.flatMap { $0.split(separator: "\n").map(String.init) })
-                let list = state.sessions.filter { ids.contains($0.id) && $0.projectPath != d.path }
-                dropTarget = nil
-                guard !list.isEmpty else { return false }
-                moveDir = d.path
-                moveList = list
-                return true
-            } isTargeted: { on in
-                if on { dropTarget = d.path } else if dropTarget == d.path { dropTarget = nil }
-            }
+            .overlay { if into { RoundedRectangle(cornerRadius: 8).strokeBorder(EchoColor.accent, lineWidth: 1.5) } }
+            .overlay(alignment: lineEdge(d.path)) { insertLine(d.path) }
+            .opacity(dragging?.dir == d.path ? 0.45 : 1)
+            .onDrag {
+                startDrag(EchoDragItem(sessions: [], dir: d.path, group: group))
+                return NSItemProvider(object: d.path as NSString)
+            } preview: { dragGhost(d.name) }
+            .onDrop(of: [.text], delegate: EchoRowDrop(update: { dirHover(d, group: group, y: $0.y) }, exit: { leave(d.path) }, perform: { dropOnDir(d) }))
             .padding(.top, level == 0 ? 8 : 0)   // 顶层目录之间多空一点，靠留白分组，不加图标
             .help((d.path as NSString).abbreviatingWithTildeInPath)
 
             if open {
-                ForEach(d.children) { c in dirSection(c, level: level + 1) }
+                ForEach(d.children) { c in dirSection(c, level: level + 1, group: d.path) }
                 sessionList(d.sessions, key: d.path, level: level + 1)
             }
         })
@@ -457,7 +459,131 @@ struct EchoBrowserView: View {
             }
         }
         .contextMenu { sessionMenu(s) }
-        .draggable(picked.contains(s.id) && picked.count > 1 ? picked.sorted().joined(separator: "\n") : s.id)
+        .overlay(alignment: lineEdge(s.sessionId)) { insertLine(s.sessionId) }
+        .opacity(dragging?.sessions.contains(s) == true ? 0.45 : 1)
+        .onDrag {
+            let list = picked.contains(s.id) && picked.count > 1 ? state.sessions.filter { picked.contains($0.id) } : [s]
+            startDrag(EchoDragItem(sessions: list, dir: nil, group: Set(list.map(\.projectPath)).count == 1 ? "s:" + s.projectPath : ""))
+            return NSItemProvider(object: s.sessionId as NSString)
+        } preview: {
+            dragGhost(picked.contains(s.id) && picked.count > 1 ? "\(s.meta.title) 等 \(picked.count) 个会话" : s.meta.title)
+        }
+        .onDrop(of: [.text], delegate: EchoRowDrop(update: { sessionHover(s, y: $0.y) }, exit: { leave(s.sessionId) }, perform: { dropOnSession(s) }))
+    }
+
+    // MARK: 拖动（照 NAS 网站的拖放公共层：能放的位置浅主色底加一圈主色，排序是一条主色插入线；拖着的变淡；底部居中一条提示写清松开会怎样）
+
+    private var order: [String: [String]] {
+        (try? JSONDecoder().decode([String: [String]].self, from: Data(orderRaw.utf8))) ?? [:]
+    }
+
+    private func startDrag(_ item: EchoDragItem) {
+        dragging = item
+        hint = nil
+        // 拖到窗口外松手时收不到放下：鼠标松开后稍等一下（让放下先处理）再清掉
+        Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { t in
+            guard NSEvent.pressedMouseButtons & 1 == 0 else { return }
+            t.invalidate()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { dragging = nil; hint = nil }
+        }
+    }
+
+    private func leave(_ key: String) { if hint?.key == key { hint = nil } }
+
+    /// 目录行：拖会话来是挪进这个目录；拖同一级的目录来是排序（上半行插到前面，下半行插到后面）
+    private func dirHover(_ d: EchoDir, group: String, y: CGFloat) {
+        guard let drag = dragging else { return }
+        if let dir = drag.dir {
+            guard dir != d.path else { hint = nil; return }
+            hint = drag.group == group
+                ? EchoDropHint(key: d.path, mode: y < 17 ? .before : .after, ok: true, text: "松开排到「\(d.name)」\(y < 17 ? "前面" : "后面")")
+                : EchoDropHint(key: d.path, mode: .into, ok: false, text: "目录只能在同一级里排序")
+            return
+        }
+        let name = (d.path as NSString).lastPathComponent
+        if drag.sessions.allSatisfy({ $0.projectPath == d.path }) {
+            hint = EchoDropHint(key: d.path, mode: .into, ok: false, text: "已经在「\(name)」里，拖到会话之间可以排序")
+        } else if let far = drag.sessions.first(where: { EchoRename.originalURL(for: $0) == nil }) {
+            hint = EchoDropHint(key: d.path, mode: .into, ok: false, text: "「\(far.meta.title)」在 \(far.computer) 上，到那台电脑上挪")
+        } else {
+            hint = EchoDropHint(key: d.path, mode: .into, ok: true, text: "松开挪到「\(name)」")
+        }
+    }
+
+    /// 会话行：同一个目录里的会话拖来是排序；别处的会话、目录拖来时提示该往哪放
+    private func sessionHover(_ s: EchoSession, y: CGFloat) {
+        guard let drag = dragging else { return }
+        if drag.dir != nil {
+            hint = EchoDropHint(key: s.sessionId, mode: .into, ok: false, text: "目录只能在同一级里排序")
+        } else if drag.sessions.contains(s) {
+            hint = nil
+        } else if drag.group == "s:" + s.projectPath {
+            hint = EchoDropHint(key: s.sessionId, mode: y < 24 ? .before : .after, ok: true, text: "松开排到这里")
+        } else {
+            hint = EchoDropHint(key: s.sessionId, mode: .into, ok: false, text: "要挪到这个目录，拖到目录那一行上")
+        }
+    }
+
+    private func dropOnDir(_ d: EchoDir) -> Bool {
+        defer { dragging = nil; hint = nil }
+        guard let drag = dragging, let h = hint, h.key == d.path, h.ok else { return false }
+        if let dir = drag.dir { return reorder(drag.group, [dir], to: d.path, after: h.mode == .after) }
+        moveDir = d.path
+        moveList = drag.sessions
+        return true
+    }
+
+    private func dropOnSession(_ s: EchoSession) -> Bool {
+        defer { dragging = nil; hint = nil }
+        guard let drag = dragging, let h = hint, h.key == s.sessionId, h.ok else { return false }
+        return reorder(drag.group, drag.sessions.map(\.sessionId), to: s.sessionId, after: h.mode == .after)
+    }
+
+    /// 按左栏现在的顺序算出整组新顺序，记下来
+    private func reorder(_ group: String, _ moving: [String], to target: String, after: Bool) -> Bool {
+        func find(_ dirs: [EchoDir], _ path: String) -> EchoDir? {
+            for d in dirs { if d.path == path { return d }; if let c = find(d.children, path) { return c } }
+            return nil
+        }
+        let keys: [String]
+        if group == "/" { keys = tree.map(\.path) }
+        else if group.hasPrefix("s:") { keys = find(tree, String(group.dropFirst(2)))?.sessions.map(\.sessionId) ?? [] }
+        else { keys = find(tree, group)?.children.map(\.path) ?? [] }
+        guard !keys.isEmpty else { return false }
+        var all = order
+        all[group] = EchoOrder.move(keys, moving: moving, to: target, after: after)
+        if let d = try? JSONEncoder().encode(all) { orderRaw = String(decoding: d, as: UTF8.self) }
+        return true
+    }
+
+    private func lineEdge(_ key: String) -> Alignment { hint?.key == key && hint?.mode == .before ? .top : .bottom }
+
+    @ViewBuilder
+    private func insertLine(_ key: String) -> some View {
+        if let h = hint, h.key == key, h.ok, h.mode != .into {
+            Rectangle().fill(EchoColor.accent).frame(height: 2).allowsHitTesting(false)
+        }
+    }
+
+    /// 拖影：名字小卡片，照 NAS 的 .ui-dnd-ghost
+    private func dragGhost(_ text: String) -> some View {
+        Text(text).font(.system(size: 13)).lineLimit(1).frame(maxWidth: 260, alignment: .leading)
+            .padding(.horizontal, 12).frame(height: 36)
+            .background(RoundedRectangle(cornerRadius: 8).fill(EchoColor.surface).shadow(color: .black.opacity(0.18), radius: 6, y: 2))
+            .foregroundStyle(EchoColor.fg)
+    }
+
+    /// 底部居中的提示条：深底浅字，写清松开会怎样、不能放的原因
+    @ViewBuilder
+    private var dropTip: some View {
+        if dragging != nil, let h = hint {
+            Text(h.text).font(.system(size: 12)).lineLimit(1)
+                .padding(.horizontal, 14).padding(.vertical, 8)
+                .background(RoundedRectangle(cornerRadius: 8).fill(EchoColor.fg).shadow(color: .black.opacity(0.18), radius: 6, y: 2))
+                .foregroundStyle(EchoColor.surface)
+                .padding(.bottom, 24)
+                .allowsHitTesting(false)
+        }
     }
 
     private var empty: some View {
@@ -504,4 +630,30 @@ struct EchoBrowserView: View {
         if let d = state.lastSuccess { return "上次备份 \(EchoTime.short(d))" }
         return "还没有备份过"
     }
+}
+
+/// 正在拖的：几个会话，或一个目录。group 是排序用的组（见 EchoOrder），几个会话不在同一个目录时为空，不能排序
+struct EchoDragItem {
+    var sessions: [EchoSession]
+    var dir: String?
+    var group: String
+}
+
+struct EchoDropHint: Equatable {
+    enum Mode { case before, after, into }
+    var key: String
+    var mode: Mode
+    var ok: Bool
+    var text: String
+}
+
+/// 行上的放下：随鼠标位置更新提示（排序时看在上半行还是下半行），松开时交给行处理
+struct EchoRowDrop: DropDelegate {
+    let update: (CGPoint) -> Void
+    let exit: () -> Void
+    let perform: () -> Bool
+    func dropEntered(info: DropInfo) { update(info.location) }
+    func dropUpdated(info: DropInfo) -> DropProposal? { update(info.location); return DropProposal(operation: .move) }
+    func dropExited(info: DropInfo) { exit() }
+    func performDrop(info: DropInfo) -> Bool { perform() }
 }
