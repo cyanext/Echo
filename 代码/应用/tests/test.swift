@@ -36,6 +36,11 @@ enum EchoTests {
             }
             try EchoDeleted.add(out, dir)
         }
+        else if a.count == 3, a[1] == "--prices" {   // 手动排查：解析一份 LiteLLM 价格表，列出留下的模型
+            let m = EchoPrices.parse(try Data(contentsOf: URL(fileURLWithPath: a[2])))
+            print("  留下 \(m.count) 个模型")
+            for k in m.keys.sorted() where ["gpt-6.1-sol", "gpt-5.5", "claude-opus-5-5", "claude-sonnet-5-5", "glm-5.2", "kimi-k3", "hy3"].contains(k) { print("  \(k)：\(m[k]!)") }
+        }
         else if a.count == 3, a[1] == "--cat" {   // 按行读一个文件原样写到标准输出（.zst 边读边解压），和 zstd -dc 比对
             let out = FileHandle.standardOutput
             try EchoLines.each(URL(fileURLWithPath: a[2])) { l in autoreleasepool { out.write(Data(buffer: l)) } }

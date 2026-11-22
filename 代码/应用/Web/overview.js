@@ -23,7 +23,9 @@
   // 模型显示名：claude-opus-5-5 → Opus 5.5
   const modelName = (id) => {
     const m = /^claude-([a-z]+)-(\d+)(?:-(\d+))?/.exec(id);
-    return m ? m[1][0].toUpperCase() + m[1].slice(1) + " " + m[2] + (m[3] && m[3].length < 3 ? "." + m[3] : "") : id;
+    if (m) return m[1][0].toUpperCase() + m[1].slice(1) + " " + m[2] + (m[3] && m[3].length < 3 ? "." + m[3] : "");
+    const g = /^gpt-([\d.]+)(?:-([a-z]+))?/.exec(id);   // gpt-6.1-sol → GPT-6.1 Sol
+    return g ? "GPT-" + g[1] + (g[2] ? " " + g[2][0].toUpperCase() + g[2].slice(1) : "") : id;
   };
 
   let DATA = null;   // 这次整理好的数据（备份卡片要用 data.backup）

@@ -135,22 +135,29 @@ enum EchoStats {
               let d = try? JSONSerialization.jsonObject(with: Data(buffer: b)) as? [String: Any],
               let content = (d["message"] as? [String: Any])?["content"] as? [[String: Any]] else { return }
         for c in content where c["type"] as? String == "tool_use" && c["name"] as? String == "Bash" {
-            guard let cmd = (c["input"] as? [String: Any])?["command"] as? String, cmd.contains("commit") else { continue }
-            let ns = cmd as NSString
-            for m in commitMsg.matches(in: cmd, range: NSRange(location: 0, length: ns.length)) {
-                let r = (2...4).map { m.range(at: $0) }.first { $0.location != NSNotFound }
-                guard let r else { continue }
-                var msg = ns.substring(with: r)
-                if m.range(at: 3).location != NSNotFound { msg = msg.replacingOccurrences(of: "\\\"", with: "\"") }
-                let k = commitKey(msg)
-                if !k.isEmpty { g.insert("m:" + k) }
-            }
+            guard let cmd = (c["input"] as? [String: Any])?["command"] as? String else { continue }
+            commitMessages(in: cmd, into: &g)
+        }
+    }
+
+    /// 一条命令里 git commit 的说明（commitKey），记成「m:说明」
+    static func commitMessages(in cmd: String, into g: inout Set<String>) {
+        guard cmd.contains("commit") else { return }
+        let ns = cmd as NSString
+        for m in commitMsg.matches(in: cmd, range: NSRange(location: 0, length: ns.length)) {
+            let r = (2...4).map { m.range(at: $0) }.first { $0.location != NSNotFound }
+            guard let r else { continue }
+            var msg = ns.substring(with: r)
+            if m.range(at: 3).location != NSNotFound { msg = msg.replacingOccurrences(of: "\\\"", with: "\"") }
+            let k = commitKey(msg)
+            if !k.isEmpty { g.insert("m:" + k) }
         }
     }
 
     /// 读一个会话文件，按天汇总；顺带收 git commit 跑出的提交号。同一次回复拆成几行记录，按 requestId 去重。
     /// 只取要用的几个字段：用保留原文的解析器（RawJSON，不建字典），只有不带工具结果的用户消息才完整解析，判断是不是人打的字
     static func readAll(_ url: URL) throws -> (days: [String: EchoDayStat], g: Set<String>) {
+        if try EchoExport.isCodexFile(url) { return try readCodex(url) }
         var days: [String: EchoDayStat] = [:], seen = Set<String>(), offsets: [Int: Int] = [:], g = Set<String>()
         func str(_ v: RawJSON?) -> String? { v?.stringRaw.flatMap { EchoSlim.decode($0) } }
         func num(_ v: RawJSON?) -> Double {
@@ -200,6 +207,57 @@ enum EchoStats {
                 s.ms += ms
                 s.lg = max(s.lg, ms)
                 days[day] = s
+            }
+        }
+        return (days, g)
+    }
+
+    /// Codex 的会话按天汇总：我的消息数人打的字（EchoExport.codexUserParts）；Token 取 token_usage_record（按 response_id 去重，
+    /// 模型取最近一条 turn_context）：缓存读取含在输入里，思考含在输出里，所以 [输入 − 读缓存, 输出, 读缓存, 0, 0]；
+    /// AI 干活取 task_complete 的 duration_ms；提交取 git commit 命令里的说明和输出里的提交号
+    static func readCodex(_ url: URL) throws -> (days: [String: EchoDayStat], g: Set<String>) {
+        var days: [String: EchoDayStat] = [:], seen = Set<String>(), offsets: [Int: Int] = [:], g = Set<String>(), model = "?"
+        let wanted = ["\"type\":\"turn_context\"", "\"type\":\"token_usage_record\"", "\"task_complete\"", "\"role\":\"user\"", "commit"].map { Array($0.utf8) }
+        func touch(_ ts: String?) -> String? {
+            guard let ts, let t = epoch(ts) else { return nil }
+            let day = localDay(t, &offsets)
+            var s = days[day, default: .init()]
+            s.a = s.a == 0 ? t : min(s.a, t)
+            s.b = max(s.b, t)
+            days[day] = s
+            return day
+        }
+        try EchoLines.each(url) { line in
+            let b = EchoLines.trim(line)
+            guard wanted.contains(where: { EchoLines.has(b, $0) }),
+                  let d = (try? JSONSerialization.jsonObject(with: Data(buffer: b))) as? [String: Any], let p = d["payload"] as? [String: Any] else { return }
+            let t = d["type"] as? String, pt = p["type"] as? String, ts = d["timestamp"] as? String
+            switch (t, pt) {
+            case ("turn_context", _):
+                if let m = p["model"] as? String, !m.isEmpty { model = m }
+            case ("token_usage_record", _):
+                guard let u = p["usage"] as? [String: Any] else { return }
+                let rid = p["response_id"] as? String ?? UUID().uuidString
+                guard seen.insert(rid).inserted, let day = touch(ts) else { return }
+                func n(_ k: String) -> Double { (u[k] as? NSNumber)?.doubleValue ?? 0 }
+                let cached = n("cached_input_tokens")
+                let add = [max(0, n("input_tokens") - cached), n("output_tokens"), cached, 0, 0]
+                days[day]!.k[model] = zip(days[day]!.k[model] ?? [0, 0, 0, 0, 0], add).map { $0 + $1 }
+            case ("event_msg", "task_complete"):
+                guard let ms = (p["duration_ms"] as? NSNumber)?.doubleValue, let day = touch(ts) else { return }
+                days[day]!.ms += ms
+                days[day]!.lg = max(days[day]!.lg, ms)
+            case ("response_item", "message") where p["role"] as? String == "user":
+                guard !EchoExport.codexUserParts(p).human.isEmpty, let day = touch(ts) else { return }
+                days[day]!.m += 1
+            case ("response_item", "function_call"), ("response_item", "custom_tool_call"):
+                let v = (p["arguments"] ?? p["input"]) as? String ?? ""
+                // function_call 的参数是 JSON（{"cmd": …}），解开再找；custom_tool_call 是一段脚本，直接找
+                let cmd = ((try? JSONSerialization.jsonObject(with: Data(v.utf8))) as? [String: Any]).flatMap { ($0["cmd"] ?? $0["command"]).map { "\($0)" } } ?? v
+                commitMessages(in: cmd, into: &g)
+            case ("response_item", "function_call_output"), ("response_item", "custom_tool_call_output"):
+                commitHashes(b, into: &g)
+            default: break
             }
         }
         return (days, g)
@@ -348,6 +406,7 @@ enum EchoStats {
             var one: [String: Any] = ["id": s.id, "t": s.meta.title == s.sessionId ? "未命名会话" : s.meta.title,
                                       "p": project(s.projectPath), "d": projectPath(s.projectPath), "c": s.computer, "days": dict]
             if !g.isEmpty { one["g"] = g }
+            if s.app != .claude { one["a"] = s.app.rawValue }
             list.append(one)
         }
         if let d = try? JSONEncoder().encode(fresh) { try? d.write(to: cacheURL, options: .atomic) }

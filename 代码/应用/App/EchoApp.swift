@@ -116,6 +116,7 @@ final class EchoState: ObservableObject {
         EchoPrefs.moveOldBackup()
         do { try EchoLayout.migrate(EchoPrefs.computerDir) } catch { NSLog("回响：Claude 的备份没挪进 claude/：%@", error.localizedDescription) }
         overview = EchoStats.loadLast()   // 先显示上次整理好的总览，后台再刷新
+        EchoPrices.refreshIfDue()
         lastSuccess = EchoPrefs.lastSuccess
         cleanupDays = EchoBackup.cleanupDays()
         backupIfNeeded()

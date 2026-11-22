@@ -196,6 +196,8 @@ final class EchoScheme: NSObject, WKURLSchemeHandler {
             body = sessions[token]
         } else if name == "overview.json" {
             body = overview ?? Data("{}".utf8)   // 还没整理好：空对象，网页画占位
+        } else if name == "prices.json" {
+            body = EchoPrices.merged()          // 内置的加上每周拉到的
         } else if let res = Bundle.main.resourceURL {
             body = try? Data(contentsOf: res.appendingPathComponent("Web").appendingPathComponent(name))
         }
