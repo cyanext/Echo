@@ -32,7 +32,10 @@ enum EchoLayout {
             (.claude, computerDir.appendingPathComponent("projects")),
             (.codex, dir(computerDir, .codex).appendingPathComponent("sessions")),
         ]
-        return all.filter { fm.fileExists(atPath: $0.1.path) }
+        // 会话目录本身是符号链接时跟到真实位置（列目录不会自己跟进去）；路径上别处的链接不动，合集的键还按备份目录截
+        return all.filter { fm.fileExists(atPath: $0.1.path) }.map { s, u in
+            (s, (try? fm.destinationOfSymbolicLink(atPath: u.path)).map { URL(fileURLWithPath: $0, relativeTo: u.deletingLastPathComponent()).standardizedFileURL } ?? u)
+        }
     }
 
     /// Claude 那几样（会话目录、备份记录、移动记录）在哪：新位置 claude/ 有就用它，否则（没升级的电脑）是电脑这一级

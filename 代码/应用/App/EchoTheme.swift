@@ -184,3 +184,60 @@ struct EchoIcon: View {
             .frame(width: size, height: size)
     }
 }
+
+/// 左栏右上角的筛选按钮：一个图标加小箭头，悬停有底；筛着的时候图标用主色（设计稿 设计/多应用/）
+struct EchoPickButton<Icon: View>: View {
+    let on: Bool
+    let help: String
+    @ViewBuilder let icon: () -> Icon
+    let action: () -> Void
+    @State private var hover = false
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 3) {
+                icon()
+                Image(systemName: "chevron.down").font(.system(size: 8, weight: .semibold))
+            }
+            .foregroundStyle(on ? EchoColor.accent : EchoColor.fg2)
+            .padding(.horizontal, 6).frame(height: 24)
+            .background(RoundedRectangle(cornerRadius: 6).fill(hover ? EchoColor.sideHover : .clear))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hover = $0 }
+        .help(help)
+    }
+}
+
+/// 筛选菜单：白底细框、圆角 10、轻阴影；一项一行（图标栏 24 宽、名字），选中的文字用主色、右边一个小勾；没有分隔线
+struct EchoPickMenu: View {
+    let width: CGFloat
+    let items: [(id: String, icon: AnyView, title: String)]
+    let selected: String
+    let pick: (String) -> Void
+    @State private var hover: String?
+    var body: some View {
+        VStack(spacing: 0) {
+            ForEach(items, id: \.id) { it in
+                let on = it.id == selected
+                HStack(spacing: 4) {
+                    it.icon.font(.system(size: 13)).foregroundStyle(on ? EchoColor.accent : EchoColor.fg3).frame(width: 24, alignment: .leading)
+                    Text(it.title).font(.system(size: 13, weight: on ? .medium : .regular)).lineLimit(1)
+                        .foregroundStyle(on ? EchoColor.accent : EchoColor.fg)
+                    Spacer(minLength: 8)
+                    if on { Image(systemName: "checkmark").font(.system(size: 11, weight: .semibold)).foregroundStyle(EchoColor.accent) }
+                }
+                .padding(.horizontal, 10).frame(height: 30)
+                .background(RoundedRectangle(cornerRadius: 6).fill(hover == it.id ? EchoColor.onSideHover : .clear))
+                .contentShape(Rectangle())
+                .onHover { hover = $0 ? it.id : (hover == it.id ? nil : hover) }
+                .onTapGesture { pick(it.id) }
+            }
+        }
+        .padding(4)
+        .frame(width: width)
+        .background(RoundedRectangle(cornerRadius: 10).fill(EchoColor.surface))
+        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(EchoColor.line, lineWidth: 1))
+        .shadow(color: .black.opacity(0.08), radius: 10, y: 4)
+    }
+}

@@ -42,9 +42,18 @@ struct EchoSettingsView: View {
 
 enum EchoSettingsStyle {
     /// Claude Code 的官方图标（LobeHub 图标库的 claudecode-color），放在 Web/ 随应用打包
-    static var claudeIcon: NSImage? {
+    static var claudeIcon: NSImage? { webImage("logo-claudecode.svg") }
+    private static func webImage(_ name: String) -> NSImage? {
         let dir = ProcessInfo.processInfo.environment["ECHO_WEB"].map { URL(fileURLWithPath: $0) } ?? Bundle.main.resourceURL?.appendingPathComponent("Web")
-        return dir.flatMap { NSImage(contentsOf: $0.appendingPathComponent("logo-claudecode.svg")) }
+        return dir.flatMap { NSImage(contentsOf: $0.appendingPathComponent(name)) }
+    }
+    /// 各应用的小图标：圆角方块（Claude 补了白底），目录树会话行、筛选菜单用（设计稿 设计/多应用/）
+    nonisolated(unsafe) private static var appIcons: [EchoSource: NSImage] = [:]
+    static func appIcon(_ s: EchoSource) -> NSImage? {
+        if let i = appIcons[s] { return i }
+        let i = webImage("app-\(s.rawValue).svg")
+        appIcons[s] = i
+        return i
     }
     static let chrome = EchoColor.dyn(0xf6f7f7, 0x232529)
     static let subtle = EchoColor.dyn(0xf2f4f4, 0x292e2f)

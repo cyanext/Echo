@@ -599,7 +599,7 @@
     // 只有本机的会话能恢复，另一台电脑的会话只提示在哪台电脑上
     $("copy-resume").addEventListener("click", () => {
       if (!m.local) { toast(`这个会话在 ${m.computer} 上`); return; }
-      const cmd = `cd '${m.cwd.replace(/'/g, "'\\''")}' && claude --resume ${m.id}`;
+      const cmd = `cd '${m.cwd.replace(/'/g, "'\\''")}' && ${m.app === "codex" ? "codex resume" : "claude --resume"} ${m.id}`;
       if (window.webkit && window.webkit.messageHandlers.echo) window.webkit.messageHandlers.echo.postMessage({ copy: cmd });
       else if (navigator.clipboard) navigator.clipboard.writeText(cmd);
       toast("已复制恢复命令");
