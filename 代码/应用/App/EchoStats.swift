@@ -21,6 +21,7 @@ struct EchoDeletedSession: Codable, Equatable {
     var c: String                     // 电脑
     var deleted: String               // 删除时间（ISO 8601）
     var days: [String: EchoDayStat]
+    var g: [String]? = nil            // 会话里 git commit 输出的提交号（前 7 位），总览按它把提交挂到会话上
 }
 
 /// 已删除统计：每台电脑一个文件 <备份目录>/<电脑名>/已删除统计.json，只有这台电脑写（只能删本机的会话），读的时候各台合起来
@@ -51,8 +52,9 @@ enum EchoDeleted {
 
     /// 从备份读出这个会话按天的数
     static func make(_ s: EchoSession, at date: Date = Date()) throws -> EchoDeletedSession {
-        EchoDeletedSession(sid: s.sessionId, t: s.meta.title == s.sessionId ? "未命名会话" : s.meta.title, cwd: s.projectPath,
-                           c: s.computer, deleted: ISO8601DateFormatter().string(from: date), days: try EchoStats.read(s.url))
+        let (days, g) = try EchoStats.readAll(s.url)
+        return EchoDeletedSession(sid: s.sessionId, t: s.meta.title == s.sessionId ? "未命名会话" : s.meta.title, cwd: s.projectPath,
+                                  c: s.computer, deleted: ISO8601DateFormatter().string(from: date), days: days, g: g.isEmpty ? nil : g.sorted())
     }
 }
 
@@ -60,7 +62,7 @@ enum EchoDeleted {
 struct GitLogCache: Codable { var key: String; var log: String }
 
 private struct EchoStatsCache: Codable {
-    struct Entry: Codable { var stamp: EchoFileStamp; var days: [String: EchoDayStat] }
+    struct Entry: Codable { var stamp: EchoFileStamp; var days: [String: EchoDayStat]; var g: [String]? }
     var entries: [String: Entry] = [:]
 }
 
@@ -105,10 +107,58 @@ enum EchoStats {
     private static let kId = RawJSON.quoted("id"), kSubtype = RawJSON.quoted("subtype"), kDuration = RawJSON.quoted("durationMs")
     private static let kCacheCreation = RawJSON.quoted("cache_creation")
 
-    /// 读一个会话文件，按天汇总。同一次回复拆成几行记录，按 requestId 去重。
+    static func read(_ url: URL) throws -> [String: EchoDayStat] { try readAll(url).days }
+
+    private static let needleChanged = [" file changed", " files changed"].map { Array($0.utf8) }
+    /// git commit 的输出第一行「[分支 提交号] 说明」
+    private static let commitOut = try! NSRegularExpression(pattern: #"\[[^\]\\]{1,120} ([0-9a-f]{7,40})\]"#)
+
+    /// 会话里 git commit 跑出的提交号（前 7 位）：只看带工具结果、又有「file(s) changed」的行
+    static func commitHashes(_ b: UnsafeBufferPointer<UInt8>, into g: inout Set<String>) {
+        guard needleChanged.contains(where: { EchoLines.has(b, $0) }) else { return }
+        let s = String(decoding: b, as: UTF8.self), ns = s as NSString
+        for m in commitOut.matches(in: s, range: NSRange(location: 0, length: ns.length)) { g.insert(String(ns.substring(with: m.range(at: 1)).prefix(7))) }
+    }
+
+    private static let needleBash = Array("\"name\":\"Bash\"".utf8), needleCommit = Array("commit".utf8)
+    /// git commit -m "说明"、-qm '说明'、-m "$(cat <<'EOF' 说明 …"：取说明
+    private static let commitMsg = try! NSRegularExpression(pattern: #"git\b[^\n]*?\scommit\b[^\n]*?\s-[a-zA-Z]*m\s*(?:"\$\(cat <<'?(\w+)'?\n([^\n]*)|"((?:[^"\\]|\\.)*)"|'([^']*)')"#)
+
+    /// 提交说明的第一行、去掉首尾空白后的前 30 个字：会话里的 git commit 命令和 git log 的说明都按这个对
+    static func commitKey(_ msg: String) -> String {
+        String((msg.split(separator: "\n", omittingEmptySubsequences: false).first.map(String.init) ?? "").trimmed.prefix(30))
+    }
+
+    /// 会话里跑过的 git commit 命令的说明（commitKey）。用 -q 提交时没有「[分支 提交号]」输出，只能按说明对
+    static func commitMessages(_ b: UnsafeBufferPointer<UInt8>, into g: inout Set<String>) {
+        guard EchoLines.has(b, needleBash), EchoLines.has(b, needleCommit),
+              let d = try? JSONSerialization.jsonObject(with: Data(buffer: b)) as? [String: Any],
+              let content = (d["message"] as? [String: Any])?["content"] as? [[String: Any]] else { return }
+        for c in content where c["type"] as? String == "tool_use" && c["name"] as? String == "Bash" {
+            guard let cmd = (c["input"] as? [String: Any])?["command"] as? String else { continue }
+            commitMessages(in: cmd, into: &g)
+        }
+    }
+
+    /// 一条命令里 git commit 的说明（commitKey），记成「m:说明」
+    static func commitMessages(in cmd: String, into g: inout Set<String>) {
+        guard cmd.contains("commit") else { return }
+        let ns = cmd as NSString
+        for m in commitMsg.matches(in: cmd, range: NSRange(location: 0, length: ns.length)) {
+            let r = (2...4).map { m.range(at: $0) }.first { $0.location != NSNotFound }
+            guard let r else { continue }
+            var msg = ns.substring(with: r)
+            if m.range(at: 3).location != NSNotFound { msg = msg.replacingOccurrences(of: "\\\"", with: "\"") }
+            let k = commitKey(msg)
+            if !k.isEmpty { g.insert("m:" + k) }
+        }
+    }
+
+    /// 读一个会话文件，按天汇总；顺带收 git commit 跑出的提交号。同一次回复拆成几行记录，按 requestId 去重。
     /// 只取要用的几个字段：用保留原文的解析器（RawJSON，不建字典），只有不带工具结果的用户消息才完整解析，判断是不是人打的字
-    static func read(_ url: URL) throws -> [String: EchoDayStat] {
-        var days: [String: EchoDayStat] = [:], seen = Set<String>(), offsets: [Int: Int] = [:]
+    static func readAll(_ url: URL) throws -> (days: [String: EchoDayStat], g: Set<String>) {
+        if try EchoExport.isCodexFile(url) { return try readCodex(url) }
+        var days: [String: EchoDayStat] = [:], seen = Set<String>(), offsets: [Int: Int] = [:], g = Set<String>()
         func str(_ v: RawJSON?) -> String? { v?.stringRaw.flatMap { EchoSlim.decode($0) } }
         func num(_ v: RawJSON?) -> Double {
             guard case .scalar(let b)? = v else { return 0 }
@@ -119,6 +169,8 @@ enum EchoStats {
             let isUser = EchoLines.has(b, needleUser)
             let isUsage = !isUser && EchoLines.has(b, needleAsst) && EchoLines.has(b, needleUsage)
             let isTurn = !isUser && !isUsage && EchoLines.has(b, needleTurn)
+            if isUser, EchoLines.has(b, needleToolResult) { commitHashes(b, into: &g) }
+            else if !isUser, EchoLines.has(b, needleAsst) { commitMessages(b, into: &g) }
             guard isUser || isUsage || isTurn, let j = RawJSON.parse(b),
                   let ts = str(j[kTs]), let t = epoch(ts) else { return }
             let day = localDay(t, &offsets)
@@ -157,7 +209,58 @@ enum EchoStats {
                 days[day] = s
             }
         }
-        return days
+        return (days, g)
+    }
+
+    /// Codex 的会话按天汇总：我的消息数人打的字（EchoExport.codexUserParts）；Token 取 token_usage_record（按 response_id 去重，
+    /// 模型取最近一条 turn_context）：缓存读取含在输入里，思考含在输出里，所以 [输入 − 读缓存, 输出, 读缓存, 0, 0]；
+    /// AI 干活取 task_complete 的 duration_ms；提交取 git commit 命令里的说明和输出里的提交号
+    static func readCodex(_ url: URL) throws -> (days: [String: EchoDayStat], g: Set<String>) {
+        var days: [String: EchoDayStat] = [:], seen = Set<String>(), offsets: [Int: Int] = [:], g = Set<String>(), model = "?"
+        let wanted = ["\"type\":\"turn_context\"", "\"type\":\"token_usage_record\"", "\"task_complete\"", "\"role\":\"user\"", "commit"].map { Array($0.utf8) }
+        func touch(_ ts: String?) -> String? {
+            guard let ts, let t = epoch(ts) else { return nil }
+            let day = localDay(t, &offsets)
+            var s = days[day, default: .init()]
+            s.a = s.a == 0 ? t : min(s.a, t)
+            s.b = max(s.b, t)
+            days[day] = s
+            return day
+        }
+        try EchoLines.each(url) { line in
+            let b = EchoLines.trim(line)
+            guard wanted.contains(where: { EchoLines.has(b, $0) }),
+                  let d = (try? JSONSerialization.jsonObject(with: Data(buffer: b))) as? [String: Any], let p = d["payload"] as? [String: Any] else { return }
+            let t = d["type"] as? String, pt = p["type"] as? String, ts = d["timestamp"] as? String
+            switch (t, pt) {
+            case ("turn_context", _):
+                if let m = p["model"] as? String, !m.isEmpty { model = m }
+            case ("token_usage_record", _):
+                guard let u = p["usage"] as? [String: Any] else { return }
+                let rid = p["response_id"] as? String ?? UUID().uuidString
+                guard seen.insert(rid).inserted, let day = touch(ts) else { return }
+                func n(_ k: String) -> Double { (u[k] as? NSNumber)?.doubleValue ?? 0 }
+                let cached = n("cached_input_tokens")
+                let add = [max(0, n("input_tokens") - cached), n("output_tokens"), cached, 0, 0]
+                days[day]!.k[model] = zip(days[day]!.k[model] ?? [0, 0, 0, 0, 0], add).map { $0 + $1 }
+            case ("event_msg", "task_complete"):
+                guard let ms = (p["duration_ms"] as? NSNumber)?.doubleValue, let day = touch(ts) else { return }
+                days[day]!.ms += ms
+                days[day]!.lg = max(days[day]!.lg, ms)
+            case ("response_item", "message") where p["role"] as? String == "user":
+                guard !EchoExport.codexUserParts(p).human.isEmpty, let day = touch(ts) else { return }
+                days[day]!.m += 1
+            case ("response_item", "function_call"), ("response_item", "custom_tool_call"):
+                let v = (p["arguments"] ?? p["input"]) as? String ?? ""
+                // function_call 的参数是 JSON（{"cmd": …}），解开再找；custom_tool_call 是一段脚本，直接找
+                let cmd = ((try? JSONSerialization.jsonObject(with: Data(v.utf8))) as? [String: Any]).flatMap { ($0["cmd"] ?? $0["command"]).map { "\($0)" } } ?? v
+                commitMessages(in: cmd, into: &g)
+            case ("response_item", "function_call_output"), ("response_item", "custom_tool_call_output"):
+                commitHashes(b, into: &g)
+            default: break
+            }
+        }
+        return (days, g)
     }
 
     /// 会话归到哪个项目：和左栏目录树同一套路径，取大目录下面那一级（~/Desktop/项目代码/NAS/伙伴云NAS应用 → NAS）；
@@ -175,7 +278,7 @@ enum EchoStats {
 
     // MARK: Git
 
-    struct Commit: Codable { var p: String; var d: String; var s: String; var a: Int; var r: Int; var f: [String] }
+    struct Commit: Codable { var h: String; var p: String; var d: String; var s: String; var a: Int; var r: Int; var f: [String] }
 
     /// 跑一条 git 命令（只读），出错返回空
     private static func git(_ args: [String]) -> String {
@@ -258,7 +361,7 @@ enum EchoStats {
                 guard let head = lines.first else { continue }
                 let f = head.split(separator: "\u{1f}", omittingEmptySubsequences: false).map(String.init)
                 guard f.count >= 3, seen.insert(f[0]).inserted else { continue }
-                var c = Commit(p: project(r), d: f[1], s: f[2], a: 0, r: 0, f: [])
+                var c = Commit(h: f[0], p: project(r), d: f[1], s: f[2], a: 0, r: 0, f: [])
                 for l in lines.dropFirst() {
                     let n = l.split(separator: "\t", maxSplits: 2).map(String.init)
                     guard n.count == 3 else { continue }
@@ -276,7 +379,7 @@ enum EchoStats {
 
     /// 整理成 overview.js 要的 JSON。同步执行，放在后台线程调用
     static func build(_ sessions: [EchoSession], deleted: [EchoDeletedSession] = []) -> Data {
-        let cacheURL = EchoLibrary.supportDir.appendingPathComponent("总览缓存2.json")   // 2：加了每天的起止时间
+        let cacheURL = EchoLibrary.supportDir.appendingPathComponent("总览缓存3.json")   // 2：加了每天的起止时间；3：加了提交号
         let cache = (try? Data(contentsOf: cacheURL)).flatMap { try? JSONDecoder().decode(EchoStatsCache.self, from: $0) } ?? EchoStatsCache()
         var fresh = EchoStatsCache()
         var list: [[String: Any]] = []
@@ -286,22 +389,25 @@ enum EchoStats {
             guard let v = try? s.url.resourceValues(forKeys: keys) else { return nil }
             return EchoFileStamp(size: Int64(v.fileSize ?? 0), mtime: v.contentModificationDate?.timeIntervalSince1970 ?? 0)
         }
-        var read = [[String: EchoDayStat]?](repeating: nil, count: sessions.count)
+        var read = [(days: [String: EchoDayStat], g: Set<String>)?](repeating: nil, count: sessions.count)
         let todo = sessions.indices.filter { i in stamps[i] != nil && cache.entries[sessions[i].url.path]?.stamp != stamps[i] }
         read.withUnsafeMutableBufferPointer { buf in
-            DispatchQueue.concurrentPerform(iterations: todo.count) { n in buf[todo[n]] = try? self.read(sessions[todo[n]].url) }
+            DispatchQueue.concurrentPerform(iterations: todo.count) { n in buf[todo[n]] = try? self.readAll(sessions[todo[n]].url) }
         }
         for (i, s) in sessions.enumerated() {
             guard let stamp = stamps[i] else { continue }
-            let days: [String: EchoDayStat]
-            if let e = cache.entries[s.url.path], e.stamp == stamp { days = e.days }
-            else if let d = read[i] { days = d }
+            let days: [String: EchoDayStat], g: [String]
+            if let e = cache.entries[s.url.path], e.stamp == stamp { days = e.days; g = e.g ?? [] }
+            else if let d = read[i] { days = d.days; g = d.g.sorted() }
             else { continue }
-            fresh.entries[s.url.path] = .init(stamp: stamp, days: days)
+            fresh.entries[s.url.path] = .init(stamp: stamp, days: days, g: g.isEmpty ? nil : g)
             guard !days.isEmpty else { continue }
             let dict = days.mapValues { d -> [String: Any] in ["m": d.m, "ms": d.ms, "lg": d.lg, "k": d.k, "a": d.a, "b": d.b] }
-            list.append(["id": s.id, "t": s.meta.title == s.sessionId ? "未命名会话" : s.meta.title,
-                         "p": project(s.projectPath), "d": projectPath(s.projectPath), "c": s.computer, "days": dict])
+            var one: [String: Any] = ["id": s.id, "t": s.meta.title == s.sessionId ? "未命名会话" : s.meta.title,
+                                      "p": project(s.projectPath), "d": projectPath(s.projectPath), "c": s.computer, "days": dict]
+            if !g.isEmpty { one["g"] = g }
+            if s.app != .claude { one["a"] = s.app.rawValue }
+            list.append(one)
         }
         if let d = try? JSONEncoder().encode(fresh) { try? d.write(to: cacheURL, options: .atomic) }
         // 删掉的会话照算；从废纸篓放回来的（同一台电脑、同一个会话 ID 又读到了）用读到的，不算两遍
@@ -309,7 +415,9 @@ enum EchoStats {
         let gone = deleted.filter { !live.contains($0.c + "/" + $0.sid) && !$0.days.isEmpty }
         for g in gone {
             let dict = g.days.mapValues { d -> [String: Any] in ["m": d.m, "ms": d.ms, "lg": d.lg, "k": d.k, "a": d.a, "b": d.b] }
-            list.append(["id": "deleted:" + g.c + "/" + g.sid, "x": 1, "t": g.t, "p": project(g.cwd), "d": projectPath(g.cwd), "c": g.c, "days": dict])
+            var one: [String: Any] = ["id": "deleted:" + g.c + "/" + g.sid, "x": 1, "t": g.t, "p": project(g.cwd), "d": projectPath(g.cwd), "c": g.c, "days": dict]
+            if let h = g.g, !h.isEmpty { one["g"] = h }
+            list.append(one)
         }
 
         // Git：只看本机会话的目录，从最早有会话的那天起，最多半年
@@ -319,12 +427,47 @@ enum EchoStats {
         let cwds = Set(sessions.filter { $0.computer == EchoPrefs.computerName }.map(\.meta.cwd).filter { !$0.isEmpty }
                        + gone.filter { $0.c == EchoPrefs.computerName }.map(\.cwd))
         let commits = first.isEmpty ? [] : self.commits(cwds: cwds, since: since)
-        let gitList = commits.map { ["p": $0.p, "d": $0.d, "s": $0.s, "a": $0.a, "r": $0.r, "f": $0.f] as [String: Any] }
+        let gitList = commits.map { ["h": $0.h, "p": $0.p, "d": $0.d, "s": $0.s, "a": $0.a, "r": $0.r, "f": $0.f] as [String: Any] }
 
-        let out: [String: Any] = ["today": EchoTime.formatted(Date(), "yyyy-MM-dd"), "sessions": list, "commits": gitList]
+        let out: [String: Any] = ["today": EchoTime.formatted(Date(), "yyyy-MM-dd"), "sessions": list, "commits": gitList, "backup": backupSummary(sessions)]
         let data = (try? JSONSerialization.data(withJSONObject: out)) ?? Data("{}".utf8)
         try? data.write(to: lastURL, options: .atomic)
         return data
+    }
+
+    /// 总览「备份」页的数：这台电脑各应用备份了几个会话、原会话多大（备份记录里记的大小）、备份多大（备份文件夹里的文件）、
+    /// 几个会话的原文件已经不在了（Claude 清理、自动清理后只在备份里），加上上次备份时间和备份日志
+    static func backupSummary(_ sessions: [EchoSession]) -> [String: Any] {
+        let fm = FileManager.default, comp = EchoPrefs.computerDir, me = EchoPrefs.computerName
+        var apps: [[String: Any]] = []
+        let dirs: [(EchoSource, URL, URL)] = [(.claude, EchoLayout.claudeDirs(comp).first ?? EchoPrefs.claudeDir, EchoBackup.source),
+                                              (.codex, EchoPrefs.codexDir, EchoBackup.codexSource)]
+        for (src, dir, origin) in dirs {
+            let rec = EchoBackupRecord.load(dir.appendingPathComponent("备份记录.json"))
+            guard !rec.files.isEmpty else { continue }
+            let srcBytes = rec.files.values.reduce(Int64(0)) { $0 + $1.size }
+            var bak: Int64 = 0
+            for case let u as URL in fm.enumerator(at: dir, includingPropertiesForKeys: [.fileSizeKey, .isRegularFileKey], options: .skipsHiddenFiles)?.allObjects ?? [] {
+                if let v = try? u.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey]), v.isRegularFile == true { bak += Int64(v.fileSize ?? 0) }
+            }
+            // 原文件不在了的会话：Claude 看 <项目目录>/<会话>.jsonl；Codex 同一个会话可能在 sessions 和 archived_sessions 都记过，按文件名算
+            var gone = 0
+            if src == .claude {
+                gone = rec.files.keys.filter { $0.hasSuffix(".jsonl") && $0.split(separator: "/").count == 2 && !fm.fileExists(atPath: origin.appendingPathComponent($0).path) }.count
+            } else {
+                var alive: [String: Bool] = [:]
+                for k in rec.files.keys where k.contains("rollout-") {
+                    let name = (k as NSString).lastPathComponent.replacingOccurrences(of: ".zst", with: "")
+                    alive[name] = (alive[name] ?? false) || fm.fileExists(atPath: origin.appendingPathComponent(k).path)
+                }
+                gone = alive.values.filter { !$0 }.count
+            }
+            apps.append(["app": src.rawValue, "sessions": sessions.filter { $0.computer == me && $0.app == src }.count,
+                         "src": srcBytes, "bak": bak, "gone": gone])
+        }
+        var out: [String: Any] = ["apps": apps, "log": EchoBackupLog.load(comp)]
+        if let d = EchoPrefs.lastSuccess { out["last"] = ISO8601DateFormatter().string(from: d) }
+        return out
     }
 
     /// 上次整理好的总览：应用打开时先显示它，后台整理完再换

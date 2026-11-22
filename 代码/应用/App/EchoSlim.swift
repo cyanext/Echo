@@ -1,16 +1,54 @@
 // 瘦身：会话 jsonl 写进备份前怎么改（base64、请求记录、按保留期限换成占位、密钥打码），其余原样保留。
 // 规则见 需求文档/版本需求/v0.7.0-会话备份和自动清理.html，行为以 代码/原型/slim.py 为准，tests/run.sh 拿原型现场生成的结果比对。
 import Foundation
+import CZstd
 
 // MARK: - 按行读文件
 
+/// zstd 流式解压：喂一块压缩数据，每解出一小段（ZSTD_DStreamOutSize，约 128 KB）就交给 sink，不攒成一整块
+final class EchoZstd {
+    private let ctx: OpaquePointer
+    private var out = [UInt8](repeating: 0, count: ZSTD_DStreamOutSize())
+    /// 最后一帧解完了（ZSTD_decompressStream 返回 0）；文件读完还没解完说明文件不完整
+    private(set) var finished = true
+
+    init() throws {
+        guard let c = ZSTD_createDCtx() else { throw CocoaError(.fileReadUnknown) }
+        ctx = c
+    }
+    deinit { ZSTD_freeDCtx(ctx) }
+
+    func decompress(_ data: Data, _ sink: (UnsafeBufferPointer<UInt8>) throws -> Void) throws {
+        try data.withUnsafeBytes { (src: UnsafeRawBufferPointer) in
+            var input = ZSTD_inBuffer(src: src.baseAddress, size: src.count, pos: 0)
+            while true {
+                var full = false
+                try out.withUnsafeMutableBytes { dst in
+                    var output = ZSTD_outBuffer(dst: dst.baseAddress, size: dst.count, pos: 0)
+                    let r = ZSTD_decompressStream(ctx, &output, &input)
+                    if ZSTD_isError(r) != 0 {
+                        throw CocoaError(.fileReadCorruptFile, userInfo: [NSLocalizedDescriptionKey: "解压出错：" + String(cString: ZSTD_getErrorName(r))])
+                    }
+                    finished = r == 0
+                    full = output.pos == output.size   // 输出满了，解压器里可能还有，接着要
+                    try sink(UnsafeBufferPointer(start: dst.baseAddress!.assumingMemoryBound(to: UInt8.self), count: output.pos))
+                }
+                if input.pos == input.size && !full { break }
+            }
+        }
+    }
+}
+
 enum EchoLines {
     /// 逐行回调，行内容含末尾的换行符（最后一行可能没有）。会话文件大到几百 MB，分块读，不整个读进内存。
+    /// .zst（Codex 压过的旧会话）边读边解压，调用方不用管
     static func each(_ url: URL, _ body: (UnsafeBufferPointer<UInt8>) throws -> Void) throws {
         let fh = try FileHandle(forReadingFrom: url)
         defer { try? fh.close() }
+        let zst = url.pathExtension == "zst" ? try EchoZstd() : nil
         var buf = [UInt8]()
-        while let chunk = try fh.read(upToCount: 8 << 20), !chunk.isEmpty {
+        // 新读到的一段接在上次没处理完的半行后面，切出完整的行回调，剩下的半行留着
+        func feed(_ chunk: UnsafeBufferPointer<UInt8>) throws {
             buf.append(contentsOf: chunk)
             var start = 0
             try buf.withUnsafeBufferPointer { p in
@@ -23,6 +61,14 @@ enum EchoLines {
             }
             buf.removeFirst(start)
         }
+        // 每读一块放进 autoreleasepool：读出的 Data 是自动释放的，不包的话整个文件读完才放，大文件能涨到几百 MB
+        while try autoreleasepool(invoking: {
+            guard let raw = try fh.read(upToCount: zst == nil ? 8 << 20 : 1 << 20), !raw.isEmpty else { return false }
+            if let zst { try zst.decompress(raw, feed) }
+            else { try raw.withUnsafeBytes { try feed($0.bindMemory(to: UInt8.self)) } }
+            return true
+        }) {}
+        if let zst, !zst.finished { throw CocoaError(.fileReadCorruptFile, userInfo: [NSFilePathErrorKey: url.path, NSLocalizedDescriptionKey: "压缩文件不完整"]) }
         if !buf.isEmpty { try buf.withUnsafeBufferPointer { try body($0) } }
     }
 
@@ -190,6 +236,8 @@ struct EchoPolicy {
 /// 一个文件从头处理到尾时要记住的：git 提交、合并命令的调用编号（它的结果也一直留着）
 final class EchoSlimState {
     var gitIds = Set<[UInt8]>()
+    /// Codex 自动审批的子会话（session_meta 的 source.subagent.other == "guardian"）：用户消息也算系统记录
+    var guardian = false
 }
 
 enum EchoSlim {
@@ -368,6 +416,150 @@ enum EchoSlim {
         return (changed ? .object(items) : obj, changed)
     }
 
+    // MARK: Codex（规则见原型 slim.py 的 apply_codex，两边逐行比对）
+
+    private static let kPayload = RawJSON.quoted("payload"), kRole = RawJSON.quoted("role"), kCallId = RawJSON.quoted("call_id")
+    private static let needlePayload = Array("\"payload\"".utf8)
+    private static let codexTypes: Set<[UInt8]> = Set(["session_meta", "response_item", "event_msg", "turn_context", "world_state", "compacted",
+                                                        "token_usage_record", "inter_agent_communication_metadata"].map(RawJSON.quoted))
+    /// 系统记录：「type|payload.type」→ 换成占位的字段
+    private static let codexSystem: [String: [String]] = [
+        "session_meta|": ["base_instructions"],
+        "turn_context|": ["permission_profile", "file_system_sandbox_policy", "collaboration_mode"],
+        "world_state|": ["state"],
+        "compacted|": ["replacement_history", "guardian_history", "retained_context", "replacement_history_metadata"],
+        "event_msg|item_completed": ["item"],
+        "event_msg|thread_settings_applied": ["thread_settings"],
+        "response_item|additional_tools": ["tools"],
+        "response_item|compaction": ["encrypted_content"],
+    ]
+    private static let codexGitRe = try! NSRegularExpression(pattern: #"(?:^|&&|\|\||;|\n|\\n|["'`])\s*git\b(?:\s+-c\s+\S+)*\s+(?:commit|merge)\b"#)
+
+    static func isCodex(_ j: RawJSON) -> Bool {
+        guard let t = j[kType]?.stringRaw, codexTypes.contains(t), case .object? = j[kPayload] else { return false }
+        return true
+    }
+
+    /// 和 Python 的真值一致：null、false、0、空字符串、空数组、空对象都算没有
+    private static func truthy(_ v: RawJSON?) -> Bool {
+        switch v {
+        case nil: return false
+        case .string(let r)?: return r.count > 2
+        case .array(let a)?: return !a.isEmpty
+        case .object(let o)?: return !o.isEmpty
+        case .scalar(let b)?: let s = String(decoding: b, as: UTF8.self); return !["null", "false", "0", "0.0"].contains(s)
+        }
+    }
+
+    private static func isNull(_ v: RawJSON?) -> Bool {
+        if case .scalar(let b)? = v { return b == Array("null".utf8) }
+        return v == nil
+    }
+
+    /// 有这个键就换值（位置不变），没有就加在最后（和 Python 字典赋值一样）
+    private static func set(_ items: inout [(key: [UInt8], value: RawJSON)], _ k: [UInt8], _ v: RawJSON) {
+        if let i = items.lastIndex(where: { $0.key == k }) { items[i].value = v } else { items.append((k, v)) }
+    }
+
+    /// data:…;base64, 开头的长字符串换成占位
+    static func stripDataURLs(_ node: RawJSON) -> (RawJSON, Bool) {
+        switch node {
+        case .string(let raw):
+            let head = Array("\"data:".utf8), marker = Array(";base64,".utf8)
+            guard raw.count - 2 > 1000, raw.starts(with: head) else { return (node, false) }
+            let window = Array(raw[1..<min(raw.count - 1, 101)])
+            guard let mi = (0...(window.count - marker.count)).first(where: { Array(window[$0..<$0 + marker.count]) == marker }) else { return (node, false) }
+            let comma = mi + marker.count - 1   // 逗号在字符串里的位置
+            let kind = raw.starts(with: Array("\"data:image/".utf8)) ? "图片" : "文件"
+            return (.string(jsonString(placeholder(kind, (raw.count - 2 - comma - 1) * 3 / 4))), true)
+        case .object(var items):
+            var changed = false
+            for i in items.indices {
+                let (nv, c) = stripDataURLs(items[i].value)
+                if c { items[i].value = nv; changed = true }
+            }
+            return (changed ? .object(items) : node, changed)
+        case .array(var a):
+            var changed = false
+            for i in a.indices {
+                let (nv, c) = stripDataURLs(a[i])
+                if c { a[i] = nv; changed = true }
+            }
+            return (changed ? .array(a) : node, changed)
+        default:
+            return (node, false)
+        }
+    }
+
+    /// Codex 的一行按保留期限换思考、工具数据、系统记录。返回新节点和改没改
+    static func applyCodex(_ obj: RawJSON, _ policy: EchoPolicy, _ state: EchoSlimState, next: inout Double) -> (RawJSON, Bool) {
+        guard case .object(var items) = obj, let pi = items.lastIndex(where: { $0.key == kPayload }), case .object(var p) = items[pi].value,
+              let tRaw = obj[kType]?.stringRaw, let t = decode(tRaw) else { return (obj, false) }
+        let payload = items[pi].value
+        let pt = (t == "event_msg" || t == "response_item") ? payload[kType]?.stringRaw.flatMap(decode) : nil
+        let ts = obj[kTimestamp]?.stringRaw.flatMap { EchoTime.parse(String(decoding: $0.dropFirst().dropLast(), as: UTF8.self)) }
+        var changed = false
+        if t == "session_meta", payload[RawJSON.quoted("source")]?[RawJSON.quoted("subagent")]?[RawJSON.quoted("other")]?.stringRaw == RawJSON.quoted("guardian") {
+            state.guardian = true
+        }
+        var fields = codexSystem[t + "|" + (pt ?? "")] ?? []
+        let role = payload[kRole]?.stringRaw.flatMap(decode)
+        if t == "response_item", pt == "message", !["user", "assistant"].contains(role ?? "") || (role == "user" && state.guardian) { fields = ["content"] }
+        for f in fields {
+            let k = RawJSON.quoted(f)
+            guard let i = p.lastIndex(where: { $0.key == k }), !isNull(p[i].value), !isCleaned(p[i].value) else { continue }
+            if policy.expired(policy.system, ts) {
+                p[i].value = .string(jsonString(placeholder("系统记录", rawLen(p[i].value))))
+                changed = true
+            } else { next = min(next, policy.expiry(policy.system, ts)) }
+        }
+        if t == "response_item" {
+            let cur = RawJSON.object(p)
+            switch pt {
+            case "reasoning":
+                let enc = RawJSON.quoted("encrypted_content")
+                let keys = ["summary", "content", "encrypted_content"].map(RawJSON.quoted).filter { truthy(cur[$0]) }
+                if !keys.isEmpty, !(cur[enc].map(isCleaned) ?? false) {
+                    if policy.expired(policy.thinking, ts) {
+                        let n = keys.reduce(0) { $0 + rawLen(cur[$1]!) }
+                        for k in keys where k != enc { set(&p, k, .array([])) }
+                        set(&p, enc, .string(jsonString(placeholder("思考过程", n))))
+                        changed = true
+                    } else { next = min(next, policy.expiry(policy.thinking, ts)) }
+                }
+            case "function_call", "custom_tool_call":
+                let k = RawJSON.quoted(pt == "function_call" ? "arguments" : "input")
+                let v = cur[k]
+                if case .string(let raw)? = v, let str = decode(raw), codexGitRe.firstMatch(in: str, range: NSRange(str.startIndex..., in: str)) != nil {
+                    state.gitIds.insert(cur[kCallId]?.stringRaw ?? Array("null".utf8))
+                } else if let v, !isNull(v), !isCleaned(v) {
+                    if policy.expired(policy.toolUse, ts) {
+                        set(&p, k, .string(jsonString(placeholder("工具参数", rawLen(v)))))
+                        changed = true
+                    } else { next = min(next, policy.expiry(policy.toolUse, ts)) }
+                }
+            case "function_call_output", "custom_tool_call_output":
+                let k = RawJSON.quoted("output")
+                if !state.gitIds.contains(cur[kCallId]?.stringRaw ?? Array("null".utf8)), let v = cur[k], !isNull(v), !isCleaned(v) {
+                    if policy.expired(policy.toolResult, ts) {
+                        set(&p, k, .string(jsonString(placeholder("工具结果", rawLen(v)))))
+                        changed = true
+                    } else { next = min(next, policy.expiry(policy.toolResult, ts)) }
+                }
+            case "image_generation_call":
+                let k = RawJSON.quoted("result")
+                if case .string(let raw)? = cur[k], raw.count - 2 > 1000 {
+                    set(&p, k, .string(jsonString(placeholder("图片", (raw.count - 2) * 3 / 4))))
+                    changed = true
+                }
+            default: break
+            }
+        }
+        guard changed else { return (obj, false) }
+        items[pi].value = .object(p)
+        return (.object(items), true)
+    }
+
     /// 处理一行（含换行符），结果追加到 out
     static func slimLine(_ line: UnsafeBufferPointer<UInt8>, into out: inout [UInt8], stats: inout Stats, policy: EchoPolicy, state: EchoSlimState) {
         stats.bytesIn += line.count
@@ -377,7 +569,17 @@ enum EchoSlim {
             return
         }
         var bytes: [UInt8]? = nil   // 改写过的这一行（不含换行），nil 表示原样
-        if needlesParse.contains(where: { EchoLines.has(body, $0) }), let j = RawJSON.parse(body) {
+        let codexJ = EchoLines.has(body, needlePayload) ? RawJSON.parse(body) : nil
+        if let j = codexJ, isCodex(j) {
+            let (a, c0) = stripDataURLs(j)
+            let (b, c1) = stripBase64(a)
+            let (c, c2) = applyCodex(b, policy, state, next: &stats.nextExpiry)
+            if c0 || c1 || c2 {
+                var o = [UInt8]()
+                c.write(to: &o)
+                bytes = o
+            }
+        } else if needlesParse.contains(where: { EchoLines.has(body, $0) }), let j = codexJ ?? RawJSON.parse(body) {
             let (a, c1) = stripBase64(j)
             let (b, c2) = applyPolicy(a, policy, state, next: &stats.nextExpiry)
             if c1 || c2 {

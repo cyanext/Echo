@@ -43,6 +43,15 @@ enum EchoCleanRecord {
         return EchoFileStamp(size: Int64(v.fileSize ?? 0), mtime: v.contentModificationDate?.timeIntervalSince1970 ?? 0)
     }
 
+    /// 备份文件挪了位置（0.8 起 Claude 的备份挪进 claude/）：记录里这一段路径开头的都换成新的
+    static func rename(prefix: String, to new: String) {
+        lock.lock(); defer { lock.unlock() }
+        guard let all = (try? Data(contentsOf: url)).flatMap(decode) else { return }
+        var out: [String: Entry] = [:]
+        for (k, v) in all { out[k.hasPrefix(prefix) ? new + k.dropFirst(prefix.count) : k] = v }
+        if let d = encode(out) { try? d.write(to: url, options: .atomic) }
+    }
+
     /// 写好一个备份文件后记一笔：stats 是写它时瘦身的结果
     static func entry(for u: URL, policy: EchoPolicy, stats: EchoSlim.Stats) -> Entry? {
         stamp(u).map { Entry(stamp: $0, policy: policy.key, next: stats.nextExpiry) }
@@ -73,14 +82,16 @@ enum EchoClean {
     /// 没到门槛、先不重写的文件：过几天再看（到期的内容会越攒越多）
     static let recheck: Double = 3 * 86400
 
-    /// computerDir 是 备份/<电脑名>/。dryRun 只算能释放多少；force 不看门槛、不看清理记录，有改动就重写（升级后第一次）
+    /// computerDir 是 备份/<电脑名>/，各应用的会话都清（EchoLayout.sessionRoots）。dryRun 只算能释放多少；force 不看门槛、不看清理记录，有改动就重写（升级后第一次）
     static func run(computerDir: URL, policy: EchoPolicy, dryRun: Bool = false, force: Bool = false,
                     remove: @escaping (URL) throws -> URL? = trash) throws -> Result {
         let fm = FileManager.default
-        let root = computerDir.appendingPathComponent("projects")
-        guard let en = fm.enumerator(at: root, includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey], options: [.skipsHiddenFiles]) else { return Result() }
+        let root = computerDir
         // 大文件先排，几个线程的活儿分得匀
-        let files = en.compactMap { $0 as? URL }.filter { $0.pathExtension == "jsonl" }
+        let files = EchoLayout.sessionRoots(computerDir).flatMap { r -> [URL] in
+            let en = fm.enumerator(at: r.root, includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey], options: [.skipsHiddenFiles])
+            return (en?.allObjects ?? []).compactMap { $0 as? URL }.filter { $0.pathExtension == "jsonl" }
+        }
             .sorted { (EchoCleanRecord.stamp($0)?.size ?? 0) > (EchoCleanRecord.stamp($1)?.size ?? 0) }
         let record = force ? [:] : EchoCleanRecord.load()
         let staging = dryRun ? nil : try EchoBackup.makeStaging()

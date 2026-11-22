@@ -1,0 +1,5 @@
+// Codex 把旧会话压成 .jsonl.zst，读的时候要解压。用 Homebrew 的 zstd（brew install zstd），编译时静态链接 libzstd.a，装好的回响不依赖 Homebrew
+module CZstd [system] {
+  header "/opt/homebrew/opt/zstd/include/zstd.h"
+  export *
+}

@@ -15,7 +15,7 @@ enum EchoTests {
 
     static func main() throws {
         let a = CommandLine.arguments
-        if a.count == 3, a[1] == "--rules" { rules(); try renameTest(fixture: URL(fileURLWithPath: a[2])); try statsTest(); timeTest(); try cleanTest(); try autoDeleteTest(); try claudeSettingsTest() }
+        if a.count == 3, a[1] == "--rules" { rules(); try renameTest(fixture: URL(fileURLWithPath: a[2])); try statsTest(); try commitMatchTest(); timeTest(); try cleanTest(); try layoutTest(); try codexBackupTest(); try autoDeleteTest(); try claudeSettingsTest() }
         else if a.count == 4, a[1] == "--overview" {   // 手动排查：按应用的方式整理总览数据，写到文件，看用了多久
             let t0 = Date()
             let list = EchoLibrary.scan(backupRoot: URL(fileURLWithPath: a[2]))
@@ -36,7 +36,24 @@ enum EchoTests {
             }
             try EchoDeleted.add(out, dir)
         }
+        else if a.count == 3, a[1] == "--prices" {   // 手动排查：解析一份 LiteLLM 价格表，列出留下的模型
+            let m = EchoPrices.parse(try Data(contentsOf: URL(fileURLWithPath: a[2])))
+            print("  留下 \(m.count) 个模型")
+            for k in m.keys.sorted() where ["gpt-6.1-sol", "gpt-5.5", "claude-opus-5-5", "claude-sonnet-5-5", "glm-5.2", "kimi-k3", "hy3"].contains(k) { print("  \(k)：\(m[k]!)") }
+        }
+        else if a.count == 3, a[1] == "--cat" {   // 按行读一个文件原样写到标准输出（.zst 边读边解压），和 zstd -dc 比对
+            let out = FileHandle.standardOutput
+            try EchoLines.each(URL(fileURLWithPath: a[2])) { l in autoreleasepool { out.write(Data(buffer: l)) } }
+        }
         else if a.count == 3, a[1] == "--backup" { try backup(URL(fileURLWithPath: a[2])) }
+        else if a.count == 3, a[1] == "--backup-codex" {   // 手动验收：本机 Codex 会话全量备份到 <目录>（不是电脑目录，是 codex 这一级），跑两遍
+            for n in 1...2 {
+                let r = try EchoBackup.run(items: EchoBackup.codexItems(EchoBackup.codexSource), computerDir: URL(fileURLWithPath: a[2]))
+                print(String(format: "  第 %d 遍：%d 个文件，写入 %d，跳过 %d，失败 %d，%.0fMB → %.0fMB，%.1f 秒",
+                             n, r.total, r.copied, r.skipped, r.failures.count, Double(r.bytesIn) / 1e6, Double(r.bytesOut) / 1e6, r.seconds))
+                for f in r.failures.prefix(5) { print("    \(f.path)：\(f.message)") }
+            }
+        }
         else if a.count == 3, a[1] == "--time" { try timeExport(URL(fileURLWithPath: a[2])) }
         else if a.count == 3, a[1] == "--clean-estimate" {   // 手动排查：按默认保留期限估算一台电脑的备份能释放多少（只算不改）
             let t0 = Date()
@@ -61,7 +78,7 @@ enum EchoTests {
             print("  扫到 \(list.count) 个会话")
             let fm = FileManager.default
             for c in (try? fm.contentsOfDirectory(at: URL(fileURLWithPath: a[2]), includingPropertiesForKeys: nil, options: .skipsHiddenFiles)) ?? [] {
-                for p in (try? fm.contentsOfDirectory(at: c.appendingPathComponent("projects"), includingPropertiesForKeys: nil, options: .skipsHiddenFiles)) ?? [] {
+                for p in EchoLayout.sessionRoots(c).flatMap({ (try? fm.contentsOfDirectory(at: $0.root, includingPropertiesForKeys: nil, options: .skipsHiddenFiles)) ?? [] }) {
                     for f in (try? fm.contentsOfDirectory(at: p, includingPropertiesForKeys: [.fileSizeKey], options: .skipsHiddenFiles)) ?? [] where f.lastPathComponent.hasPrefix(a[3]) {
                         print("  目录里有：\(f.lastPathComponent)，扩展名 \(f.pathExtension)，属性 \(String(describing: try? f.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey]).fileSize))")
                         do { let m = try EchoSessionScan.read(f); print("  读出：标题「\(m.title)」开始 \(m.start)") } catch { print("  读出错：\(error)") }
@@ -70,6 +87,7 @@ enum EchoTests {
             }
             for s in list where s.url.lastPathComponent.hasPrefix(a[3]) { print("  \(s.url.lastPathComponent)：标题「\(s.meta.title)」，项目 \(s.projectPath)，开始 \(s.meta.start)") }
         }
+        else if a.count == 4, a[1] == "--slim-compare" { try compare(URL(fileURLWithPath: a[2]), slimmed: URL(fileURLWithPath: a[3]), dataJS: nil) }   // 只比瘦身（Codex 会话等）
         else if a.count == 4, a[1] == "--export" { try compareExport(URL(fileURLWithPath: a[2]), dataJS: URL(fileURLWithPath: a[3])) }
         else if a.count == 4 { try compare(URL(fileURLWithPath: a[1]), slimmed: URL(fileURLWithPath: a[2]), dataJS: URL(fileURLWithPath: a[3])) }
         else { print("用法：test <会话.jsonl> <原型瘦身结果> <原型 data.js> 或 test --rules"); exit(2) }
@@ -149,6 +167,29 @@ enum EchoTests {
         print("  时间解析 11 项")
     }
 
+    /// 总览把提交挂到会话：从会话里的 git commit 命令取说明（-m、-qm、单引号、heredoc），从输出取提交号
+    static func commitMatchTest() throws {
+        let fm = FileManager.default
+        let f = fm.temporaryDirectory.appendingPathComponent("echo-commit-\(getpid()).jsonl")
+        defer { try? fm.removeItem(at: f) }
+        func bash(_ cmd: String) -> String {
+            let o: [String: Any] = ["type": "assistant", "timestamp": "2026-11-20T00:00:00Z", "message": ["id": "m", "content": [["type": "tool_use", "id": "t", "name": "Bash", "input": ["command": cmd]]]]]
+            return String(data: try! JSONSerialization.data(withJSONObject: o), encoding: .utf8)! + "\n"
+        }
+        let result: [String: Any] = ["type": "user", "timestamp": "2026-11-20T00:00:00Z", "message": ["role": "user", "content": [["type": "tool_result", "tool_use_id": "t", "content": "[main 9affe6e] 改了点东西\n 2 files changed, 3 insertions(+)"]]]]
+        let text = bash("cd /x && git add -A && git commit -qm \"总览：合计行不铺底，「合计」两个字用主色\n\nCo-Authored-By: x\"")
+            + bash("git -C /y commit -m 'v0.7.1 整体提速'")
+            + bash("git commit -m \"$(cat <<'EOF'\n修复 \\\"引号\\\" 的说明\n\n正文\nEOF\n)\"")
+            + bash("echo git commit 不算")
+            + String(data: try JSONSerialization.data(withJSONObject: result), encoding: .utf8)! + "\n"
+        try text.write(to: f, atomically: true, encoding: .utf8)
+        let g = try EchoStats.readAll(f).g
+        let want: Set<String> = ["m:总览：合计行不铺底，「合计」两个字用主色", "m:v0.7.1 整体提速", "m:修复 \\\"引号\\\" 的说明", "9affe6e"]
+        check(g == want, "提交挂会话：应取出 \(want.sorted())，实际 \(g.sorted())")
+        check(EchoStats.commitKey("  一二三四五六七八九十一二三四五六七八九十一二三四五六七八九十多出来\n正文") == "一二三四五六七八九十一二三四五六七八九十一二三四五六七八九十", "提交说明取第一行前 30 字")
+        print("  提交挂会话 2 项")
+    }
+
     static func cleanTest() throws {
         let fm = FileManager.default
         let dir = fm.temporaryDirectory.appendingPathComponent("echo-clean-\(getpid())")
@@ -199,6 +240,92 @@ enum EchoTests {
         check(r5.skipped < 2, "清理：到了最早到期的那天应重新看，实际跳过 \(r5.skipped)")
         check(EchoSlim.sizeText(512) == "512 B" && EchoSlim.sizeText(3482) == "3.4 KB" && EchoSlim.sizeText(130 << 20) == "130 MB" && EchoSlim.sizeText(1288490189) == "1.2 GB", "大小写法不对")
         print("  清理 9 项")
+    }
+
+    /// 备份分应用放（0.8）：老布局挪进 claude/、挪一次就好、清理记录跟着改；没升级的电脑照样读；同一个会话两处都有只算一次；合集的键不变
+    static func layoutTest() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent("echo-layout-\(getpid())")
+        defer { try? fm.removeItem(at: root) }
+        let me = root.appendingPathComponent("本机"), other = root.appendingPathComponent("另一台")
+        func line(_ o: [String: Any]) -> String { String(data: try! JSONSerialization.data(withJSONObject: o, options: [.sortedKeys]), encoding: .utf8)! + "\n" }
+        func session(_ dir: URL, _ sid: String, _ text: String) throws {
+            try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+            try line(["type": "user", "uuid": sid, "timestamp": "2026-11-20T00:00:00Z", "cwd": "/tmp/p", "message": ["role": "user", "content": text]])
+                .write(to: dir.appendingPathComponent(sid + ".jsonl"), atomically: true, encoding: .utf8)
+        }
+        try session(me.appendingPathComponent("projects/-p"), "s1", "本机的会话")
+        try Data("{}".utf8).write(to: me.appendingPathComponent("备份记录.json"))
+        try Data(#"{"s1":"/tmp/挪过"}"#.utf8).write(to: me.appendingPathComponent("移动记录.json"))
+        try session(other.appendingPathComponent("projects/-p"), "s2", "另一台没升级")
+        let oldPath = me.appendingPathComponent("projects/-p/s1.jsonl").path
+        EchoCleanRecord.merge([oldPath: .init(stamp: EchoFileStamp(size: 1, mtime: 1), policy: "k", next: 9)])
+        let key0 = EchoCollections.key(EchoSession(url: URL(fileURLWithPath: oldPath), sessionId: "s1", computer: "本机", size: 0, meta: .init()), root: root)
+
+        let n = try EchoLayout.migrate(me)
+        let claude = me.appendingPathComponent("claude")
+        check(n == 3 && !fm.fileExists(atPath: me.appendingPathComponent("projects").path)
+              && ["projects/-p/s1.jsonl", "备份记录.json", "移动记录.json"].allSatisfy { fm.fileExists(atPath: claude.appendingPathComponent($0).path) },
+              "分应用：老布局应整个挪进 claude/，实际挪了 \(n) 样")
+        let rec = EchoCleanRecord.load()
+        check(rec[oldPath] == nil && rec[claude.appendingPathComponent("projects/-p/s1.jsonl").path]?.next == 9, "分应用：清理记录的路径应跟着换")
+        check((try? EchoLayout.migrate(me)) == 0, "分应用：挪过的再跑不应再动")
+
+        try session(other.appendingPathComponent("claude/projects/-p"), "s2", "两处都有")   // 另一台挪到一半：两处都有 s2
+        let list = EchoLibrary.scan(backupRoot: root)
+        let s1 = list.first { $0.sessionId == "s1" }
+        check(list.count == 2 && s1?.projectPath == "/tmp/挪过" && list.filter { $0.sessionId == "s2" }.count == 1
+              && list.first { $0.sessionId == "s2" }?.url.path.contains("/claude/") == true,
+              "分应用：新旧布局都应读到、同一个会话只算一次（用 claude/ 里的）、移动记录照用，实际 \(list.map { $0.computer + "/" + $0.sessionId })")
+        check(s1.map { EchoCollections.key($0, root: root) } == key0, "分应用：合集的键应不变，实际 \(s1.map { EchoCollections.key($0, root: root) } ?? "")")
+        let est = try EchoClean.run(computerDir: me, policy: EchoPolicy(), dryRun: true)
+        check(est.files == 1, "分应用：清理应找到 claude/ 里的会话，实际 \(est.files) 个")
+        print("  分应用 6 项")
+    }
+
+    /// Codex：sessions 和 archived_sessions（含 .zst）解压后按日期放进 sessions/年/月/日/，复制 session_index；
+    /// 自动清理只挑到期、备份完整的会话文件，不动 session_index；x.jsonl.zst 不会把同名的 x.jsonl 当目录删
+    static func codexBackupTest() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent("echo-codex-\(getpid())")
+        defer { try? fm.removeItem(at: root) }
+        let src = root.appendingPathComponent("codex源"), dir = root.appendingPathComponent("备份/机/codex"), bin = root.appendingPathComponent("废纸篓")
+        let a = src.appendingPathComponent("sessions/2026/09/01/rollout-2026-09-01T10-00-00-aaa.jsonl")
+        let z = src.appendingPathComponent("archived_sessions/rollout-2026-10-02T10-00-00-bbb.jsonl.zst")
+        for d in [a.deletingLastPathComponent(), z.deletingLastPathComponent(), bin] { try fm.createDirectory(at: d, withIntermediateDirectories: true) }
+        let line = #"{"timestamp":"2026-09-01T02:00:00.000Z","type":"session_meta","payload":{"id":"aaa","cwd":"/tmp","source":"vscode"}}"# + "\n"
+            + #"{"timestamp":"2026-09-01T02:00:01.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"装一下补丁"}]}}"# + "\n"
+        try line.write(to: a, atomically: true, encoding: .utf8)
+        let plain = z.deletingPathExtension()   // 临时写一份未压缩的，用 zstd 压成 .zst
+        try line.replacingOccurrences(of: "aaa", with: "bbb").write(to: plain, atomically: true, encoding: .utf8)
+        let p = Process(); p.executableURL = URL(fileURLWithPath: "/opt/homebrew/bin/zstd"); p.arguments = ["-q", "--rm", plain.path]
+        try p.run(); p.waitUntilExit()
+        try "{\"id\":\"aaa\",\"thread_name\":\"改过的名字\"}\n".write(to: src.appendingPathComponent("session_index.jsonl"), atomically: true, encoding: .utf8)
+        let old = Date(timeIntervalSinceNow: -40 * 86400)
+        for f in [a, z] { try fm.setAttributes([.modificationDate: old], ofItemAtPath: f.path) }
+
+        let items = EchoBackup.codexItems(src)
+        let r = try EchoBackup.run(items: items, computerDir: dir)
+        let outA = dir.appendingPathComponent("sessions/2026/09/01/rollout-2026-09-01T10-00-00-aaa.jsonl")
+        let outZ = dir.appendingPathComponent("sessions/2026/10/02/rollout-2026-10-02T10-00-00-bbb.jsonl")
+        check(r.copied == 3 && fm.fileExists(atPath: outA.path) && (try? String(contentsOf: outZ, encoding: .utf8))?.contains("bbb") == true
+              && fm.fileExists(atPath: dir.appendingPathComponent("session_index.jsonl").path),
+              "Codex 备份：两个会话应解压到 sessions/年/月/日/、复制 session_index，实际写了 \(r.copied)")
+        // 备份后又改过的不清理
+        try line.appending(line).write(to: a, atomically: true, encoding: .utf8)
+        try fm.setAttributes([.modificationDate: old], ofItemAtPath: a.path)
+        let c = EchoAutoDelete.codexCandidates(source: src, dir: dir, days: 30)
+        check(c.map(\.original.lastPathComponent) == ["rollout-2026-10-02T10-00-00-bbb.jsonl.zst"], "Codex 自动清理：只挑备份完整、到期的，实际 \(c.map(\.rel))")
+        try line.write(to: z.deletingPathExtension(), atomically: true, encoding: .utf8)   // 同名的 x.jsonl 文件
+        var moved: [String] = []
+        let res = EchoAutoDelete.run(c) { u in moved.append(u.lastPathComponent); try fm.moveItem(at: u, to: bin.appendingPathComponent(u.lastPathComponent)) }
+        check(res.count == 1 && moved == [z.lastPathComponent] && fm.fileExists(atPath: z.deletingPathExtension().path)
+              && fm.fileExists(atPath: src.appendingPathComponent("session_index.jsonl").path),
+              "Codex 自动清理：只挪会话文件，不动同名的 .jsonl 和 session_index，实际挪了 \(moved)")
+        let list = EchoLibrary.scan(backupRoot: root.appendingPathComponent("备份"))
+        check(list.count == 2 && list.first { $0.sessionId == "aaa" }?.meta.title == "改过的名字" && list.allSatisfy { $0.app == .codex },
+              "Codex 列表：两个会话都在、标题取 session_index，实际 \(list.map { $0.sessionId + "「" + $0.meta.title + "」" })")
+        print("  Codex 备份 4 项")
     }
 
     /// 自动删除：只挑超过期限、备份完整（连同名目录）、没开着的；只删原会话，备份不动
@@ -272,6 +399,10 @@ enum EchoTests {
         let view: AnyView
         switch what {
         case "settings-general": view = AnyView(EchoSettingsView(start: .general))
+        case "browser":   // 浏览窗口：读 ECHO_SHOT_ROOT 这个备份目录；ECHO_SHOT_MENU=computer、app 时展开那个筛选菜单
+            UserDefaults.standard.set(ProcessInfo.processInfo.environment["ECHO_SHOT_APP"] ?? "", forKey: "filterApp")   // 先选好的应用筛选
+            EchoState.shared.sessions = EchoLibrary.scan(backupRoot: URL(fileURLWithPath: ProcessInfo.processInfo.environment["ECHO_SHOT_ROOT"] ?? "/tmp"))
+            view = AnyView(EchoBrowserView().environmentObject(EchoState.shared).frame(width: 1100, height: 720))
         case let x where x.hasPrefix("onboarding-"): view = AnyView(EchoOnboardingView(start: Int(x.dropFirst(11)) ?? 0) {})
         default: view = AnyView(EchoSettingsView(start: .storage))
         }
@@ -296,7 +427,7 @@ enum EchoTests {
         return out
     }
 
-    static func compare(_ src: URL, slimmed: URL, dataJS: URL) throws {
+    static func compare(_ src: URL, slimmed: URL, dataJS: URL?) throws {
         let name = src.lastPathComponent
         // 瘦身：行数一样；原型原样写出的行逐字节一样，改写过的行解析后一样
         let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("echo-test-\(getpid()).jsonl")
@@ -317,7 +448,7 @@ enum EchoTests {
         check(kept >= raw, "\(name) 原样保留的行 \(kept)，原型 \(raw)")
         print("  瘦身 \(name)：\(orig.count) 行 → \(mine.count) 行，去掉请求记录 \(stats.droppedLines) 行，改写 \(stats.changedLines) 行")
 
-        try compareExport(src, dataJS: dataJS)
+        if let dataJS { try compareExport(src, dataJS: dataJS) }
     }
 
     /// 消息显示：整理结果和原型完全一样

@@ -42,6 +42,9 @@ enum EchoPrefs {
     }
 
     static var computerDir: URL { backupRoot.appendingPathComponent(computerName) }
+    /// 这台电脑 Claude 的备份：projects/、备份记录.json、移动记录.json（0.8 起分应用放，见 EchoLayout）
+    static var claudeDir: URL { EchoLayout.dir(computerDir, .claude) }
+    static var codexDir: URL { EchoLayout.dir(computerDir, .codex) }
 
     private static func int(_ key: String, _ def: Int) -> Int { d.object(forKey: key) == nil ? def : d.integer(forKey: key) }
 
@@ -58,10 +61,25 @@ enum EchoPrefs {
     static var backupHours: Int { get { int("backupHours", 24) } set { d.set(newValue, forKey: "backupHours") } }
     /// 来源卡片上的勾：备不备份 Claude Code 的会话
     static var backupClaude: Bool { get { d.object(forKey: "backupClaude") == nil ? true : d.bool(forKey: "backupClaude") } set { d.set(newValue, forKey: "backupClaude") } }
+    /// 备不备份 Codex 的会话（默认开；本机没有 ~/.codex/sessions 时不起作用）
+    static var backupCodex: Bool { get { d.object(forKey: "backupCodex") == nil ? true : d.bool(forKey: "backupCodex") } set { d.set(newValue, forKey: "backupCodex") } }
+    static var hasCodex: Bool { FileManager.default.fileExists(atPath: EchoBackup.codexSource.appendingPathComponent("sessions").path) }
+    /// 这次要备份的应用和各自的备份文件夹
+    static var enabledSources: [(EchoSource, URL)] {
+        (backupClaude ? [(EchoSource.claude, claudeDir)] : []) + (backupCodex && hasCodex ? [(EchoSource.codex, codexDir)] : [])
+    }
+    /// 上次备份成功：勾选的应用里最早的那个（都成功过才算这次备份完整）
+    static var lastSuccess: Date? {
+        let dates = enabledSources.map { EchoBackupRecord.load($0.1.appendingPathComponent("备份记录.json")).lastSuccess }
+        return dates.contains(where: { $0 == nil }) ? nil : dates.compactMap { $0 }.min()
+    }
 
     /// 自动删除 Claude 里不活跃的会话（默认开，30 天）
     static var autoDelete: Bool { get { d.object(forKey: "autoDelete") == nil ? true : d.bool(forKey: "autoDelete") } set { d.set(newValue, forKey: "autoDelete") } }
     static var autoDeleteDays: Int { get { int("autoDeleteDays", 30) } set { d.set(newValue, forKey: "autoDeleteDays") } }
+    /// Codex 也自动清理（默认开，30 天）：Codex 自己不删会话，一直攒着
+    static var autoDeleteCodex: Bool { get { d.object(forKey: "autoDeleteCodex") == nil ? true : d.bool(forKey: "autoDeleteCodex") } set { d.set(newValue, forKey: "autoDeleteCodex") } }
+    static var autoDeleteCodexDays: Int { get { int("autoDeleteCodexDays", 30) } set { d.set(newValue, forKey: "autoDeleteCodexDays") } }
 
     static let cleanRulesVersion = 1
     static var cleanRules: Int { get { d.integer(forKey: "cleanRules") } set { d.set(newValue, forKey: "cleanRules") } }
@@ -99,8 +117,10 @@ final class EchoState: ObservableObject {
 
     func start() {
         EchoPrefs.moveOldBackup()
+        do { try EchoLayout.migrate(EchoPrefs.computerDir) } catch { NSLog("回响：Claude 的备份没挪进 claude/：%@", error.localizedDescription) }
         overview = EchoStats.loadLast()   // 先显示上次整理好的总览，后台再刷新
-        lastSuccess = EchoBackupRecord.load(EchoPrefs.computerDir.appendingPathComponent("备份记录.json")).lastSuccess
+        EchoPrices.refreshIfDue()
+        lastSuccess = EchoPrefs.lastSuccess
         cleanupDays = EchoBackup.cleanupDays()
         backupIfNeeded()
         // 每小时看一次：电脑每天第一次开机或唤醒后就会备份，不用固定时间点
@@ -116,7 +136,7 @@ final class EchoState: ObservableObject {
     }
 
     func backupIfNeeded() {
-        guard EchoPrefs.backupClaude else { return }
+        guard !EchoPrefs.enabledSources.isEmpty else { return }
         if let d = lastSuccess {
             let h = EchoPrefs.backupHours
             if h >= 24 ? Calendar.current.isDateInToday(d) : Date().timeIntervalSince(d) < Double(h) * 3600 - 60 { return }
@@ -132,27 +152,50 @@ final class EchoState: ObservableObject {
         done = 0
         total = 0
         cleanupDays = EchoBackup.cleanupDays()
-        let dir = EchoPrefs.computerDir
+        let dir = EchoPrefs.computerDir, claudeDir = EchoPrefs.claudeDir, sources = EchoPrefs.enabledSources
         Task.detached(priority: .utility) {
             var last = Date.distantPast
-            let r = Result {
-                try EchoBackup.run(source: EchoBackup.source, computerDir: dir, policy: EchoPrefs.policy) { n, t in
-                    guard n == t || Date().timeIntervalSince(last) > 0.3 else { return }
-                    last = Date()
-                    Task { @MainActor in EchoState.shared.done = n; EchoState.shared.total = t }
+            // 勾选的应用一个个备份，进度合在一起算；结果合并
+            let started = ISO8601DateFormatter().string(from: Date())
+            var logs: [[String: Any]] = []
+            let r = Result { () -> EchoBackupResult in
+                let lists = try sources.map { s, d -> (EchoSource, [EchoBackup.Item], URL) in
+                    (s, s == .claude ? try EchoBackup.claudeItems(EchoBackup.source) : EchoBackup.codexItems(EchoBackup.codexSource), d)
                 }
+                let total = lists.reduce(0) { $0 + $1.1.count }
+                var all = EchoBackupResult(), before = 0
+                for (src, items, d) in lists {
+                    let one = try EchoBackup.run(items: items, computerDir: d, policy: EchoPrefs.policy) { n, _ in
+                        guard before + n == total || Date().timeIntervalSince(last) > 0.3 else { return }
+                        last = Date()
+                        let done = before + n
+                        Task { @MainActor in EchoState.shared.done = done; EchoState.shared.total = total }
+                    }
+                    before += items.count
+                    logs.append(EchoBackupLog.entry(started, src, one))
+                    all.copied += one.copied; all.skipped += one.skipped; all.total += one.total
+                    all.bytesIn += one.bytesIn; all.bytesOut += one.bytesOut; all.failures += one.failures; all.seconds += one.seconds
+                }
+                return all
             }
             if case .success(let res) = r, res.failures.isEmpty {
-                EchoState.cleanIfDue(dir)
-                EchoState.autoDeleteIfOn(dir)
+                if let c = EchoState.cleanIfDue(dir) { logs.append(["t": started, "app": "", "cleanFiles": c.rewritten, "cleanFreed": c.freed]) }
+                if sources.contains(where: { $0.0 == .claude }), let a = EchoState.autoDeleteIfOn(claudeDir) {
+                    logs.append(["t": started, "app": "claude", "autoDel": a.count, "autoDelBytes": a.bytes])
+                }
+                if let (_, codexDir) = sources.first(where: { $0.0 == .codex }), let a = EchoState.autoDeleteCodexIfOn(codexDir) {
+                    logs.append(["t": started, "app": "codex", "autoDel": a.count, "autoDelBytes": a.bytes])
+                }
             }
+            if case .failure(let e) = r { logs.append(["t": started, "app": "", "error": e.localizedDescription]) }
+            EchoBackupLog.append(dir, logs)
             await MainActor.run {
                 let s = EchoState.shared
                 s.running = false
                 switch r {
                 case .success(let res):
                     s.failures = res.failures.map(\.path)
-                    s.lastSuccess = EchoBackupRecord.load(dir.appendingPathComponent("备份记录.json")).lastSuccess
+                    s.lastSuccess = EchoPrefs.lastSuccess
                     NSLog("回响备份：共 %d 个文件，写入 %d，跳过 %d，失败 %d，%.1f 秒", res.total, res.copied, res.skipped, res.failures.count, res.seconds)
                     for f in res.failures { NSLog("回响备份失败：%@：%@", f.path, f.message) }
                 case .failure(let e):
@@ -163,10 +206,11 @@ final class EchoState: ObservableObject {
         }
     }
 
-    /// 备份成功后清理备份：每天最多一次；升级后第一次全部过一遍。在后台线程调用
-    nonisolated static func cleanIfDue(_ dir: URL, now: Date = Date()) {
+    /// 备份成功后清理备份：每天最多一次；升级后第一次全部过一遍。在后台线程调用。跑了返回结果（记进备份日志）
+    @discardableResult
+    nonisolated static func cleanIfDue(_ dir: URL, now: Date = Date()) -> EchoClean.Result? {
         let first = EchoPrefs.cleanRules < EchoPrefs.cleanRulesVersion
-        if !first, let d = EchoPrefs.lastClean, Calendar.current.isDate(d, inSameDayAs: now) { return }
+        if !first, let d = EchoPrefs.lastClean, Calendar.current.isDate(d, inSameDayAs: now) { return nil }
         var policy = EchoPrefs.policy
         policy.now = now
         do {
@@ -175,19 +219,35 @@ final class EchoState: ObservableObject {
             for f in r.failures { NSLog("回响清理失败：%@：%@", f.path, f.message) }
             if r.failures.isEmpty, first { EchoPrefs.cleanRules = EchoPrefs.cleanRulesVersion }
             EchoPrefs.lastClean = now
+            return r
         } catch {
             NSLog("回响清理没跑起来：%@", error.localizedDescription)
+            return nil
         }
     }
 
-    /// 备份成功后删 Claude 里不活跃、已备份完整的会话（设置里打开时）。在后台线程调用
-    nonisolated static func autoDeleteIfOn(_ dir: URL) {
-        guard EchoPrefs.autoDelete else { return }
+    /// 备份成功后删 Claude 里不活跃、已备份完整的会话（设置里打开时）。dir 是 Claude 的备份（claude/）。在后台线程调用
+    @discardableResult
+    nonisolated static func autoDeleteIfOn(_ dir: URL) -> (count: Int, bytes: Int64)? {
+        guard EchoPrefs.autoDelete else { return nil }
         let list = EchoAutoDelete.candidates(source: EchoBackup.source, computerDir: dir, days: EchoPrefs.autoDeleteDays)
-        guard !list.isEmpty else { return }
+        guard !list.isEmpty else { return nil }
         let r = EchoAutoDelete.run(list)
         NSLog("回响自动删除：%d 个会话移进废纸篓，腾出 %.1fMB，失败 %d", r.count, Double(r.bytes) / 1e6, r.failures.count)
         for f in r.failures { NSLog("回响自动删除失败：%@：%@", f.path, f.message) }
+        return r.count > 0 ? (r.count, r.bytes) : nil
+    }
+
+    /// Codex 的自动清理（设置里打开时）。dir 是 Codex 的备份（codex/）。在后台线程调用
+    @discardableResult
+    nonisolated static func autoDeleteCodexIfOn(_ dir: URL) -> (count: Int, bytes: Int64)? {
+        guard EchoPrefs.autoDeleteCodex else { return nil }
+        let list = EchoAutoDelete.codexCandidates(source: EchoBackup.codexSource, dir: dir, days: EchoPrefs.autoDeleteCodexDays)
+        guard !list.isEmpty else { return nil }
+        let r = EchoAutoDelete.run(list)
+        NSLog("回响自动清理 Codex：%d 个会话移进废纸篓，腾出 %.1fMB，失败 %d", r.count, Double(r.bytes) / 1e6, r.failures.count)
+        for f in r.failures { NSLog("回响自动清理 Codex 失败：%@：%@", f.path, f.message) }
+        return r.count > 0 ? (r.count, r.bytes) : nil
     }
 
     func reloadSessions() {
@@ -226,6 +286,7 @@ final class EchoState: ObservableObject {
 
     /// 写回原会话后立刻增量备份，列表里马上看到新名字
     func rename(_ s: EchoSession, to title: String) throws {
+        guard s.app == .claude else { throw CocoaError(.fileWriteNoPermission, userInfo: [NSLocalizedDescriptionKey: "Codex 的会话在 Codex 里改名"]) }
         guard let u = EchoRename.originalURL(for: s) else {
             throw CocoaError(.fileWriteNoPermission, userInfo: [NSLocalizedDescriptionKey: "这个会话在 \(s.computer) 上，到那台电脑上改"])
         }
@@ -265,7 +326,7 @@ final class EchoState: ObservableObject {
                 done.append(s)
             } catch { firstError = firstError ?? error }
         }
-        try? EchoMoved.add(moves, EchoPrefs.computerDir)
+        try? EchoMoved.add(moves, EchoPrefs.claudeDir)
         if !keys.isEmpty {
             let cols = EchoCollections.load(root)
             let updated = cols.map { c in EchoCollection(id: c.id, title: c.title, members: c.members.map { keys[$0] ?? $0 }, created: c.created) }

@@ -1,4 +1,4 @@
-// 备份：~/.claude/projects → 备份目录/<电脑名>/projects，结构不变。~/.claude 只读。
+// 备份：~/.claude/projects → 备份目录/<电脑名>/claude/projects，结构不变。~/.claude 只读。
 // 流程见立项方案（需求文档/归档/方案.md）第六节：比大小和修改时间，变了才写；先写到本机暂存目录再挪进备份目录；原文件被删时备份保留。
 import Foundation
 
@@ -51,34 +51,111 @@ struct EchoBackupResult {
     var seconds: Double = 0
 }
 
+/// 备份日志：备份目录/<电脑名>/备份日志.jsonl，每次备份每个应用追加一行，清理、自动删除也各记一行（同一次用同一个时间）。
+/// 总览的「备份」卡片按天汇总它。只追加，不改已有的行
+enum EchoBackupLog {
+    static func url(_ computerDir: URL) -> URL { computerDir.appendingPathComponent("备份日志.jsonl") }
+
+    static func append(_ computerDir: URL, _ entries: [[String: Any]]) {
+        guard !entries.isEmpty else { return }
+        var data = Data()
+        for e in entries {
+            guard let d = try? JSONSerialization.data(withJSONObject: e, options: [.sortedKeys, .withoutEscapingSlashes]) else { continue }
+            data.append(d); data.append(0x0A)
+        }
+        let u = url(computerDir)
+        try? FileManager.default.createDirectory(at: computerDir, withIntermediateDirectories: true)
+        if let h = try? FileHandle(forWritingTo: u) {
+            defer { try? h.close() }
+            _ = try? h.seekToEnd()
+            try? h.write(contentsOf: data)
+        } else {
+            try? data.write(to: u)
+        }
+    }
+
+    static func load(_ computerDir: URL) -> [[String: Any]] {
+        var out: [[String: Any]] = []
+        try? EchoLines.each(url(computerDir)) { line in
+            if let d = (try? JSONSerialization.jsonObject(with: Data(buffer: EchoLines.trim(line)))) as? [String: Any] { out.append(d) }
+        }
+        return out
+    }
+
+    /// 一个应用这次备份的记录
+    static func entry(_ t: String, _ app: EchoSource, _ r: EchoBackupResult) -> [String: Any] {
+        ["t": t, "app": app.rawValue, "files": r.total, "written": r.copied, "failed": r.failures.count,
+         "in": r.bytesIn, "out": r.bytesOut, "sec": (r.seconds * 10).rounded() / 10]
+    }
+}
+
 enum EchoBackup {
     static var source: URL { URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".claude/projects") }
+    static var codexSource: URL { URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".codex") }
 
-    /// 同步执行，放在后台线程调用。progress(已处理, 总数)
+    /// 要备份的一个文件：rel 是备份记录里的键（相对源目录），out 是写到备份文件夹里的相对路径
+    struct Item { var rel: String; var url: URL; var out: String; var stamp: EchoFileStamp; var action: EchoBackupRule.Action }
+    private static let statKeys: [URLResourceKey] = [.isRegularFileKey, .fileSizeKey, .contentModificationDateKey]
+    private static func stamp(_ url: URL) -> EchoFileStamp? {
+        guard let v = try? url.resourceValues(forKeys: Set(statKeys)), v.isRegularFile == true else { return nil }
+        return EchoFileStamp(size: Int64(v.fileSize ?? 0), mtime: v.contentModificationDate?.timeIntervalSince1970 ?? 0)
+    }
+
+    /// Claude：~/.claude/projects 下的文件照原结构放进 projects/
+    static func claudeItems(_ source: URL) throws -> [Item] {
+        guard let en = FileManager.default.enumerator(at: source, includingPropertiesForKeys: statKeys) else {
+            throw CocoaError(.fileReadNoSuchFile, userInfo: [NSFilePathErrorKey: source.path])
+        }
+        let base = source.standardizedFileURL.path + "/"
+        var out: [Item] = []
+        for case let url as URL in en {
+            guard let st = stamp(url) else { continue }
+            let rel = String(url.standardizedFileURL.path.dropFirst(base.count))
+            let action = EchoBackupRule.action(for: rel)
+            guard action != .skip else { continue }
+            out.append(Item(rel: rel, url: url, out: "projects/" + rel, stamp: st, action: action))
+        }
+        return out
+    }
+
+    /// Codex：sessions/年/月/日/ 和 archived_sessions/ 下的 rollout-*.jsonl（或 Codex 压过的 .jsonl.zst），解压后都放进
+    /// sessions/年/月/日/rollout-….jsonl（日期取文件名里的），压缩、归档前后写到同一处，不出两份；另外原样复制 session_index.jsonl（会话名）
+    static func codexItems(_ source: URL) -> [Item] {
+        let fm = FileManager.default
+        var out: [Item] = [], seen = Set<String>()
+        let base = source.standardizedFileURL.path + "/"
+        for dir in ["sessions", "archived_sessions"] {
+            let en = fm.enumerator(at: source.appendingPathComponent(dir), includingPropertiesForKeys: statKeys, options: .skipsHiddenFiles)
+            for case let url as URL in en?.allObjects ?? [] {
+                var name = url.lastPathComponent
+                if name.hasSuffix(".zst") { name = String(name.dropLast(4)) }
+                guard name.hasPrefix("rollout-"), name.hasSuffix(".jsonl"), let st = stamp(url) else { continue }
+                let d = name.dropFirst("rollout-".count).prefix(10).split(separator: "-")   // 2026-11-02
+                guard d.count == 3 else { continue }
+                let outRel = "sessions/\(d[0])/\(d[1])/\(d[2])/" + name
+                guard seen.insert(outRel).inserted else { continue }   // 归档里和 sessions 里各有一份时只备份一次
+                out.append(Item(rel: String(url.standardizedFileURL.path.dropFirst(base.count)), url: url, out: outRel, stamp: st, action: .slim))
+            }
+        }
+        let index = source.appendingPathComponent("session_index.jsonl")
+        if let st = stamp(index) { out.append(Item(rel: "session_index.jsonl", url: index, out: "session_index.jsonl", stamp: st, action: .copy)) }
+        return out
+    }
+
+    /// Claude 的备份（兼容老调用）
     static func run(source: URL, computerDir: URL, policy: EchoPolicy = EchoPolicy(), progress: (Int, Int) -> Void = { _, _ in }) throws -> EchoBackupResult {
+        try run(items: claudeItems(source), computerDir: computerDir, policy: policy, progress: progress)
+    }
+
+    /// computerDir 是这个应用的备份文件夹（备份/<电脑名>/claude/ 或 codex/）。同步执行，放在后台线程调用。progress(已处理, 总数)
+    static func run(items todo: [Item], computerDir: URL, policy: EchoPolicy = EchoPolicy(), progress: (Int, Int) -> Void = { _, _ in }) throws -> EchoBackupResult {
         let t0 = Date()
         let fm = FileManager.default
-        let dest = computerDir.appendingPathComponent("projects")
+        let dest = computerDir
         try fm.createDirectory(at: dest, withIntermediateDirectories: true)
         let recordURL = computerDir.appendingPathComponent("备份记录.json")
         var record = EchoBackupRecord.load(recordURL)
         var result = EchoBackupResult()
-
-        // 1. 挑出要备份的文件
-        let keys: [URLResourceKey] = [.isRegularFileKey, .fileSizeKey, .contentModificationDateKey]
-        guard let en = fm.enumerator(at: source, includingPropertiesForKeys: keys) else {
-            throw CocoaError(.fileReadNoSuchFile, userInfo: [NSFilePathErrorKey: source.path])
-        }
-        let base = source.standardizedFileURL.path + "/"
-        var todo: [(rel: String, url: URL, stamp: EchoFileStamp, action: EchoBackupRule.Action)] = []
-        for case let url as URL in en {
-            guard let v = try? url.resourceValues(forKeys: Set(keys)), v.isRegularFile == true else { continue }
-            let rel = String(url.standardizedFileURL.path.dropFirst(base.count))
-            let action = EchoBackupRule.action(for: rel)
-            guard action != .skip else { continue }
-            let stamp = EchoFileStamp(size: Int64(v.fileSize ?? 0), mtime: v.contentModificationDate?.timeIntervalSince1970 ?? 0)
-            todo.append((rel, url, stamp, action))
-        }
         result.total = todo.count
 
         let staging = try makeStaging()
@@ -91,7 +168,7 @@ enum EchoBackup {
         let order = todo.indices.sorted { todo[$0].stamp.size > todo[$1].stamp.size }
         DispatchQueue.concurrentPerform(iterations: order.count) { k in
             let f = todo[order[k]]
-            let out = dest.appendingPathComponent(f.rel)
+            let out = dest.appendingPathComponent(f.out)
             defer {
                 lock.lock()
                 processed += 1

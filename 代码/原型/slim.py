@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""会话瘦身原型：Claude Code 会话 jsonl 写进备份前怎么改。正式应用用 Swift 重写（EchoSlim.swift），行为以本脚本为准。
+"""会话瘦身原型：Claude Code、Codex 会话 jsonl 写进备份前怎么改。正式应用用 Swift 重写（EchoSlim.swift），行为以本脚本为准。
 
 用法：python3 slim.py <原会话.jsonl> <输出.jsonl>
 环境变量 ECHO_NOW（ISO 时间）指定「现在」，测试用；不给就是当前时间。
@@ -12,6 +12,15 @@
   Bash 里的 git 提交、合并命令和它的结果一直留着（要点栏的版本点从这里取）。
 - 请求记录（api-request 三类）整行去掉。
 - 密钥打码：留前 4 位和后 4 位，中间换成 8 个「•」；不到 12 位的只留前 2 位；私钥只留首尾两行标记。
+
+Codex 的行（需求文档/版本需求/v0.8.0-多应用支持.html，每行是 {timestamp, type, payload}）同一套期限和占位：
+- 对话消息（user、assistant）永久；思考（reasoning）、工具调用（function_call 参数、custom_tool_call 输入）、
+  工具结果（*_output）按期限；git 提交、合并命令和它的结果一直留着。
+- 系统记录：developer 消息、系统说明、工具清单、权限沙箱设置、world_state、压缩时存的整段历史副本、
+  item_completed 事件（和正式记录重复）、thread_settings_applied，只换下面列的字段，别的字段（cwd、model、用量）留着。
+- 图片：data:…;base64, 开头的长字符串、生成图片的 result 一律换成占位。
+- 自动审批的子会话（session_meta 的 source 是 subagent.other = guardian）：Codex 塞给它的「用户消息」是整段待审对话，
+  也算系统记录（分派干活的子代理 thread_spawn 照常）。
 """
 import json
 import os
@@ -173,6 +182,107 @@ def mask_secrets(line):
     return line
 
 
+# ---------- Codex ----------
+CODEX_TYPES = {"session_meta", "response_item", "event_msg", "turn_context", "world_state", "compacted",
+               "token_usage_record", "inter_agent_communication_metadata"}
+# 系统记录：(type, payload.type) → 换成占位的字段
+CODEX_SYSTEM = {
+    ("session_meta", None): ["base_instructions"],
+    ("turn_context", None): ["permission_profile", "file_system_sandbox_policy", "collaboration_mode"],
+    ("world_state", None): ["state"],
+    ("compacted", None): ["replacement_history", "guardian_history", "retained_context", "replacement_history_metadata"],
+    ("event_msg", "item_completed"): ["item"],
+    ("event_msg", "thread_settings_applied"): ["thread_settings"],
+    ("response_item", "additional_tools"): ["tools"],
+    ("response_item", "compaction"): ["encrypted_content"],
+}
+# Codex 的命令写在 JSON 字符串里（{"cmd":"git commit …"}），git 前面还可能是引号、字面的 \n
+CODEX_GIT_RE = re.compile(r"(?:^|&&|\|\||;|\n|\\n|[\"'`])\s*git\b(?:\s+-c\s+\S+)*\s+(?:commit|merge)\b")
+
+
+# 文件从头读到尾时记住的：放在 git_ids 里的一个记号，表示这是自动审批的子会话
+GUARDIAN = "\0guardian"
+
+
+def is_codex(obj):
+    return obj.get("type") in CODEX_TYPES and isinstance(obj.get("payload"), dict)
+
+
+def strip_data_urls(node):
+    """data:…;base64, 开头的长字符串换成占位。返回 (新节点, 改没改)"""
+    if isinstance(node, str):
+        if len(node) > 1000 and node.startswith("data:") and ";base64," in node[:100]:
+            kind = "图片" if node.startswith("data:image/") else "文件"
+            return placeholder(kind, (len(node) - node.index(",") - 1) * 3 // 4), True
+        return node, False
+    if isinstance(node, dict):
+        changed = False
+        for k, v in node.items():
+            nv, c = strip_data_urls(v)
+            if c:
+                node[k] = nv
+                changed = True
+        return node, changed
+    if isinstance(node, list):
+        changed = False
+        for i, v in enumerate(node):
+            nv, c = strip_data_urls(v)
+            if c:
+                node[i] = nv
+                changed = True
+        return node, changed
+    return node, False
+
+
+def apply_codex(obj, policy, now, git_ids):
+    p, t = obj["payload"], obj["type"]
+    pt = p.get("type") if t in ("event_msg", "response_item") else None
+    ts = parse_ts(obj.get("timestamp"))
+    changed = False
+    if t == "session_meta":
+        src = p.get("source")
+        if isinstance(src, dict) and isinstance(src.get("subagent"), dict) and src["subagent"].get("other") == "guardian":
+            git_ids.add(GUARDIAN)
+    fields = CODEX_SYSTEM.get((t, pt), [])
+    if t == "response_item" and pt == "message" and (p.get("role") not in ("user", "assistant")
+                                                       or (p.get("role") == "user" and GUARDIAN in git_ids)):
+        fields = ["content"]
+    for f in fields:
+        if p.get(f) is not None and not is_cleaned(p[f]) and expired(policy["system"], ts, now):
+            p[f] = placeholder("系统记录", raw_len(p[f]))
+            changed = True
+    if t != "response_item":
+        return changed
+    if pt == "reasoning":
+        keys = [k for k in ("summary", "content", "encrypted_content") if p.get(k)]
+        if keys and not is_cleaned(p.get("encrypted_content")) and expired(policy["thinking"], ts, now):
+            n = sum(raw_len(p[k]) for k in keys)
+            for k in keys:
+                if k != "encrypted_content":
+                    p[k] = []
+            p["encrypted_content"] = placeholder("思考过程", n)
+            changed = True
+    elif pt in ("function_call", "custom_tool_call"):
+        k = "arguments" if pt == "function_call" else "input"
+        v = p.get(k)
+        if isinstance(v, str) and CODEX_GIT_RE.search(v):
+            git_ids.add(p.get("call_id"))
+        elif v is not None and not is_cleaned(v) and expired(policy["tool_use"], ts, now):
+            p[k] = placeholder("工具参数", raw_len(v))
+            changed = True
+    elif pt in ("function_call_output", "custom_tool_call_output"):
+        if p.get("call_id") not in git_ids and p.get("output") is not None and not is_cleaned(p["output"]) \
+                and expired(policy["tool_result"], ts, now):
+            p["output"] = placeholder("工具结果", raw_len(p["output"]))
+            changed = True
+    elif pt == "image_generation_call":
+        r = p.get("result")
+        if isinstance(r, str) and len(r) > 1000:
+            p["result"] = placeholder("图片", len(r) * 3 // 4)
+            changed = True
+    return changed
+
+
 def slim_line(line, policy, now, git_ids):
     """处理一行（含换行符），返回新的一行；None 表示整行去掉"""
     if '"api-request' in line:
@@ -181,6 +291,18 @@ def slim_line(line, policy, now, git_ids):
                 return None
         except (json.JSONDecodeError, AttributeError):
             pass
+    if '"payload"' in line:
+        try:
+            obj = json.loads(line)
+        except json.JSONDecodeError:
+            obj = None
+        if isinstance(obj, dict) and is_codex(obj):
+            obj, c0 = strip_data_urls(obj)
+            obj, c1 = strip_base64(obj)
+            c2 = apply_codex(obj, policy, now, git_ids)
+            if c0 or c1 or c2:
+                line = json.dumps(obj, ensure_ascii=False, separators=(",", ":")) + "\n"
+            return mask_secrets(line)
     if any(k in line for k in ('"base64"', '"thinking"', '"redacted_thinking"', '"type":"attachment"', '"tool_use"', '"tool_result"')):
         try:
             obj = json.loads(line)
@@ -203,8 +325,15 @@ def slim_file(src_path, dst_path, policy=DEFAULT_POLICY, now=None):
     now = now or now_from_env()
     git_ids = set()
     total_in = total_out = 0
-    with open(src_path, encoding="utf-8", errors="surrogateescape") as fin, \
-         open(dst_path, "w", encoding="utf-8", errors="surrogateescape") as fout:
+    # Codex 压过的旧会话（.jsonl.zst）用 zstd 命令边解压边读
+    if src_path.endswith(".zst"):
+        import io, subprocess
+        proc = subprocess.Popen(["zstd", "-dcq", src_path], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        fin_ctx = io.TextIOWrapper(proc.stdout, encoding="utf-8", errors="surrogateescape", newline="")
+    else:
+        fin_ctx = open(src_path, encoding="utf-8", errors="surrogateescape", newline="")
+    with fin_ctx as fin, \
+         open(dst_path, "w", encoding="utf-8", errors="surrogateescape", newline="") as fout:
         for line in fin:
             total_in += len(line.encode("utf-8", "surrogateescape"))
             out = slim_line(line, policy, now, git_ids)

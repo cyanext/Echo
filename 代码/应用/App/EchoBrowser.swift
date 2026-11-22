@@ -7,6 +7,9 @@ import UniformTypeIdentifiers
 struct EchoBrowserView: View {
     @EnvironmentObject var state: EchoState
     @AppStorage("filterComputer") private var computer = ""           // 空表示全部电脑
+    @AppStorage("filterApp") private var appFilter = ""               // 空表示全部应用（EchoSource 的 rawValue）
+    @State private var pickMenu: String? = ProcessInfo.processInfo.environment["ECHO_SHOT_MENU"]   // 左栏右上角展开的筛选菜单：computer、app（环境变量只给截图用）
+    @State private var multiApp = false                               // 有几个应用的会话，才显示应用筛选和会话行图标
     @AppStorage("dirState") private var dirStateRaw = ""               // 用户点过的目录：一行「路径\t1」展开、「路径\t0」收起
     @State private var sessionID: String?
     @State private var collectionID: String?
@@ -34,6 +37,7 @@ struct EchoBrowserView: View {
     @AppStorage("sidebarWidth") private var sideW: Double = 272        // 左栏宽，拖右边缘改，200 到 420（照 NAS 网站）
 
     private var computers: [String] { Array(Set(state.sessions.map(\.computer))).sorted() }
+    private var apps: [EchoSource] { EchoSource.allCases.filter { a in state.sessions.contains { $0.app == a } } }
     private var dirState: [String: Bool] {
         Dictionary(dirStateRaw.split(separator: "\n").compactMap { l -> (String, Bool)? in
             let f = l.split(separator: "\t"); return f.count == 2 ? (String(f[0]), f[1] == "1") : nil
@@ -53,6 +57,15 @@ struct EchoBrowserView: View {
     var body: some View {
         layout
         .overlay(alignment: .bottom) { EchoDropTip(drag: drag) }
+        .overlay(alignment: .topLeading) {
+            // 筛选菜单：盖在最上层，左栏右上角按钮下面；点外面任何地方收起
+            if pickMenu != nil {
+                ZStack(alignment: .topLeading) {
+                    Color.black.opacity(0.001).onTapGesture { pickMenu = nil }
+                    pickMenuView.frame(width: CGFloat(sideW) - 10, alignment: .trailing).padding(.top, 48)
+                }
+            }
+        }
         .onChange(of: state.openSessionID) { _, id in
             guard let id else { return }
             state.openSessionID = nil
@@ -77,7 +90,7 @@ struct EchoBrowserView: View {
             Button("取消", role: .cancel) {}
             Button("移到废纸篓", role: .destructive, action: commitDelete)
         } message: {
-            Text("Claude Code 里的原会话和回响的备份一起移走")
+            Text(Set(deleting.map(\.app)).count == 1 ? "\(deleting[0].app.title) 里的原会话和回响的备份一起移走" : "原会话和回响的备份一起移走")
         }
         .alert("挪好了", isPresented: Binding(get: { moveDone != nil }, set: { if !$0 { moveDone = nil; moveCmd = nil } })) {
             if let c = moveCmd {
@@ -116,6 +129,7 @@ struct EchoBrowserView: View {
         .onAppear { orderMap = decodeOrder(); regroup() }
         .onChange(of: state.sessions) { _, _ in regroup() }
         .onChange(of: computer) { _, _ in regroup() }
+        .onChange(of: appFilter) { _, _ in regroup() }
         .onChange(of: orderRaw) { _, _ in
             orderMap = decodeOrder()
             if orderSaving { orderSaving = false } else { tree = EchoOrder.arrange(baseTree, orderMap) }   // 别处改了顺序：只套顺序，不重建树
@@ -216,18 +230,28 @@ struct EchoBrowserView: View {
         }
         // 菜单在每次画行时就会构造，这里只按是不是本机的会话判断，不查文件；点下去时改名、删除、挪各自再查
         let local = s.computer == EchoPrefs.computerName
-        Button(local ? "改名…" : "改名…（会话在 \(s.computer) 上）") { startRename(.session(s)) }
-            .disabled(!local)
         let targets = group.count > 1 ? group : [s]
-        let movable = targets.allSatisfy { $0.computer == EchoPrefs.computerName }
-        Menu(!movable ? "移动到（会话在 \(s.computer) 上）" : group.count > 1 ? "把 \(group.count) 个会话移动到" : "移动到") {
-            ForEach(recentDirs(except: targets), id: \.self) { d in
-                Button((d as NSString).abbreviatingWithTildeInPath) { doMove(targets, d) }
+        if s.app == .codex, group.count < 2 {
+            // Codex 的会话：在 Codex 里改名；按日期存、不按文件夹，不挪
+            Button(local ? "复制恢复命令" : "复制恢复命令（会话在 \(s.computer) 上）") {
+                let cmd = "cd '\(s.meta.cwd.replacingOccurrences(of: "'", with: "'\\''"))' && codex resume \(s.sessionId)"
+                NSPasteboard.general.clearContents(); NSPasteboard.general.setString(cmd, forType: .string)
             }
-            Divider()
-            Button("选择文件夹…") { pickFolder(targets) }
+            .disabled(!local)
+        } else {
+            Button(local ? "改名…" : "改名…（会话在 \(s.computer) 上）") { startRename(.session(s)) }
+                .disabled(!local)
+            let movable = targets.allSatisfy { $0.computer == EchoPrefs.computerName && $0.app == .claude }
+            let why = targets.contains { $0.app != .claude } ? "（Codex 的会话不挪）" : "（会话在 \(s.computer) 上）"
+            Menu(!movable ? "移动到" + why : group.count > 1 ? "把 \(group.count) 个会话移动到" : "移动到") {
+                ForEach(recentDirs(except: targets), id: \.self) { d in
+                    Button((d as NSString).abbreviatingWithTildeInPath) { doMove(targets, d) }
+                }
+                Divider()
+                Button("选择文件夹…") { pickFolder(targets) }
+            }
+            .disabled(!movable)
         }
-        .disabled(!movable)
         Divider()
         if group.count > 1 {
             Button("把 \(group.count) 个会话移到废纸篓…") { deleting = group }
@@ -300,7 +324,8 @@ struct EchoBrowserView: View {
     }
 
     private func regroup() {
-        baseTree = EchoLibrary.dirTree(computer.isEmpty ? state.sessions : state.sessions.filter { $0.computer == computer })
+        baseTree = EchoLibrary.dirTree(state.sessions.filter { (computer.isEmpty || $0.computer == computer) && (appFilter.isEmpty || $0.app.rawValue == appFilter) })
+        multiApp = Set(state.sessions.map(\.app)).count > 1
         tree = EchoOrder.arrange(baseTree, orderMap)
         multiComputer = Set(state.sessions.map(\.computer)).count > 1
         currentID = session?.id
@@ -331,23 +356,28 @@ struct EchoBrowserView: View {
 
     private var sidebar: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack {
+            // 右上角两个筛选：电脑、应用，只放图标，点了出小菜单（设计稿 设计/多应用/）；只有一台电脑、一个应用时不显示
+            HStack(spacing: 4) {
                 Spacer()
                 if computers.count > 1 {
-                    Menu {
-                        Button("全部电脑") { computer = "" }
-                        ForEach(computers, id: \.self) { c in Button(c) { computer = c } }
-                    } label: {
-                        Text(computer.isEmpty ? "全部电脑" : computer).font(.system(size: 12))
-                    }
-                    .menuStyle(.borderlessButton)
-                    .fixedSize()
-                    .foregroundStyle(EchoColor.fg2)
+                    EchoPickButton(on: !computer.isEmpty, help: computer.isEmpty ? "全部电脑" : computer) {
+                        Image(systemName: "macbook").symbolRenderingMode(.monochrome).font(.system(size: 13))
+                    } action: { pickMenu = pickMenu == "computer" ? nil : "computer" }
+                }
+                if multiApp {
+                    EchoPickButton(on: false, help: EchoSource(rawValue: appFilter)?.title ?? "全部应用") {
+                        if let a = EchoSource(rawValue: appFilter), let i = EchoSettingsStyle.appIcon(a) {
+                            Image(nsImage: i).resizable().frame(width: 16, height: 16).clipShape(RoundedRectangle(cornerRadius: 3.5))
+                        } else {
+                            Image(systemName: "square.grid.2x2").font(.system(size: 12.5))
+                        }
+                    } action: { pickMenu = pickMenu == "app" ? nil : "app" }
                 }
             }
-            .padding(.leading, 80).padding(.trailing, 14)
+            .padding(.leading, 80).padding(.trailing, 10)
             .frame(height: 56)
             .background(EchoWindowDrag())                                     // 红绿灯那一行，按住能拖窗口
+
 
             if state.sessions.isEmpty {
                 empty
@@ -385,14 +415,12 @@ struct EchoBrowserView: View {
     /// 展开后先列子目录，再列直接在这一级开的会话
     private func dirSection(_ d: EchoDir, level: Int, group: String) -> AnyView {
         let open = isOpen(d, level: level)
-        let parts = d.name.components(separatedBy: " / ")
         return AnyView(Group {
             EchoRow(fill: nil) {
                 HStack(spacing: 6) {
                     // 展开按钮：照 NAS 网站目录树，收起朝右、展开朝下，自己有悬停底
                     EchoTwist(open: open) { toggle(d, level: level) }
-                    (Text(parts[0]).foregroundColor(EchoColor.fg)
-                        + Text(parts.count > 1 ? " / " + parts.dropFirst().joined(separator: " / ") : "").foregroundColor(EchoColor.fg3))
+                    Text(d.name).foregroundStyle(EchoColor.fg)
                         .font(.system(size: 13)).lineLimit(1)
                     Spacer(minLength: 4)
                     Text("\(d.count)").font(.system(size: 12)).foregroundStyle(EchoColor.fg3).monospacedDigit()
@@ -544,6 +572,20 @@ struct EchoBrowserView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    /// 筛选菜单：白底细框，一项一行（图标、名字），选中的文字用主色、右边一个小勾（设计稿 设计/多应用/）。点外面收起
+    @ViewBuilder
+    private var pickMenuView: some View {
+        if pickMenu == "computer" {
+            EchoPickMenu(width: 220, items: [("", AnyView(Image(systemName: "macbook").symbolRenderingMode(.monochrome)), "全部电脑")]
+                         + computers.map { ($0, AnyView(Image(systemName: "macbook").symbolRenderingMode(.monochrome)), $0) },
+                         selected: computer) { computer = $0; pickMenu = nil }
+        } else if pickMenu == "app" {
+            EchoPickMenu(width: 176, items: [("", AnyView(Image(systemName: "square.grid.2x2")), "全部")]
+                         + apps.map { a in (a.rawValue, AnyView(Group { if let i = EchoSettingsStyle.appIcon(a) { Image(nsImage: i).resizable().frame(width: 16, height: 16).clipShape(RoundedRectangle(cornerRadius: 3.5)).overlay(RoundedRectangle(cornerRadius: 3.5).strokeBorder(EchoColor.line, lineWidth: 0.5)) } }), a.title) },
+                         selected: appFilter) { appFilter = $0; pickMenu = nil }
+        }
     }
 
     /// 左下角：备份状态和立即备份

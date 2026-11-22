@@ -6,7 +6,6 @@
   const WD = "日一二三四五六";
   const IC = {
     tag: '<svg viewBox="0 0 24 24"><path d="M4 12.6V5.5A1.5 1.5 0 0 1 5.5 4h7.1l7.4 7.4a1.5 1.5 0 0 1 0 2.1l-6.5 6.5a1.5 1.5 0 0 1-2.1 0z"/><circle cx="8.5" cy="8.5" r="1.4"/></svg>',
-    commit: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.5"/><path d="M3 12h5.5M15.5 12H21"/></svg>',
   };
   const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
   const fmtN = (n) => Math.round(n).toLocaleString("en-US");
@@ -24,9 +23,13 @@
   // 模型显示名：claude-opus-5-5 → Opus 5.5
   const modelName = (id) => {
     const m = /^claude-([a-z]+)-(\d+)(?:-(\d+))?/.exec(id);
-    return m ? m[1][0].toUpperCase() + m[1].slice(1) + " " + m[2] + (m[3] && m[3].length < 3 ? "." + m[3] : "") : id;
+    if (m) return m[1][0].toUpperCase() + m[1].slice(1) + " " + m[2] + (m[3] && m[3].length < 3 ? "." + m[3] : "");
+    const g = /^gpt-([\d.]+)(?:-([a-z]+))?/.exec(id);   // gpt-6.1-sol → GPT-6.1 Sol
+    return g ? "GPT-" + g[1] + (g[2] ? " " + g[2][0].toUpperCase() + g[2].slice(1) : "") : id;
   };
 
+  let DATA = null;   // 这次整理好的数据（备份卡片要用 data.backup）
+  let appF = "";     // 会话页只看某个应用（会话的 a：codex 等，没写的是 claude）；空是全部，不记上次
   let prices = {}, TODAY, weeks = [], cur = 0, open = new Set();   // open：展开了全部会话的那几天（时间戳）
 
   function price(model) {
@@ -49,7 +52,8 @@
       if (!days.has(k)) days.set(k, { tot: 0, out: 0, usd: 0, msg: 0, ms: 0, lg: 0, sess: [], parts: [0, 0, 0, 0], models: {}, commits: [] });
       return days.get(k);
     };
-    for (const s of data.sessions) {
+    const sessions = data.sessions.filter((s) => !appF || (s.a || "claude") === appF);
+    for (const s of sessions) {
       for (const [k, v] of Object.entries(s.days)) {
         const d = day(k);
         let tot = 0, usd = 0;
@@ -67,15 +71,22 @@
     }
     for (const c of data.commits) {
       const dt = new Date(c.d), m = VER.exec(c.s);
-      day(key(dt)).commits.push({ p: c.p, s: m ? c.s.slice(m[0].length) || c.s : c.s, ver: m ? m[1] : "", a: c.a, r: c.r, f: c.f, time: +dt });
+      day(key(dt)).commits.push({ h: c.h || "", full: c.s, p: c.p, s: m ? c.s.slice(m[0].length) || c.s : c.s, ver: m ? m[1] : "", a: c.a, r: c.r, f: c.f, time: +dt });
     }
-    // 提交归到会话：同一项目、提交时间落在会话这天的起止之间（前后各放宽 10 分钟），几个都对得上取 Token 多的；对不上的算「其他提交」
+    // 提交归到会话：先看哪个会话里做了这次提交（会话的 g：git commit 输出里的提交号前 7 位，和「m:」加 git commit 命令里说明的第一行前 30 字），
+    // 在别的文件夹里提交的也对得上；没有的，同一项目、提交时间落在会话这天的起止之间（前后各放宽 10 分钟），几个都对得上取 Token 多的；
+    // 都对不上的只算进当天的提交次数（不单独列）
+    const owner = new Map(), msgKey = (m) => "m:" + Array.from((m.split("\n")[0] || "").trim()).slice(0, 30).join("");
+    for (const s of sessions) for (const h of s.g || []) owner.set(h.startsWith("m:") ? h : h.slice(0, 7), s.id);
     for (const d of days.values()) {
-      d.other = [];
       for (const c of d.commits) {
-        const hit = d.sess.filter((s) => s.p === c.p && c.time >= s.a - 6e5 && c.time <= s.b + 6e5).sort((a, b) => b.tot - a.tot)[0];
-        (hit ? hit.commits : d.other).push(c);
+        const sid = owner.get(c.h.slice(0, 7)) || owner.get(msgKey(c.full));
+        const hit = (sid && d.sess.find((s) => s.id === sid))
+          || d.sess.filter((s) => s.p === c.p && c.time >= s.a - 6e5 && c.time <= s.b + 6e5).sort((a, b) => b.tot - a.tot)[0];
+        if (hit) hit.commits.push(c);
       }
+      // 只看某个应用时，提交只算挂在这个应用会话上的
+      if (appF) d.commits = d.commits.filter((c) => d.sess.some((s) => s.commits.includes(c)));
     }
     // 从第一个有会话的周起，到这周
     const keys = [...days.keys()].filter((k) => days.get(k).sess.length).sort();
@@ -85,7 +96,7 @@
     for (let st = mon(first), wi = 0; st <= TODAY; st = addDays(st, 7), wi++) {
       const w = { wi, start: st, days: [], tot: 0, out: 0, usd: 0, msg: 0, ms: 0, lg: 0, commits: 0, add: 0, del: 0, files: new Set(), sids: new Set(), projs: new Set(), parts: [0, 0, 0, 0], models: {} };
       for (let i = 0; i < 7; i++) {
-        const date = addDays(st, i), k = key(date), d = days.get(k) || { tot: 0, out: 0, usd: 0, msg: 0, ms: 0, lg: 0, sess: [], parts: [0, 0, 0, 0], models: {}, commits: [], other: [] };
+        const date = addDays(st, i), k = key(date), d = days.get(k) || { tot: 0, out: 0, usd: 0, msg: 0, ms: 0, lg: 0, sess: [], parts: [0, 0, 0, 0], models: {}, commits: [] };
         const x = { ...d, date, fut: date > TODAY };
         x.sess = [...d.sess].sort((a, b) => b.tot - a.tot);
         w.days.push(x);
@@ -100,11 +111,13 @@
   }
 
   // 数字卡：近 8 周小柱子，选中的周用主色；右上和前 4 周同期（周一到同一天）平均比
+  // 小字只留一项、写短（「指标卡的文案要精简一下」）：上万的行数写成「万」
+  const wan = (n) => n >= 1e4 ? (n / 1e4).toFixed(1).replace(/\.0$/, "") + " 万" : fmtN(n);
   const KPI = [
-    { l: "Token", f: (w) => w.tot, big: (w) => [fmtM(w.tot), ""], s: (w) => `其中输出 ${fmtM(w.out)} · 折合 ${fmtU(w.usd)}` },
-    { l: "我的消息", f: (w) => w.msg, big: (w) => [fmtN(w.msg), "条"], s: (w) => `在 ${w.sids.size} 个会话里` },
+    { l: "Token", f: (w) => w.tot, big: (w) => [fmtM(w.tot), ""], s: (w) => `折合 ${fmtU(w.usd)}` },
+    { l: "我的消息", f: (w) => w.msg, big: (w) => [fmtN(w.msg), "条"], s: (w) => `${w.sids.size} 个会话` },
     { l: "AI 时长", f: (w) => w.ms / 3.6e6, big: (w) => [(w.ms / 3.6e6).toFixed(1), "小时"], s: (w) => `最长一轮 ${Math.round(w.lg / 6e4)} 分钟` },
-    { l: "Git 提交", f: (w) => w.commits, big: (w) => [fmtN(w.commits), "次"], s: (w) => `+${fmtN(w.add)} −${fmtN(w.del)} 行 · ${fmtN(w.files.size)} 个文件` },
+    { l: "Git 提交", f: (w) => w.commits, big: (w) => [fmtN(w.commits), "次"], s: (w) => `+${wan(w.add)} −${wan(w.del)} 行` },
   ];
   const SPAN = 8;
   // 同期：前几周只取周一到「今天是周几」那天
@@ -120,7 +133,7 @@
     $("kpis").innerHTML = KPI.map((k, ki) => {
       const val = k.f(w), avg = prev.reduce((a, x) => a + upto(x, n, DAYF[ki]), 0) / (prev.length || 1), d = avg ? Math.round((val / avg - 1) * 100) : null;
       const [num, unit] = k.big(w), mx = Math.max(...win.map(k.f)) || 1;
-      return `<div class="card kpi"><div class="l">${k.l}${d === null ? "" : `<span class="dl" data-tip="比前 ${prev.length} 周同期平均">${d >= 0 ? "↑" : "↓"} ${Math.abs(d)}%</span>`}</div>
+      return `<div class="card kpi"><div class="l">${k.l}${d === null ? "" : `<span class="dl ${d >= 0 ? "up" : "down"}" data-tip="比前 ${prev.length} 周同期平均">${d >= 0 ? "↑" : "↓"} ${Math.abs(d)}%</span>`}</div>
         <div class="v">${num}${unit ? `<small>${unit}</small>` : ""}</div><div class="s">${k.s(w)}</div>
         <div class="spark">${win.map((x) => `<i class="${x === w ? "on" : ""}" data-i="${x.wi}" data-tip="${wname(x)}" style="height:${Math.max(2, k.f(x) / mx * 24)}px"></i>`).join("")}</div></div>`;
     }).join("");
@@ -154,15 +167,6 @@
     $("cal").innerHTML = h + `</div></div>`;
   }
 
-  // 对不上会话的提交：一个项目并成一行，有版本写版本号（最多 3 个），说明取发版那条或最近一条
-  function commitLine(list, label) {
-    const cs = [...list].sort((a, b) => b.time - a.time), ver = [];
-    let msg = "";
-    cs.forEach((c) => { if (c.ver && !ver.includes(c.ver)) { ver.push(c.ver); if (ver.length === 1) msg = c.s; } });
-    if (!msg) msg = cs[0].s;
-    return `<div class="other">${IC.commit}<span class="t">${ver.length ? `<b data-tip="${ver.join("、")}">${ver.slice(0, 3).join(" · ")}${ver.length > 3 ? ` 等 ${ver.length} 个版本` : ""}</b>` : ""}${esc(msg)}</span><span class="x">${esc(label)} · ${cs.length} 次提交</span></div>`;
-  }
-
   // 会话表一行：会话（标题、灰字项目路径，有发版的第二行放版本标签）、Token、我的消息、AI 时长、时间、Git 提交
   const COLS = `<div class="row cols"><span>会话</span><span>Token</span><span>我的消息</span><span>AI 时长</span><span>时间</span><span>Git 提交</span></div>`;
   function sessRow(s) {
@@ -179,7 +183,7 @@
   }
 
   // 本周：从今天往前一天一张卡。卡头日期（点了展开或收起）和当天的量；下面会话表，按 Token 先列 4 个，
-  // 「还有 N 个会话」点开就地展开；对不上会话的提交放在卡底。点日历某天也是展开那天
+  // 「还有 N 个会话」点开就地展开；对不上会话的提交不单独列，只算进合计。点日历某天也是展开那天
   const hm = (t) => { const d = new Date(t); return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`; };
   const dur = (ms) => ms >= 3.6e6 ? (ms / 3.6e6).toFixed(1) + " 小时" : Math.max(1, Math.round(ms / 6e4)) + " 分钟";
   function week() {
@@ -188,17 +192,14 @@
     if (!w.sids.size) { el.innerHTML = h + `<div class="card"><div class="empty">这周没有会话</div></div>`; return; }
     w.days.slice().reverse().forEach((x) => {
       if (x.fut) return;
-      const t = +x.date, isToday = t === +TODAY, other = x.other || [], all = open.has(t);
-      const meta = x.tot || x.msg ? `${fmtM(x.tot)} · ${fmtU(x.usd)} · ${x.msg} 条消息 · ${x.sess.length} 个会话${x.commits.length ? ` · ${x.commits.length} 次提交` : ""}` : "没有会话";
-      h += `<section class="card day" data-t="${t}"><div class="day-head"><b class="date" data-t="${t}">${md(x.date)} 周${WD[x.date.getDay()]}</b>${isToday ? `<span class="today">今天</span>` : ""}<span class="meta">${meta}</span></div>`;
+      const t = +x.date, isToday = t === +TODAY, all = open.has(t);
+      // 卡头只写日期；当天的合计放在会话表底下一行「合计」，对齐各列（合计挤在卡头右边太丑，放卡头按列对齐也怪）
+      const has = x.tot || x.msg, ms = x.sess.reduce((a, s) => a + (s.ms || 0), 0);
+      h += `<section class="card day" data-t="${t}"><div class="day-head"><b class="date" data-t="${t}">${md(x.date)} 周${WD[x.date.getDay()]}</b>${isToday ? `<span class="today">今天</span>` : ""}${has ? "" : `<span class="cnt">没有会话</span>`}</div>`;
       if (x.sess.length) {
         const list = all ? x.sess : x.sess.slice(0, 4), rest = x.sess.length - 4;
-        h += `<div class="table">${COLS}${list.map(sessRow).join("")}</div>` + (rest > 0 ? `<div class="toggle" data-t="${t}">${all ? "收起" : `还有 ${rest} 个会话`}</div>` : "");
-      }
-      if (other.length) {
-        const byP = new Map();
-        other.forEach((c) => byP.set(c.p, [...(byP.get(c.p) || []), c]));
-        h += `<div class="others">${[...byP.entries()].map(([p, cs]) => commitLine(cs, p)).join("")}</div>`;
+        h += `<div class="table">${COLS}${list.map(sessRow).join("")}</div>` + (rest > 0 ? `<div class="toggle" data-t="${t}">${all ? "收起" : `还有 ${rest} 个会话`}</div>` : "")
+          + `<div class="row sum"><div class="name"><b>合计</b><span class="cnt">${x.sess.length} 个会话</span></div><span class="num strong" data-tip="折合 ${fmtU(x.usd)}">${fmtM(x.tot)}</span><span class="num">${x.msg} 条</span><span class="num">${ms ? dur(ms) : ""}</span><span></span><span class="num">${x.commits.length ? `${x.commits.length} 次` : ""}</span></div>`;
       }
       h += `</section>`;
     });
@@ -226,14 +227,90 @@
     $("money").innerHTML = `<h2>用量<span class="note">这周折合 ${fmtU(w.usd)}</span></h2>` + row("按用途", parts) + row("按模型", models);
   }
 
+  // 备份：累计（顶上三个数）、各应用（会话数、原会话 → 备份）、备份日志（一天一行，由每次备份追加的记录汇总）。
+  // 数据由 Swift 整理时一并给 data.backup：{last, apps: [{app, sessions, src, bak, gone}], log: [{t, app, files, written, failed, in, out, cleanFreed, autoDel, autoDelBytes}]}
+  // 顶上不放密钥打码数（「密钥不用了」）；Claude 里不活跃会话移进废纸篓叫「自动清理」，不写删除
+  const APP = { claude: "Claude Code", codex: "Codex", workbuddy: "WorkBuddy" };
+  const fmtB = (n) => { if (!n) return "0"; if (n < 1024) return n + " B"; let v = n; for (const u of ["KB", "MB", "GB", "TB"]) { v /= 1024; if (v < 1000 || u === "TB") return (v < 10 ? v.toFixed(1) : Math.round(v)) + " " + u; } };
+  let logAll = false;
+  function backup() {
+    const b = DATA && DATA.backup, el = $("backup");
+    if (!(b && b.apps && b.apps.length)) { el.innerHTML = `<div class="card"><div class="empty">还没有备份过</div></div>`; return; }
+    const dayOf = (iso) => { const d = new Date(iso); return new Date(d.getFullYear(), d.getMonth(), d.getDate()); };
+    const when = b.last ? `上次备份 ${+dayOf(b.last) === +TODAY ? "今天" : md(dayOf(b.last))} ${hm(+new Date(b.last))}` : "还没有备份过";
+    const log = b.log || [], sum = (f) => log.reduce((a, x) => a + (x[f] || 0), 0);
+    const src = b.apps.reduce((a, x) => a + x.src, 0), bak = b.apps.reduce((a, x) => a + x.bak, 0);
+    const gone = b.apps.reduce((a, x) => a + (x.gone || 0), 0);
+    // 备份页：顶上三张数字卡（和会话页的指标卡同样式）、各应用一张卡、备份日志一张卡
+    const stat = (l, v, s) => `<div class="card kpi"><div class="l">${l}</div><div class="v">${v}</div><div class="s">${s}</div></div>`;
+    let h = `<div class="kpis bkstats">`
+      + stat("已备份", `${fmtN(b.apps.reduce((a, x) => a + x.sessions, 0))}<small>个会话</small>`, gone ? `${fmtN(gone)} 个原文件已清理，只在备份里` : "原文件都还在")
+      + stat("占用", `${fmtB(bak)}`, `原会话 ${fmtB(src)}，省 ${src ? Math.round((1 - bak / src) * 100) : 0}%`)
+      + stat("自动清理", `${fmtN(sum("autoDel"))}<small>个会话</small>`, `腾出 ${fmtB(sum("autoDelBytes"))}，清理备份又腾出 ${fmtB(sum("cleanFreed"))}`)
+      + `</div><section class="card"><h2>各应用<span class="note">${when}</span></h2>`;
+    h += b.apps.map((x) => {
+      const pct = x.src ? Math.max(0, Math.round((1 - x.bak / x.src) * 100)) : 0;
+      return `<div class="bk"><div class="bk-head"><img src="app-${x.app}.svg" alt=""><span>${APP[x.app] || x.app}</span><span class="cnt">${fmtN(x.sessions)} 个会话</span>
+        <span class="sz">${fmtB(x.src)} → <b>${fmtB(x.bak)}</b></span><em>省 ${pct}%</em></div>
+        <div class="bkbar"><i style="width:${x.src ? Math.min(100, x.bak / x.src * 100) : 0}%"></i></div></div>`;
+    }).join("") + `</section>`;
+    // 备份日志：按天并起来，新的在上
+    const byDay = new Map();
+    for (const x of log) { const k = +dayOf(x.t); byDay.set(k, [...(byDay.get(k) || []), x]); }
+    const days = [...byDay.entries()].sort((a, b2) => b2[0] - a[0]);
+    if (days.length) {
+      const list = logAll ? days : days.slice(0, 7);
+      h += `<section class="card"><h2>备份日志<span class="note">共 ${days.length} 天、${new Set(log.map((x) => x.t)).size} 次</span></h2><div class="row bkrow cols"><span>日期</span><span>次数</span><span>写入</span><span>原 → 备份</span><span>清理腾出</span><span>自动清理</span><span>结果</span></div>`
+        + list.map(([k, xs]) => {
+          const s2 = (f) => xs.reduce((a, x) => a + (x[f] || 0), 0), runs = new Set(xs.map((x) => x.t)).size, failed = s2("failed"), err = (xs.find((x) => x.error) || {}).error;
+          const apps = [...new Set(xs.filter((x) => APP[x.app]).map((x) => APP[x.app]))].join("、");
+          return `<div class="row bkrow"><span class="d" data-tip="${apps}">${+k === +TODAY ? "今天" : md(new Date(k))}</span><span class="num">${runs} 次</span>
+            <span class="num">${fmtN(s2("written"))} 个文件</span><span class="num">${s2("written") ? `${fmtB(s2("in"))} → ${fmtB(s2("out"))}` : ""}</span>
+            <span class="num">${s2("cleanFreed") ? fmtB(s2("cleanFreed")) : ""}</span><span class="num">${s2("autoDel") ? `${s2("autoDel")} 个，${fmtB(s2("autoDelBytes"))}` : ""}</span>
+            <span class="num ${failed || err ? "warn" : "ok"}"${err ? ` data-tip="${esc(err)}"` : ""}>${err ? "没备份成" : failed ? `${failed} 个文件失败` : "成功"}</span></div>`;
+        }).join("")
+        + (days.length > 7 ? `<div class="toggle" id="bkmore">${logAll ? "收起" : `再显示 ${days.length - 7} 天`}</div>` : "") + `</section>`;
+    }
+    el.innerHTML = h;
+    const more = $("bkmore");
+    if (more) more.onclick = () => { logAll = !logAll; backup(); };
+  }
+
   function draw() {
     const none = !weeks.length;
     $("blank").hidden = !none;
     document.querySelector(".main").classList.toggle("none", none);
     document.querySelector(".page").hidden = none;
     if (none) { $("blank").innerHTML = Blank.html("empty", "还没有会话", "备份完成后，这里按周显示 Token、消息、AI 时长和 Git 提交"); return; }
-    hero(); cal(); week(); money();
+    const bk = view === "backup";
+    document.querySelector(".main").classList.toggle("bkview", bk);
+    document.querySelector(".page:not(.bkpage)").hidden = bk;
+    $("backup").hidden = !bk;
+    document.querySelectorAll("#view b").forEach((x) => x.classList.toggle("on", x.dataset.v === view));
+    appPick();
+    if (bk) backup(); else { hero(); cal(); week(); money(); }
   }
+  // 应用筛选：会话页右上角一个图标按钮（全部是四宫格，选了一个是它的图标），点了出小菜单；只有一个应用有会话时不显示（设计稿 设计/多应用/）
+  const GRID = '<svg viewBox="0 0 24 24"><rect x="4" y="4" width="6.5" height="6.5" rx="1.6"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.6"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.6"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.6"/></svg>';
+  const appIcon = (a) => a ? `<img class="ai" src="app-${a}.svg" alt="">` : GRID;
+  function appPick() {
+    const el = $("appf"), apps = ["claude", "codex", "workbuddy"].filter((a) => DATA && DATA.sessions && DATA.sessions.some((s) => (s.a || "claude") === a));
+    el.hidden = view === "backup" || apps.length < 2;
+    if (el.hidden) return;
+    const CK = '<svg class="ck" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>';
+    el.innerHTML = `<span class="pb" data-tip="${appF ? APP[appF] : "全部应用"}">${appIcon(appF)}<svg class="dn" viewBox="0 0 24 24"><path d="m7 10 5 5 5-5"/></svg></span>`
+      + `<div class="pmenu" hidden>${["", ...apps].map((a) => `<div class="mi${a === appF ? " on" : ""}" data-a="${a}"><span class="ic">${appIcon(a)}</span><span class="nm">${a ? APP[a] : "全部"}</span>${a === appF ? CK : ""}</div>`).join("")}</div>`;
+  }
+  $("appf").onclick = (e) => {
+    const menu = $("appf").querySelector(".pmenu"), it = e.target.closest(".mi");
+    if (it) { appF = it.dataset.a; menu.hidden = true; build(DATA); draw(); return; }
+    if (e.target.closest(".pb")) { menu.hidden = !menu.hidden; e.stopPropagation(); }
+  };
+  document.addEventListener("click", (e) => { const m = document.querySelector("#appf .pmenu"); if (m && !e.target.closest("#appf")) m.hidden = true; });
+
+  // 右上角切换：会话 / 备份，每次打开先看会话，不记上次
+  let view = "sess";
+  $("view").onclick = (e) => { const b = e.target.closest("b"); if (!b || b.dataset.v === view) return; view = b.dataset.v; draw(); };
 
   // 占位用的假数据：第一次整理总览要十几秒，先用它按真实版式画一遍，外面加 .ui-skel 变成灰块（照 NAS 网站公共层的自动占位）
   function fake() {
@@ -258,6 +335,7 @@
     const page = document.querySelector(".page");
     page.classList.toggle("ui-skel", skel);
     const was = weeks[cur] && +weeks[cur].start;
+    DATA = skel ? null : d;
     build(skel ? fake() : d);
     const i = keepWeek && was ? weeks.findIndex((w) => +w.start === was) : -1;
     cur = i >= 0 ? i : weeks.length - 1;
@@ -279,6 +357,6 @@
     const s = e.target.closest(".sess[data-id]");                  // 会话：打开
     if (s) post({ open: s.dataset.id });
   };
-  Tip.init(".name .title, .name .path, .other .t");   // 被省略的会话名、路径、提交说明，悬停看全文
+  Tip.init(".name .title, .name .path");   // 被省略的会话名、路径，悬停看全文
   load(false);
 })();
