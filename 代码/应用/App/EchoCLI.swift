@@ -1,5 +1,5 @@
 // 命令行工具 ech（需求 需求文档/版本需求/待定-ech命令和skill.html）：和应用同一个程序，用 ech 这个名字调用时走这里，不开窗口。
-// 查询命令只读备份、本机索引和总览数据；backup 和回响的「立即备份」同一套；mv 和左栏目录右键「改名」同一套。输出纯文本，给各家 Agent 读，--json 给脚本用。
+// 查询命令只读备份、本机索引和总览数据；backup 和回响的「立即备份」同一套；mv 和左栏目录右键「改名」同一套。输出纯文本，给各家 AI 读，--json 给脚本用。
 import Foundation
 
 enum EchoCLI {
@@ -554,7 +554,7 @@ enum EchoCLI {
     }
 
     static var skillDir: URL { URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".claude/skills/ech") }
-    /// Codex 的 skill 目录：本机装了 Codex（有 ~/.codex）时也装一份，哪家 Agent 都能用
+    /// Codex 的 skill 目录：本机装了 Codex（有 ~/.codex）时也装一份，哪家 AI 都能用
     static var codexSkillDir: URL? {
         let codex = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".codex")
         return FileManager.default.fileExists(atPath: codex.path) ? codex.appendingPathComponent("skills/ech") : nil
@@ -625,7 +625,8 @@ enum EchoCLIInstall {
     static func refreshIfInstalled() {
         guard installed, let target else { return }
         let dest = try? FileManager.default.destinationOfSymbolicLink(atPath: link.path)
-        let staleSkill = EchoCLI.bundledSkill.flatMap(EchoCLI.skillVersion) != EchoCLI.skillVersion(EchoCLI.skillDir)
+        let want = EchoCLI.bundledSkill.flatMap(EchoCLI.skillVersion)
+        let staleSkill = want != EchoCLI.skillVersion(EchoCLI.skillDir) || EchoCLI.codexSkillDir.map { want != EchoCLI.skillVersion($0) } == true
         if dest != target || staleSkill {
             do { try install() } catch { NSLog("回响：更新命令行工具失败：%@", error.localizedDescription) }
         }

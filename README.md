@@ -37,7 +37,7 @@
 
 ## ech 命令
 
-回响带的命令行工具，哪家 Agent 都能用，装在 `~/.local/bin/ech`（指向应用里的程序）；配套的 skill 装在 `~/.claude/skills/ech`，本机有 Codex 时也装到 `~/.codex/skills/ech`。首次设置完成时自动装，设置「通用」里能重装；回响升级后启动时 skill 跟着更新。用法 `ech help`，参数 `ech schema [命令]`：
+回响带的命令行工具，哪家 AI 都能用，装在 `~/.local/bin/ech`（指向应用里的程序）；配套的 skill 装在 `~/.claude/skills/ech`，本机有 Codex 时也装到 `~/.codex/skills/ech`。首次设置完成时自动装，设置「通用」里能重装；回响升级后启动时 skill 跟着更新。用法 `ech help`，参数 `ech schema [命令]`：
 
 | 命令 | 做什么 |
 |---|---|
