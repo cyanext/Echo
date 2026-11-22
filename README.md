@@ -16,12 +16,12 @@
 
 | 文件 | 管什么 |
 |---|---|
-| `EchoApp.swift` | 入口、主菜单、设置项（EchoPrefs）、全局状态（EchoState：备份、会话列表、总览、改名删除合集） |
+| `EchoApp.swift` | 入口、主菜单、设置项（EchoPrefs）、全局状态（EchoState：备份、会话列表、总览、改名删除移动合集） |
 | `EchoBackup.swift` | 从 `~/.claude/projects` 增量备份，挑文件的规则 |
 | `EchoSlim.swift` | 按行读文件、瘦身（去掉图片等大块） |
 | `EchoLibrary.swift` | 扫备份出会话列表、目录树，路径和时间的公共函数 |
 | `EchoExport.swift` | 会话整理成对话页要的数据，规则以 `代码/原型/export.py` 为准 |
-| `EchoEdit.swift` | 改名、合集、删除 |
+| `EchoEdit.swift` | 改名、合集、删除、移动（含移动记录） |
 | `EchoStats.swift` | 总览的数：每天的消息、时长、Token，Git 提交 |
 | `EchoBrowser.swift` | 浏览窗口：左栏目录树、右栏切换、底部备份状态 |
 | `EchoWeb.swift` | 右栏网页：对话、总览，`echo://app/` 取文件和数据 |
@@ -31,7 +31,7 @@
 ## 开发
 
 - 编译：`zsh 代码/应用/build.sh`，输出 `代码/应用/dist/回响.app`，临时签名。`zsh 代码/应用/build.sh install` 装到 `~/Applications` 并重新打开。
-- 测试：`zsh 代码/应用/tests/run.sh [会话.jsonl…]`：瘦身和消息显示和原型现场生成的结果比对，备份规则、改名、合集、删除、隐藏标记、总览统计，要点栏取点（node）。改了 `代码/应用/App/`、`Web/app.js` 必跑。看总览在真实备份上整理得对不对、要多久：测试程序带 `--overview <备份目录> <输出.json>`。
+- 测试：`zsh 代码/应用/tests/run.sh [会话.jsonl…]`：瘦身和消息显示和原型现场生成的结果比对，备份规则、改名、合集、删除、移动、隐藏标记、总览统计，要点栏取点（node）。改了 `代码/应用/App/`、`Web/app.js` 必跑。看总览在真实备份上整理得对不对、要多久：测试程序带 `--overview <备份目录> <输出.json>`。
 - 验收全量备份：编出测试程序后运行 `test --backup <临时目录>`，跑两遍，看大小、文件数和耗时。
 
 ## 版本和发版

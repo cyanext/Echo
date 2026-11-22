@@ -1,7 +1,7 @@
 // 改名和合集。
 // 改名写回原会话：在 ~/.claude 里的会话文件末尾追加一行 custom-title（和 Claude Code 自己 /rename 一样），已有的行一行不动；
 // 会话目录里有 custom-title.json 时一并改。只能改本机的会话。
-// 删除见文件末尾 EchoDelete。
+// 删除、移动见文件末尾 EchoDelete、EchoMove。
 // 合集：几个会话按时间连起来看，存在备份目录的 合集.json（iCloud 同步，两台电脑都能看到），原文件不动。
 import Foundation
 
@@ -141,5 +141,107 @@ enum EchoDelete {
         let prefix = String(p.rel.dropLast(6)) + "/"
         r.files = r.files.filter { $0.key != p.rel && !$0.key.hasPrefix(prefix) }
         try? r.save(p.record)
+    }
+}
+
+/// 移动：把本机会话挪到另一个文件夹，规则见 CLAUDE.md「数据安全」。
+/// Claude Code 按工作目录把会话放在 ~/.claude/projects/<目录编码>/ 下，/resume 只找当前文件夹的，所以要挪文件：
+/// 原会话和同名目录挪到新文件夹的项目目录，备份跟着挪、备份记录改键；文件内容一行不动。
+/// 会话文件里记的工作目录还是旧的，回响用「移动记录」显示新文件夹（EchoMoved）。
+/// 只挪本机的；2 分钟内还在写、正在 Claude 里开着、新位置已有同一个会话的不挪。
+enum EchoMove {
+    struct Paths {
+        var original: URL, backup: URL          // 现在的位置
+        var newOriginal: URL, newBackup: URL    // 挪到的位置
+        var record: URL                         // 备份/<电脑名>/备份记录.json
+        var rel: String, newRel: String         // <项目目录>/<会话ID>.jsonl
+    }
+
+    /// Claude Code 的项目目录名：路径里字母、数字以外的字符都换成「-」，按 UTF-16 算（中文一个字一个）
+    static func projectDirName(_ path: String) -> String {
+        String(path.utf16.map { c -> Character in
+            (48...57).contains(c) || (65...90).contains(c) || (97...122).contains(c) ? Character(UnicodeScalar(UInt8(c))) : "-"
+        })
+    }
+
+    static func paths(for s: EchoSession, to dir: String, source: URL = EchoBackup.source) -> Paths? {
+        guard s.computer == EchoPrefs.computerName else { return nil }
+        let oldDir = s.url.deletingLastPathComponent().lastPathComponent, name = s.url.lastPathComponent
+        let original = source.appendingPathComponent(oldDir).appendingPathComponent(name)
+        guard FileManager.default.fileExists(atPath: original.path) else { return nil }
+        let newDir = projectDirName(dir)
+        let backupProjects = s.url.deletingLastPathComponent().deletingLastPathComponent()
+        return Paths(original: original, backup: s.url,
+                     newOriginal: source.appendingPathComponent(newDir).appendingPathComponent(name),
+                     newBackup: backupProjects.appendingPathComponent(newDir).appendingPathComponent(name),
+                     record: backupProjects.deletingLastPathComponent().appendingPathComponent("备份记录.json"),
+                     rel: oldDir + "/" + name, newRel: newDir + "/" + name)
+    }
+
+    /// 正在 Claude 里开着的会话：~/.claude/sessions/<进程号>.json 里记着会话 ID，进程还在
+    static func isOpen(_ sessionId: String, sessionsDir: URL = EchoBackup.source.deletingLastPathComponent().appendingPathComponent("sessions")) -> Bool {
+        let files = (try? FileManager.default.contentsOfDirectory(at: sessionsDir, includingPropertiesForKeys: nil)) ?? []
+        return files.contains { f in
+            guard f.pathExtension == "json", let d = try? Data(contentsOf: f),
+                  let o = try? JSONSerialization.jsonObject(with: d) as? [String: Any],
+                  o["sessionId"] as? String == sessionId, let pid = o["pid"] as? Int32, pid > 1 else { return false }
+            return kill(pid, 0) == 0 || errno == EPERM
+        }
+    }
+
+    static func fail(_ text: String) -> Error { CocoaError(.fileWriteUnknown, userInfo: [NSLocalizedDescriptionKey: text]) }
+
+    /// 先挪原会话（文件、同名目录），再挪备份；原会话挪到一半出错就挪回去。open 测试时替换
+    static func move(_ p: Paths, sessionId: String, open: (String) -> Bool = { isOpen($0) }) throws {
+        let fm = FileManager.default
+        guard p.rel != p.newRel else { return }
+        guard p.newOriginal.deletingLastPathComponent().lastPathComponent.count <= 200 else { throw fail("文件夹路径太长，Claude Code 认不出") }
+        if EchoRename.isActive(p.original) { throw fail("会话正在进行（2 分钟内还在写），结束后再挪") }
+        if open(sessionId) { throw fail("会话正在 Claude 里开着，先关掉（MintPop 里归档那个会话，或在终端里退出 Claude）再挪") }
+        let pairs = [(p.original, p.newOriginal), (p.backup, p.newBackup)]
+        for (_, to) in pairs where fm.fileExists(atPath: to.path) || fm.fileExists(atPath: to.deletingPathExtension().path) {
+            throw fail("新文件夹里已经有这个会话")
+        }
+        var done: [(URL, URL)] = []
+        do {
+            for (from, to) in pairs {
+                try fm.createDirectory(at: to.deletingLastPathComponent(), withIntermediateDirectories: true)
+                for (f, t) in [(from, to), (from.deletingPathExtension(), to.deletingPathExtension())] where fm.fileExists(atPath: f.path) {
+                    try fm.moveItem(at: f, to: t)
+                    done.append((f, t))
+                }
+            }
+        } catch {
+            for (f, t) in done.reversed() { try? fm.moveItem(at: t, to: f) }
+            throw error
+        }
+        // 备份记录改键，下次备份不会再拷一遍
+        var r = EchoBackupRecord.load(p.record)
+        let oldPrefix = String(p.rel.dropLast(6)) + "/", newPrefix = String(p.newRel.dropLast(6)) + "/"
+        var files: [String: EchoFileStamp] = [:]
+        for (k, v) in r.files {
+            if k == p.rel { files[p.newRel] = v }
+            else if k.hasPrefix(oldPrefix) { files[newPrefix + k.dropFirst(oldPrefix.count)] = v }
+            else { files[k] = v }
+        }
+        r.files = files
+        try? r.save(p.record)
+    }
+}
+
+/// 移动记录：备份/<电脑名>/移动记录.json，会话 ID → 挪到的文件夹。会话文件里的工作目录不改，左栏、总览、恢复命令按这里的显示
+enum EchoMoved {
+    static func url(_ computerDir: URL) -> URL { computerDir.appendingPathComponent("移动记录.json") }
+
+    static func load(_ computerDir: URL) -> [String: String] {
+        (try? Data(contentsOf: url(computerDir))).flatMap { try? JSONDecoder().decode([String: String].self, from: $0) } ?? [:]
+    }
+
+    static func add(_ moves: [String: String], _ computerDir: URL) throws {
+        guard !moves.isEmpty else { return }
+        let all = load(computerDir).merging(moves) { _, new in new }
+        let enc = JSONEncoder()
+        enc.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+        try enc.encode(all).write(to: url(computerDir), options: .atomic)
     }
 }

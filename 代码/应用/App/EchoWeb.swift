@@ -43,6 +43,7 @@ enum EchoTarget: Hashable {
             var d = try EchoExport.export(s.url, computer: s.computer)
             var meta = d["meta"] as! [String: Any]
             meta["local"] = s.computer == EchoPrefs.computerName
+            if !s.meta.cwd.isEmpty { meta["cwd"] = s.meta.cwd }   // 挪过文件夹的，恢复命令用新文件夹
             d["meta"] = meta
             return d
         case .collection(let c, let m):

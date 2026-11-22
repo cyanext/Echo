@@ -126,8 +126,13 @@ private struct EchoScanCache: Codable {
 }
 
 enum EchoLibrary {
+    /// 本机缓存和暂存目录。测试程序（-D TEST）用临时目录，免得把测试数据写进回响真实的缓存和「上次的总览」
     static var supportDir: URL {
+        #if TEST
+        let u = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("回响测试")
+        #else
         let u = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("回响")
+        #endif
         try? FileManager.default.createDirectory(at: u, withIntermediateDirectories: true)
         return u
     }
@@ -145,6 +150,7 @@ enum EchoLibrary {
         }
         let computers = list(backupRoot, [.isDirectoryKey])
         for c in computers {
+            let moved = EchoMoved.load(c)   // 挪过文件夹的会话按新文件夹显示
             let projects = c.appendingPathComponent("projects")
             for p in list(projects) {
                 let keys: Set<URLResourceKey> = [.fileSizeKey, .contentModificationDateKey]
@@ -157,7 +163,9 @@ enum EchoLibrary {
                     else { continue }
                     fresh.entries[f.path] = .init(stamp: stamp, meta: meta)
                     if meta.start.isEmpty { continue }   // 一条对话都没有的空会话不列
-                    out.append(EchoSession(url: f, sessionId: String(f.lastPathComponent.dropLast(6)), computer: c.lastPathComponent, size: stamp.size, meta: meta))
+                    let sid = String(f.lastPathComponent.dropLast(6))
+                    if let cwd = moved[sid] { meta.cwd = cwd }
+                    out.append(EchoSession(url: f, sessionId: sid, computer: c.lastPathComponent, size: stamp.size, meta: meta))
                 }
             }
         }

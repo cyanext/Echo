@@ -14,6 +14,12 @@ struct EchoBrowserView: View {
     @State private var newTitle = ""
     @State private var editError: String?
     @State private var deleting: [EchoSession] = []
+    @State private var errorTitle = "没改成"
+    @State private var moveList: [EchoSession] = []                    // 拖到目录上、等确认要挪的会话
+    @State private var moveDir = ""
+    @State private var moveDone: String?                               // 挪好后的提示和恢复命令
+    @State private var moveCmd: String?
+    @State private var dropTarget: String?                             // 拖着会话经过的目录，标白底
     @State private var tree: [EchoDir] = []                            // 会话列表变了才重新分组，不在每次刷新时算
     @State private var showAll: Set<String> = []                       // 点过「再显示」的项目
     @State private var showOverview = true                             // 打开窗口默认停在总览
@@ -85,7 +91,22 @@ struct EchoBrowserView: View {
         } message: {
             Text("Claude Code 里的原会话和回响的备份一起移走")
         }
-        .alert("没改成", isPresented: Binding(get: { editError != nil }, set: { if !$0 { editError = nil } })) {
+        .alert(moveList.count > 1 ? "把 \(moveList.count) 个会话挪到这个文件夹？" : "把「\(moveList.first?.meta.title ?? "")」挪到这个文件夹？",
+               isPresented: Binding(get: { !moveList.isEmpty }, set: { if !$0 { moveList = [] } })) {
+            Button("取消", role: .cancel) {}
+            Button("挪过去") { let l = moveList, d = moveDir; doMove(l, d) }
+        } message: {
+            Text("\((moveDir as NSString).abbreviatingWithTildeInPath)\nClaude Code 里的原会话和回响的备份一起挪，挪完在这个文件夹续上")
+        }
+        .alert("挪好了", isPresented: Binding(get: { moveDone != nil }, set: { if !$0 { moveDone = nil; moveCmd = nil } })) {
+            if let c = moveCmd {
+                Button("复制恢复命令") { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(c, forType: .string) }
+            }
+            Button("好", role: .cancel) {}
+        } message: {
+            Text(moveDone ?? "")
+        }
+        .alert(errorTitle, isPresented: Binding(get: { editError != nil }, set: { if !$0 { editError = nil; errorTitle = "没改成" } })) {
             Button("好", role: .cancel) {}
         } message: {
             Text(editError ?? "")
@@ -118,6 +139,56 @@ struct EchoBrowserView: View {
         do { try state.delete(list) } catch { editError = error.localizedDescription }
     }
 
+    /// 挪会话：先算好新位置，挪完当前打开的会话跟过去；有错只报错（带上挪成了几个），全成了提示恢复命令
+    private func doMove(_ list: [EchoSession], _ dir: String) {
+        let dir = (dir as NSString).standardizingPath
+        let newIDs = Dictionary(list.compactMap { s in EchoMove.paths(for: s, to: dir).map { (s.id, $0.newBackup.path) } }, uniquingKeysWith: { a, _ in a })
+        let r = state.move(list, to: dir)
+        picked = []
+        if let cur = sessionID, r.done.contains(where: { $0.id == cur }), let n = newIDs[cur] { sessionID = n }
+        if let e = r.error {
+            errorTitle = "没挪成"
+            editError = (r.done.isEmpty ? "" : "挪成了 \(r.done.count) 个，其余没挪：") + e.localizedDescription
+            return
+        }
+        guard !r.done.isEmpty else { return }
+        let shown = (dir as NSString).abbreviatingWithTildeInPath
+        if r.done.count == 1, let s = r.done.first {
+            moveCmd = "cd '\(dir.replacingOccurrences(of: "'", with: "'\\''"))' && claude --resume \(s.sessionId)"
+            moveDone = "已挪到 \(shown)，在终端或 MintPop 里用恢复命令续上"
+        } else {
+            moveDone = "\(r.done.count) 个会话已挪到 \(shown)"
+        }
+    }
+
+    /// 「移动到」里列的文件夹：本机最近用过的会话目录，去掉这几个会话现在所在的，最多 8 个
+    private func recentDirs(except list: [EchoSession]) -> [String] {
+        let skip = Set(list.map(\.projectPath))
+        var seen = Set<String>(), out: [String] = []
+        let local = state.sessions.filter { $0.computer == EchoPrefs.computerName }
+            .sorted { ($0.endDate ?? .distantPast) > ($1.endDate ?? .distantPast) }
+        for s in local {
+            let p = s.projectPath
+            guard !skip.contains(p), p.hasPrefix("/"), seen.insert(p).inserted, FileManager.default.fileExists(atPath: p) else { continue }
+            out.append(p)
+            if out.count == 8 { break }
+        }
+        return out
+    }
+
+    private func pickFolder(_ list: [EchoSession]) {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.canCreateDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.prompt = "挪到这里"
+        panel.message = "选一个文件夹，会话挪过去后在那里续上"
+        if let p = list.first?.projectPath, FileManager.default.fileExists(atPath: p) { panel.directoryURL = URL(fileURLWithPath: p) }
+        guard panel.runModal() == .OK, let u = panel.url else { return }
+        doMove(list, u.path)
+    }
+
     private func link(_ list: [EchoSession]) {
         do {
             let c = try state.addCollection(list)
@@ -143,6 +214,16 @@ struct EchoBrowserView: View {
         }
         Button(EchoRename.originalURL(for: s) == nil ? "改名…（会话在 \(s.computer) 上）" : "改名…") { startRename(.session(s)) }
             .disabled(EchoRename.originalURL(for: s) == nil)
+        let targets = group.count > 1 ? group : [s]
+        let movable = targets.allSatisfy { EchoRename.originalURL(for: $0) != nil }
+        Menu(!movable ? "移动到（会话在 \(s.computer) 上）" : group.count > 1 ? "把 \(group.count) 个会话移动到" : "移动到") {
+            ForEach(recentDirs(except: targets), id: \.self) { d in
+                Button((d as NSString).abbreviatingWithTildeInPath) { doMove(targets, d) }
+            }
+            Divider()
+            Button("选择文件夹…") { pickFolder(targets) }
+        }
+        .disabled(!movable)
         Divider()
         if group.count > 1 {
             Button("把 \(group.count) 个会话移到废纸篓…") { deleting = group }
@@ -152,7 +233,7 @@ struct EchoBrowserView: View {
         }
         if group.count < 2 {
             Divider()
-            Text("⌘ 点选几个会话，可以连起来看或一起删")
+            Text("⌘ 点选几个会话，可以连起来看、一起挪或一起删；把会话拖到目录上也能挪")
         }
     }
 
@@ -290,7 +371,7 @@ struct EchoBrowserView: View {
         let open = isOpen(d, level: level)
         let parts = d.name.components(separatedBy: " / ")
         return AnyView(Group {
-            EchoRow(fill: nil) {
+            EchoRow(fill: dropTarget == d.path ? EchoColor.sideOn : nil, shadow: dropTarget == d.path) {
                 HStack(spacing: 6) {
                     // 展开按钮：照 NAS 网站目录树，收起朝右、展开朝下，自己有悬停底
                     EchoTwist(open: open) { toggle(d, level: level) }
@@ -306,6 +387,18 @@ struct EchoBrowserView: View {
                 toggle(d, level: level)
             }
             .background(guides(level))
+            .dropDestination(for: String.self) { items, _ in
+                // 拖来的是会话的 id（几个选中的用换行连起来）；已经在这个目录的不算
+                let ids = Set(items.flatMap { $0.split(separator: "\n").map(String.init) })
+                let list = state.sessions.filter { ids.contains($0.id) && $0.projectPath != d.path }
+                dropTarget = nil
+                guard !list.isEmpty else { return false }
+                moveDir = d.path
+                moveList = list
+                return true
+            } isTargeted: { on in
+                if on { dropTarget = d.path } else if dropTarget == d.path { dropTarget = nil }
+            }
             .padding(.top, level == 0 ? 8 : 0)   // 顶层目录之间多空一点，靠留白分组，不加图标
             .help((d.path as NSString).abbreviatingWithTildeInPath)
 
@@ -364,6 +457,7 @@ struct EchoBrowserView: View {
             }
         }
         .contextMenu { sessionMenu(s) }
+        .draggable(picked.contains(s.id) && picked.count > 1 ? picked.sorted().joined(separator: "\n") : s.id)
     }
 
     private var empty: some View {
