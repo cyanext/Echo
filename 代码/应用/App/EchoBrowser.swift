@@ -208,8 +208,10 @@ struct EchoBrowserView: View {
     /// 目录右键：移动到、在访达中显示、复制路径、移到废纸篓。删除只删会话（本机的原会话和备份一起进废纸篓，其他电脑的只删备份），文件夹本身不动
     @ViewBuilder
     private func dirMenu(_ d: EchoDir) -> some View {
-        let movable = d.all.filter { $0.app == .claude && $0.computer == EchoPrefs.computerName }
+        let movable = sessionsUnder(d).filter { $0.app == .claude && $0.computer == EchoPrefs.computerName }
         let exists = FileManager.default.fileExists(atPath: d.path)
+        Button("改名…") { renameDir(d) }
+            .disabled(!exists)
         Menu(movable.isEmpty ? "移动到（没有可移动的会话）" : "移动到") {
             ForEach(recentDirs(except: d.all).filter { !$0.hasPrefix(d.path + "/") && $0 != d.path }, id: \.self) { t in
                 Button((t as NSString).abbreviatingWithTildeInPath) { confirmDirMove(d, to: t) }
@@ -223,6 +225,62 @@ struct EchoBrowserView: View {
         Button("复制路径") { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(d.path, forType: .string) }
         Divider()
         Button("移到废纸篓…") { confirmDelete(d.all, folder: d.name) }
+    }
+
+    /// 这个目录和子目录下的全部会话，不管左栏的电脑、应用、日期筛选（改名、移动目录要带上看不到的会话）
+    private func sessionsUnder(_ d: EchoDir) -> [EchoSession] {
+        state.sessions.filter { let p = EchoPath.real($0.projectPath); return p == d.path || p.hasPrefix(d.path + "/") }
+    }
+
+    /// 目录改名：改访达里的文件夹名，本机的 Claude 会话一起移到新名字下（和「移动到」同一套）。
+    /// 先查一遍：有会话正在进行或在 Claude 里开着就不改；Codex 的、只剩备份的、在别的电脑上的跟不过去，确认框里写清
+    private func renameDir(_ d: EchoDir) {
+        let all = sessionsUnder(d)
+        let local = all.filter { $0.app == .claude && $0.computer == EchoPrefs.computerName && EchoRename.originalURL(for: $0) != nil }
+        let others = all.count - local.count
+        let field = NSTextField(string: d.name)
+        field.frame = NSRect(x: 0, y: 0, width: 260, height: 24)
+        let a = NSAlert()
+        a.messageText = "将「\(d.name)」改名"
+        var info = "访达中的文件夹会一起改名" + (local.isEmpty ? "。" : "，其中 \(local.count) 个 Claude 会话移到新名字下，之后在新文件夹中恢复会话。")
+        if others > 0 { info += "\n\(others) 个 Codex、仅有备份或在其他电脑上的会话不会跟过去，左栏仍显示在原名下。" }
+        if d.path.hasPrefix(NSHomeDirectory() + "/伙伴云NAS/") { info += "\n该文件夹在伙伴云 NAS 上，改名会同步给其他人。" }
+        a.informativeText = info
+        a.accessoryView = field
+        a.addButton(withTitle: "改名")
+        a.addButton(withTitle: "取消")
+        a.window.initialFirstResponder = field
+        guard a.runModal() == .alertFirstButtonReturn else { return }
+        let name = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty, name != d.name else { return }
+        errorTitle = "改名失败"
+        guard !name.contains("/"), !name.hasPrefix(".") else { editError = "名字里不能有「/」，也不能以「.」开头"; return }
+        let fm = FileManager.default
+        let target = ((d.path as NSString).deletingLastPathComponent as NSString).appendingPathComponent(name)
+        guard !fm.fileExists(atPath: target) else { editError = "同一位置已有「\(name)」"; return }
+        if let busy = local.first(where: { s in EchoRename.originalURL(for: s).map(EchoRename.isActive) == true || EchoMove.isOpen(s.sessionId) }) {
+            editError = "「\(busy.meta.title)」正在进行或在 Claude 中打开，请结束后再改名"
+            return
+        }
+        do { try fm.moveItem(atPath: d.path, toPath: target) } catch { editError = error.localizedDescription; return }
+        // 文件夹改好了，会话按子路径跟过去
+        var groups: [String: [EchoSession]] = [:]
+        for s in local {
+            let p = EchoPath.real(s.projectPath)
+            groups[target + String(p.dropFirst(d.path.count)), default: []].append(s)
+        }
+        var done = 0, firstError: Error?
+        for (to, list) in groups {
+            let r = state.move(list, to: to)
+            done += r.done.count
+            if let cur = sessionID, r.done.contains(where: { $0.id == cur }) { sessionID = nil }
+            firstError = firstError ?? r.error
+        }
+        if let e = firstError {
+            editError = "文件夹已改名，已移动 \(done) 个会话，其余未移动：" + e.localizedDescription
+        } else {
+            errorTitle = "操作未完成"
+        }
     }
 
     private func pickDirTarget(_ d: EchoDir) {
@@ -246,7 +304,7 @@ struct EchoBrowserView: View {
         guard target != d.path, !target.hasPrefix(d.path + "/") else { return }
         let fm = FileManager.default
         var groups: [String: [EchoSession]] = [:], skipped = 0, missing = 0
-        for s in d.all {
+        for s in sessionsUnder(d) {
             guard s.app == .claude, s.computer == EchoPrefs.computerName else { skipped += 1; continue }
             let real = EchoPath.real(s.projectPath)
             let rel = real == d.path ? "" : real.hasPrefix(d.path + "/") ? String(real.dropFirst(d.path.count)) : ""
