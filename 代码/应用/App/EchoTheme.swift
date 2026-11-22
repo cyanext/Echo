@@ -225,6 +225,7 @@ struct EchoPickMenu: View {
     let width: CGFloat
     let items: [(id: String, icon: AnyView, title: String)]
     let selected: String
+    var icons = true                     // 每项图标都一样时（日期）不画图标栏
     let pick: (String) -> Void
     @State private var hover: String?
     var body: some View {
@@ -232,7 +233,7 @@ struct EchoPickMenu: View {
             ForEach(items, id: \.id) { it in
                 let on = it.id == selected
                 HStack(spacing: 4) {
-                    it.icon.font(.system(size: 13)).foregroundStyle(on ? EchoColor.accent : EchoColor.fg3).frame(width: 24, alignment: .leading)
+                    if icons { it.icon.font(.system(size: 13)).foregroundStyle(on ? EchoColor.accent : EchoColor.fg3).frame(width: 24, alignment: .leading) }
                     Text(it.title).font(.system(size: 13, weight: on ? .medium : .regular)).lineLimit(1)
                         .foregroundStyle(on ? EchoColor.accentText : EchoColor.fg)
                     Spacer(minLength: 8)

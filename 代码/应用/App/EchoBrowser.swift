@@ -8,7 +8,8 @@ struct EchoBrowserView: View {
     @EnvironmentObject var state: EchoState
     @AppStorage("filterComputer") private var computer = ""           // 空表示全部电脑
     @AppStorage("filterApp") private var appFilter = ""               // 空表示全部应用（EchoSource 的 rawValue）
-    @State private var pickMenu: String? = ProcessInfo.processInfo.environment["ECHO_SHOT_MENU"]   // 左栏右上角展开的筛选菜单：computer、app（环境变量只给截图用）
+    @State private var days = 0                                       // 日期筛选：最近几天用过的会话，0 表示全部时间；不记住，每次打开窗口都是全部（会话少了容易以为丢了）
+    @State private var pickMenu: String? = ProcessInfo.processInfo.environment["ECHO_SHOT_MENU"]   // 左栏右上角展开的筛选菜单：computer、app、date（环境变量只给截图用）
     @State private var multiApp = false                               // 有几个应用的会话，才显示应用筛选和会话行图标
     @AppStorage("dirState") private var dirStateRaw = ""               // 用户点过的目录：一行「路径\t1」展开、「路径\t0」收起
     @State private var sessionID: String?
@@ -122,6 +123,7 @@ struct EchoBrowserView: View {
         .onChange(of: state.sessions) { _, _ in regroup() }
         .onChange(of: computer) { _, _ in regroup() }
         .onChange(of: appFilter) { _, _ in regroup() }
+        .onChange(of: days) { _, _ in regroup() }
         .onChange(of: orderRaw) { _, _ in
             orderMap = decodeOrder()
             if orderSaving { orderSaving = false } else { tree = EchoOrder.arrange(baseTree, orderMap) }   // 别处改了顺序：只套顺序，不重建树
@@ -329,7 +331,11 @@ struct EchoBrowserView: View {
     }
 
     private func regroup() {
-        baseTree = EchoLibrary.dirTree(state.sessions.filter { (computer.isEmpty || $0.computer == computer) && (appFilter.isEmpty || $0.app.rawValue == appFilter) })
+        let since = days > 0 ? Calendar.current.date(byAdding: .day, value: 1 - days, to: Calendar.current.startOfDay(for: Date())) : nil
+        baseTree = EchoLibrary.dirTree(state.sessions.filter {
+            (computer.isEmpty || $0.computer == computer) && (appFilter.isEmpty || $0.app.rawValue == appFilter)
+                && (since == nil || ($0.endDate ?? .distantPast) >= since!)
+        })
         multiApp = Set(state.sessions.map(\.app)).count > 1
         tree = EchoOrder.arrange(baseTree, orderMap)
         multiComputer = Set(state.sessions.map(\.computer)).count > 1
@@ -361,7 +367,7 @@ struct EchoBrowserView: View {
 
     private var sidebar: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // 右上角两个筛选：电脑、应用，只放图标，点了出小菜单（设计稿 设计/多应用/）；只有一台电脑、一个应用时不显示
+            // 右上角筛选：电脑、应用、日期，只放图标，点了出小菜单（设计稿 设计/多应用/）；只有一台电脑、一个应用时不显示那一个，日期一直在
             HStack(spacing: 4) {
                 Spacer()
                 if computers.count > 1 {
@@ -378,6 +384,9 @@ struct EchoBrowserView: View {
                         }
                     } action: { pickMenu = pickMenu == "app" ? nil : "app" }
                 }
+                EchoPickButton(on: days > 0, help: Self.dayTitle(days)) {
+                    Image(systemName: "calendar").font(.system(size: 13))
+                } action: { pickMenu = pickMenu == "date" ? nil : "date" }
             }
             .padding(.leading, 80).padding(.trailing, 10)
             .frame(height: 56)
@@ -392,6 +401,10 @@ struct EchoBrowserView: View {
                         overviewRow
                         collectionSection
                         ForEach(tree) { d in dirSection(d, level: 0, group: "/") }
+                        if tree.isEmpty {
+                            Text(days > 0 ? "\(Self.dayTitle(days))没有用过的会话" : "没有符合筛选条件的会话")
+                                .font(.system(size: 12)).foregroundStyle(EchoColor.fg3).padding(.leading, 10).padding(.top, 14)
+                        }
                     }
                     .padding(.horizontal, 10).padding(.bottom, 12)
                 }
@@ -579,6 +592,10 @@ struct EchoBrowserView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
+    /// 日期筛选的几档：按会话最后用过的时间，「今天」从今天 0 点起，「最近 7 天」含今天共 7 天
+    static let dayChoices = [0, 1, 7, 30, 90]
+    static func dayTitle(_ n: Int) -> String { n == 0 ? "全部时间" : n == 1 ? "今天" : "最近 \(n) 天" }
+
     /// 筛选菜单：白底细框，一项一行（图标、名字），选中的文字用主色、右边一个小勾（设计稿 设计/多应用/）。点外面收起
     @ViewBuilder
     private var pickMenuView: some View {
@@ -590,6 +607,9 @@ struct EchoBrowserView: View {
             EchoPickMenu(width: 176, items: [("", AnyView(Image(systemName: "square.grid.2x2")), "全部")]
                          + apps.map { a in (a.rawValue, AnyView(Group { if let i = EchoSettingsStyle.appIcon(a) { EchoAppLogo(app: a, image: i, size: 16) } }), a.title) },
                          selected: appFilter) { appFilter = $0; pickMenu = nil }
+        } else if pickMenu == "date" {
+            EchoPickMenu(width: 148, items: Self.dayChoices.map { ("\($0)", AnyView(EmptyView()), Self.dayTitle($0)) },
+                         selected: "\(days)", icons: false) { days = Int($0) ?? 0; pickMenu = nil }
         }
     }
 
