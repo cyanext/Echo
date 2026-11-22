@@ -84,40 +84,58 @@ enum EchoBackup {
         let staging = try makeStaging()
         defer { try? fm.removeItem(at: staging) }
 
-        // 2. 和备份记录比，变了才写
-        var sinceSave = 0
-        for (n, f) in todo.enumerated() {
-            progress(n, todo.count)
+        // 2. 和备份记录比，变了才写。多个文件同时写（大的先排），备份记录、计数、进度用锁护着
+        let lock = NSLock()
+        var sinceSave = 0, processed = 0
+        var cleanEntries: [String: EchoCleanRecord.Entry] = [:]
+        let order = todo.indices.sorted { todo[$0].stamp.size > todo[$1].stamp.size }
+        DispatchQueue.concurrentPerform(iterations: order.count) { k in
+            let f = todo[order[k]]
             let out = dest.appendingPathComponent(f.rel)
-            if record.files[f.rel] == f.stamp, fm.fileExists(atPath: out.path) {
-                result.skipped += 1
-                continue
+            defer {
+                lock.lock()
+                processed += 1
+                progress(processed, todo.count)
+                lock.unlock()
+            }
+            lock.lock()
+            let same = record.files[f.rel] == f.stamp
+            lock.unlock()
+            if same, fm.fileExists(atPath: out.path) {
+                lock.lock(); result.skipped += 1; lock.unlock()
+                return
             }
             do {
                 try fm.createDirectory(at: out.deletingLastPathComponent(), withIntermediateDirectories: true)
                 // 先写到本机暂存目录，写完再一步挪进备份目录（place）
                 let tmp = staging.appendingPathComponent(UUID().uuidString + ".echo-tmp")
+                var bytesIn = f.stamp.size, bytesOut = f.stamp.size
+                var stats: EchoSlim.Stats?
                 if f.action == .slim {
                     let s = try EchoSlim.slimFile(f.url, to: tmp, policy: policy)
-                    result.bytesIn += Int64(s.bytesIn)
-                    result.bytesOut += Int64(s.bytesOut)
+                    bytesIn = Int64(s.bytesIn); bytesOut = Int64(s.bytesOut); stats = s
                 } else {
                     try fm.copyItem(at: f.url, to: tmp)
-                    result.bytesIn += f.stamp.size
-                    result.bytesOut += f.stamp.size
                 }
                 try place(tmp, at: out)
+                let entry = stats.flatMap { EchoCleanRecord.entry(for: out, policy: policy, stats: $0) }
+                lock.lock()
+                result.bytesIn += bytesIn
+                result.bytesOut += bytesOut
                 record.files[f.rel] = f.stamp
+                if let entry { cleanEntries[out.path] = entry }
                 result.copied += 1
                 sinceSave += 1
                 if sinceSave >= 50 {   // 中途退出也不用全部重来
                     try? record.save(recordURL)
                     sinceSave = 0
                 }
+                lock.unlock()
             } catch {
-                result.failures.append((f.rel, error.localizedDescription))
+                lock.lock(); result.failures.append((f.rel, error.localizedDescription)); lock.unlock()
             }
         }
+        EchoCleanRecord.merge(cleanEntries)
         progress(todo.count, todo.count)
         if result.failures.isEmpty { record.lastSuccess = Date() }
         try record.save(recordURL)

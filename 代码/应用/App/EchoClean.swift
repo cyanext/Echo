@@ -3,11 +3,55 @@
 // - 能释放 1 MB 以上或一成以上的文件才重写，免得每天都往废纸篓丢文件；第一次（升级后）全部过一遍，连密钥打码一起。
 // - 重写：在暂存目录写好新文件，旧文件移进废纸篓（能放回），新文件挪到原位置；挪不过去就把旧文件从废纸篓放回来。
 // - 备份记录不改：它记的是原会话的大小和时间，清理只改备份文件。
+// - 省步骤：清理记录（本机）记着每个备份文件「最早什么时候有内容到期」，文件没变、期限没改、还没到那天的直接跳过；
+//   写备份时也记一笔，刚写好的文件当天不用再看。多个文件同时处理。
 import Foundation
+
+/// 清理记录：本机 ~/Library/Application Support/回响/清理记录.json，备份文件路径 → 大小、修改时间、期限、最早到期
+enum EchoCleanRecord {
+    struct Entry: Codable, Equatable { var stamp: EchoFileStamp; var policy: String; var next: Double }
+    private static let lock = NSLock()
+    private static var url: URL { EchoLibrary.supportDir.appendingPathComponent("清理记录.json") }
+    /// 没有会到期内容的文件，最早到期是无穷大：JSON 里写成字符串 "inf"（默认编码遇到无穷大会报错，整份记录就写不出来）
+    private static func decode(_ d: Data) -> [String: Entry]? {
+        let dec = JSONDecoder()
+        dec.nonConformingFloatDecodingStrategy = .convertFromString(positiveInfinity: "inf", negativeInfinity: "-inf", nan: "nan")
+        return try? dec.decode([String: Entry].self, from: d)
+    }
+    private static func encode(_ r: [String: Entry]) -> Data? {
+        let enc = JSONEncoder()
+        enc.nonConformingFloatEncodingStrategy = .convertToString(positiveInfinity: "inf", negativeInfinity: "-inf", nan: "nan")
+        return try? enc.encode(r)
+    }
+
+    static func load() -> [String: Entry] {
+        lock.lock(); defer { lock.unlock() }
+        return (try? Data(contentsOf: url)).flatMap(decode) ?? [:]
+    }
+
+    /// 合并进去（备份和清理各写各的那几项）
+    static func merge(_ add: [String: Entry]) {
+        guard !add.isEmpty else { return }
+        lock.lock(); defer { lock.unlock() }
+        var all = (try? Data(contentsOf: url)).flatMap(decode) ?? [:]
+        all.merge(add) { _, new in new }
+        if let d = encode(all) { try? d.write(to: url, options: .atomic) }
+    }
+
+    static func stamp(_ u: URL) -> EchoFileStamp? {
+        guard let v = try? u.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey]) else { return nil }
+        return EchoFileStamp(size: Int64(v.fileSize ?? 0), mtime: v.contentModificationDate?.timeIntervalSince1970 ?? 0)
+    }
+
+    /// 写好一个备份文件后记一笔：stats 是写它时瘦身的结果
+    static func entry(for u: URL, policy: EchoPolicy, stats: EchoSlim.Stats) -> Entry? {
+        stamp(u).map { Entry(stamp: $0, policy: policy.key, next: stats.nextExpiry) }
+    }
+}
 
 enum EchoClean {
     struct Result {
-        var files = 0, rewritten = 0
+        var files = 0, rewritten = 0, skipped = 0
         var bytesBefore: Int64 = 0, bytesAfter: Int64 = 0
         var failures: [(path: String, message: String)] = []
         var freed: Int64 { bytesBefore - bytesAfter }
@@ -26,44 +70,73 @@ enum EchoClean {
         return r as URL?
     }
 
-    /// computerDir 是 备份/<电脑名>/。dryRun 只算能释放多少；force 不看门槛，有改动就重写（升级后第一次）
+    /// 没到门槛、先不重写的文件：过几天再看（到期的内容会越攒越多）
+    static let recheck: Double = 3 * 86400
+
+    /// computerDir 是 备份/<电脑名>/。dryRun 只算能释放多少；force 不看门槛、不看清理记录，有改动就重写（升级后第一次）
     static func run(computerDir: URL, policy: EchoPolicy, dryRun: Bool = false, force: Bool = false,
-                    remove: (URL) throws -> URL? = trash) throws -> Result {
+                    remove: @escaping (URL) throws -> URL? = trash) throws -> Result {
         let fm = FileManager.default
         let root = computerDir.appendingPathComponent("projects")
-        var result = Result()
-        guard let en = fm.enumerator(at: root, includingPropertiesForKeys: [.isRegularFileKey], options: [.skipsHiddenFiles]) else { return result }
+        guard let en = fm.enumerator(at: root, includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey], options: [.skipsHiddenFiles]) else { return Result() }
+        // 大文件先排，几个线程的活儿分得匀
+        let files = en.compactMap { $0 as? URL }.filter { $0.pathExtension == "jsonl" }
+            .sorted { (EchoCleanRecord.stamp($0)?.size ?? 0) > (EchoCleanRecord.stamp($1)?.size ?? 0) }
+        let record = force ? [:] : EchoCleanRecord.load()
         let staging = dryRun ? nil : try EchoBackup.makeStaging()
         defer { if let staging { try? fm.removeItem(at: staging) } }
-        for case let url as URL in en where url.pathExtension == "jsonl" {
-            result.files += 1
+        let now = policy.now.timeIntervalSince1970
+        let removeLock = NSLock()   // 移到废纸篓一个个来
+
+        struct One { var before: Int64 = 0, after: Int64 = 0, rewritten = false, skipped = false, failure: String?, entry: EchoCleanRecord.Entry? }
+        let parts = EchoParallel.map(files) { url -> One in
+            var o = One()
+            guard let stamp = EchoCleanRecord.stamp(url) else { return o }
+            o.before = stamp.size
+            o.after = stamp.size
+            // 文件没变、期限没改、还没到最早到期那天：不用看
+            if let e = record[url.path], e.stamp == stamp, e.policy == policy.key, now < e.next { o.skipped = true; return o }
             do {
                 if dryRun {
                     let s = try EchoSlim.slimFile(url, to: nil, policy: policy)
-                    let w = worth(before: s.bytesIn, after: s.bytesOut)
-                    result.bytesBefore += Int64(s.bytesIn)
-                    result.bytesAfter += Int64(w ? s.bytesOut : s.bytesIn)
-                    continue
+                    if worth(before: s.bytesIn, after: s.bytesOut) { o.after = Int64(s.bytesOut) }
+                    return o
                 }
                 let tmp = staging!.appendingPathComponent(UUID().uuidString + ".echo-tmp")
                 let s = try EchoSlim.slimFile(url, to: tmp, policy: policy)
-                result.bytesBefore += Int64(s.bytesIn)
                 guard s.changedLines + s.droppedLines > 0, force || worth(before: s.bytesIn, after: s.bytesOut) else {
-                    result.bytesAfter += Int64(s.bytesIn)
                     try? fm.removeItem(at: tmp)
-                    continue
+                    let next = s.changedLines + s.droppedLines > 0 ? min(s.nextExpiry, now + recheck) : s.nextExpiry
+                    o.entry = .init(stamp: stamp, policy: policy.key, next: next)
+                    return o
                 }
-                let old = try remove(url)
+                removeLock.lock()
+                let old = Swift.Result { try remove(url) }
+                removeLock.unlock()
+                let oldURL = try old.get()
                 do { try EchoBackup.place(tmp, at: url) } catch {
-                    if let old, !fm.fileExists(atPath: url.path) { try? fm.moveItem(at: old, to: url) }
+                    if let oldURL, !fm.fileExists(atPath: url.path) { try? fm.moveItem(at: oldURL, to: url) }
                     throw error
                 }
-                result.bytesAfter += Int64(s.bytesOut)
-                result.rewritten += 1
+                o.after = Int64(s.bytesOut)
+                o.rewritten = true
+                o.entry = EchoCleanRecord.entry(for: url, policy: policy, stats: s)
             } catch {
-                result.failures.append((String(url.path.dropFirst(root.path.count + 1)), error.localizedDescription))
+                o.failure = error.localizedDescription
             }
+            return o
         }
+        var result = Result(), entries: [String: EchoCleanRecord.Entry] = [:]
+        for (url, o) in zip(files, parts) {
+            result.files += 1
+            result.bytesBefore += o.before
+            result.bytesAfter += o.after
+            if o.rewritten { result.rewritten += 1 }
+            if o.skipped { result.skipped += 1 }
+            if let f = o.failure { result.failures.append((String(url.path.dropFirst(root.path.count + 1)), f)) }
+            if let e = o.entry { entries[url.path] = e }
+        }
+        if !dryRun { EchoCleanRecord.merge(entries) }
         return result
     }
 }

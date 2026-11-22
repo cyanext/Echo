@@ -19,7 +19,7 @@
 | `EchoApp.swift` | 入口、主菜单、设置项（EchoPrefs）、全局状态（EchoState：备份、会话列表、总览、改名删除移动合集） |
 | `EchoBackup.swift` | 从 `~/.claude/projects` 增量备份，挑文件的规则 |
 | `EchoSlim.swift` | 按行读文件；写备份的规则：去掉图片、请求记录，按保留期限换成占位，密钥打码 |
-| `EchoClean.swift` | 清理备份：按保留期限重写到期的备份文件，旧文件进废纸篓 |
+| `EchoClean.swift` | 清理备份：按保留期限重写到期的备份文件，旧文件进废纸篓；清理记录（本机）记每个文件最早到期，没到的跳过 |
 | `EchoStorage.swift` | 设置「存储」页的数：备份各类占用、消息数，Claude 会话数和占用 |
 | `EchoOnboarding.swift` | 首次设置（第一次打开时的四步引导） |
 | `EchoLibrary.swift` | 扫备份出会话列表、目录树，路径和时间的公共函数 |

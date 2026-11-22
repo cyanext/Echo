@@ -42,6 +42,17 @@ enum EchoPath {
     }
 }
 
+/// 多个文件同时处理：并发算每一项，结果按原顺序。f 要线程安全
+enum EchoParallel {
+    static func map<T, R>(_ items: [T], _ f: (T) -> R) -> [R] {
+        var out = [R?](repeating: nil, count: items.count)
+        out.withUnsafeMutableBufferPointer { buf in
+            DispatchQueue.concurrentPerform(iterations: items.count) { buf[$0] = f(items[$0]) }
+        }
+        return out.map { $0! }
+    }
+}
+
 enum EchoTime {
     nonisolated(unsafe) private static let frac: ISO8601DateFormatter = {
         let f = ISO8601DateFormatter()
@@ -49,7 +60,44 @@ enum EchoTime {
         return f
     }()
     nonisolated(unsafe) private static let plain = ISO8601DateFormatter()
-    static func parse(_ s: String) -> Date? { s.isEmpty ? nil : frac.date(from: s) ?? plain.date(from: s) }
+    /// Claude Code 的时间「2026-11-04T11:41:10.072Z」按位置取数字直接算（fastEpoch），别的格式才用格式器：
+    /// 格式器要拿 ICU 的全局锁，几十万行并发处理时线程全卡在锁上（11-22 实测总览冷启动 15 秒，换掉后 1 秒）
+    static func parse(_ s: String) -> Date? {
+        if s.isEmpty { return nil }
+        if let t = fastEpoch(s) { return Date(timeIntervalSince1970: t) }
+        return frac.date(from: s) ?? plain.date(from: s)
+    }
+
+    /// 只认「YYYY-MM-DDTHH:MM:SS[.小数]Z」，认不出返回 nil
+    static func fastEpoch(_ s: String) -> Double? {
+        let u = Array(s.utf8)
+        func num(_ i: Int, _ n: Int) -> Int? {
+            var v = 0
+            for k in i..<i + n { let c = u[k]; guard c >= 48, c <= 57 else { return nil }; v = v * 10 + Int(c - 48) }
+            return v
+        }
+        guard u.count >= 20, u[4] == 45, u[7] == 45, u[10] == 84, u[13] == 58, u[16] == 58,
+              let y = num(0, 4), let m = num(5, 2), let d = num(8, 2), let H = num(11, 2), let M = num(14, 2), let S = num(17, 2),
+              (1...12).contains(m), (1...31).contains(d), H < 24, M < 60, S < 61 else { return nil }
+        var i = 19, frac = 0.0
+        if u[i] == 46 {
+            var scale = 0.1
+            i += 1
+            while i < u.count, u[i] >= 48, u[i] <= 57 { frac += Double(u[i] - 48) * scale; scale /= 10; i += 1 }
+        }
+        guard i == u.count - 1, u[i] == 90 else { return nil }
+        return Double(daysFromCivil(y, m, d) * 86400 + H * 3600 + M * 60 + S) + frac
+    }
+
+    /// 公历日期到 1970-01-01 的天数（Howard Hinnant 的算法）
+    static func daysFromCivil(_ y0: Int, _ m: Int, _ d: Int) -> Int {
+        let y = m <= 2 ? y0 - 1 : y0
+        let era = (y >= 0 ? y : y - 399) / 400
+        let yoe = y - era * 400
+        let doy = (153 * (m + (m > 2 ? -3 : 9)) + 2) / 5 + d - 1
+        let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy
+        return era * 146097 + doe - 719468
+    }
 
     static func formatted(_ d: Date, _ fmt: String) -> String {
         let f = DateFormatter()
@@ -149,26 +197,30 @@ enum EchoLibrary {
         func list(_ u: URL, _ keys: [URLResourceKey]? = nil) -> [URL] {
             ((try? fm.contentsOfDirectory(at: u, includingPropertiesForKeys: keys)) ?? []).filter { !$0.lastPathComponent.hasPrefix(".") }
         }
-        let computers = list(backupRoot, [.isDirectoryKey])
-        for c in computers {
+        // 先列出所有会话文件，缓存里没有或变了的并发读（第一次打开时一百多个文件）
+        struct Item { let f: URL; let c: URL; let stamp: EchoFileStamp; let moved: [String: String] }
+        var items: [Item] = []
+        let keys: Set<URLResourceKey> = [.fileSizeKey, .contentModificationDateKey]
+        for c in list(backupRoot, [.isDirectoryKey]) {
             let moved = EchoMoved.load(c)   // 挪过文件夹的会话按新文件夹显示
-            let projects = c.appendingPathComponent("projects")
-            for p in list(projects) {
-                let keys: Set<URLResourceKey> = [.fileSizeKey, .contentModificationDateKey]
+            for p in list(c.appendingPathComponent("projects")) {
                 for f in list(p, Array(keys)) where f.pathExtension == "jsonl" {
                     guard let v = try? f.resourceValues(forKeys: keys) else { continue }
-                    let stamp = EchoFileStamp(size: Int64(v.fileSize ?? 0), mtime: v.contentModificationDate?.timeIntervalSince1970 ?? 0)
-                    var meta: EchoSessionMeta
-                    if let e = cache.entries[f.path], e.stamp == stamp { meta = e.meta }
-                    else if let m = try? EchoSessionScan.read(f) { meta = m }
-                    else { continue }
-                    fresh.entries[f.path] = .init(stamp: stamp, meta: meta)
-                    if meta.start.isEmpty { continue }   // 一条对话都没有的空会话不列
-                    let sid = String(f.lastPathComponent.dropLast(6))
-                    if let cwd = moved[sid] { meta.cwd = cwd }
-                    out.append(EchoSession(url: f, sessionId: sid, computer: c.lastPathComponent, size: stamp.size, meta: meta))
+                    items.append(Item(f: f, c: c, stamp: EchoFileStamp(size: Int64(v.fileSize ?? 0), mtime: v.contentModificationDate?.timeIntervalSince1970 ?? 0), moved: moved))
                 }
             }
+        }
+        let metas = EchoParallel.map(items) { it -> EchoSessionMeta? in
+            if let e = cache.entries[it.f.path], e.stamp == it.stamp { return e.meta }
+            return try? EchoSessionScan.read(it.f)
+        }
+        for (it, m) in zip(items, metas) {
+            guard var meta = m else { continue }
+            fresh.entries[it.f.path] = .init(stamp: it.stamp, meta: meta)
+            if meta.start.isEmpty { continue }   // 一条对话都没有的空会话不列
+            let sid = String(it.f.lastPathComponent.dropLast(6))
+            if let cwd = it.moved[sid] { meta.cwd = cwd }
+            out.append(EchoSession(url: it.f, sessionId: sid, computer: it.c.lastPathComponent, size: it.stamp.size, meta: meta))
         }
         cache = fresh
         if let d = try? JSONEncoder().encode(cache) { try? d.write(to: cacheURL, options: .atomic) }
