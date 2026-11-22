@@ -224,12 +224,12 @@ enum EchoMove {
     static func move(_ p: Paths, sessionId: String, open: (String) -> Bool = { isOpen($0) }) throws {
         let fm = FileManager.default
         guard p.rel != p.newRel else { return }
-        guard p.newOriginal.deletingLastPathComponent().lastPathComponent.count <= 200 else { throw fail("文件夹路径太长，Claude Code 认不出") }
-        if EchoRename.isActive(p.original) { throw fail("会话仍在进行（2 分钟内有写入），请结束后再移动") }
-        if open(sessionId) { throw fail("会话正在 Claude 中打开，请先关闭（在 MintPop 中归档该会话，或在终端中退出 Claude）再移动") }
+        guard p.newOriginal.deletingLastPathComponent().lastPathComponent.count <= 200 else { throw fail("文件夹路径过长，Claude Code 无法识别") }
+        if EchoRename.isActive(p.original) { throw fail("会话仍在进行，请结束后再移动") }
+        if open(sessionId) { throw fail("会话正在 Claude 中打开，请关闭后再移动") }
         let pairs = [(p.original, p.newOriginal), (p.backup, p.newBackup)]
         for (_, to) in pairs where fm.fileExists(atPath: to.path) || fm.fileExists(atPath: to.deletingPathExtension().path) {
-            throw fail("新文件夹里已经有这个会话")
+            throw fail("新位置已有此会话")
         }
         var done: [(URL, URL)] = []
         do {
@@ -369,7 +369,7 @@ enum EchoClaudeSettings {
         else if let r = text.range(of: #""cleanupPeriodDays"\s*:\s*-?[0-9.]+"#, options: .regularExpression) {
             text.replaceSubrange(r, with: "\"cleanupPeriodDays\": \(days)")
         } else {
-            guard let open = text.firstIndex(of: "{") else { throw EchoMove.fail("settings.json 不是一个对象，没改") }
+            guard let open = text.firstIndex(of: "{") else { throw EchoMove.fail("settings.json 格式不符，未修改") }
             let rest = text[text.index(after: open)...]
             let empty = rest.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("}")
             // 照下一行的缩进写；对象是空的就不加逗号
@@ -379,7 +379,7 @@ enum EchoClaudeSettings {
         }
         // 改完必须还是合法的 JSON、值对了才写
         guard let o = try? JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any],
-              (o["cleanupPeriodDays"] as? NSNumber)?.intValue == days else { throw EchoMove.fail("settings.json 改完不是合法的 JSON，没改") }
+              (o["cleanupPeriodDays"] as? NSNumber)?.intValue == days else { throw EchoMove.fail("修改后的 settings.json 不是合法的 JSON，未修改") }
         try Data(text.utf8).write(to: url, options: .atomic)
     }
 }
@@ -443,8 +443,8 @@ enum EchoDirMove {
     static func run(_ p: Plan) throws -> (done: Int, error: Error?) {
         let fm = FileManager.default
         if p.moveFolder {
-            if let b = p.busy { throw EchoMove.fail("「\(b.meta.title)」正在进行或在 Claude 中打开，请结束后再改") }
-            guard !fm.fileExists(atPath: p.to) else { throw EchoMove.fail("\((p.to as NSString).abbreviatingWithTildeInPath) 已存在") }
+            if let b = p.busy { throw EchoMove.fail("「\(b.meta.title)」正在使用，请结束后重试") }
+            guard !fm.fileExists(atPath: p.to) else { throw EchoMove.fail("「\((p.to as NSString).lastPathComponent)」已存在") }
             try fm.moveItem(atPath: p.from, toPath: p.to)
         }
         var done = 0, firstError: Error?
@@ -459,17 +459,17 @@ enum EchoDirMove {
     /// 计划写成一句话：挪几个会话，几个不跟、为什么
     static func describe(_ p: Plan) -> String {
         var out: [String] = []
-        if p.count > 0 { out.append("\(p.count) 个 Claude Code 的会话移到新位置") }
+        if p.count > 0 { out.append("\(p.count) 个会话将移到新位置") }
         let codex = p.skipped.filter { $0.app != .claude }.count
         let other = p.skipped.filter { $0.app == .claude && $0.computer != EchoPrefs.computerName }.count
         let gone = p.skipped.count - codex - other
         var not: [String] = []
-        if codex > 0 { not.append("\(codex) 个 Codex 的") }
-        if gone > 0 { not.append("\(gone) 个只剩备份的") }
-        if other > 0 { not.append("\(other) 个在其他电脑上的") }
-        if !not.isEmpty { out.append(not.joined(separator: "、") + "会话不跟，左栏仍显示在原位置") }
+        if codex > 0 { not.append("\(codex) 个 Codex 会话") }
+        if gone > 0 { not.append("\(gone) 个仅有备份的会话") }
+        if other > 0 { not.append("\(other) 个其他电脑上的会话") }
+        if !not.isEmpty { out.append(not.joined(separator: "、") + "不随之移动") }
         if !p.missing.isEmpty { out.append("\(p.missing.count) 个会话在新位置没有对应的子文件夹，不移动") }
-        return out.isEmpty ? "这个文件夹下没有会话" : out.joined(separator: "；")
+        return out.isEmpty ? "此文件夹中没有会话" : out.joined(separator: "；")
     }
 
     /// 文件夹已不存在时猜它改成了什么：上一级文件夹（还在的话）里名字最像的子文件夹。去掉开头的序号（「02 」「1.」）后比共同的字，至少 2 个字相同
