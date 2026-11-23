@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="-28 -18 936 466" width="936" height="466" role="img" aria-label="在 Claude Code 里说接着上次那个做，AI 调 ech context 从回响取到上次的回顾，接着往下做">
-<defs><filter id="sh" x="-10%" y="-10%" width="120%" height="130%"><feDropShadow dx="0" dy="8" stdDeviation="10" flood-color="#000" flood-opacity=".25"/></filter></defs>
+<defs><filter id="sh" x="-10%" y="-10%" width="120%" height="130%"><feDropShadow dx="0" dy="4" stdDeviation="8" flood-color="#000" flood-opacity=".12"/></filter></defs>
 <rect x=".5" y=".5" width="879" height="409" rx="11" fill="#1e1e1e" filter="url(#sh)"/>
 <style>text{font-family:"SF Mono",Menlo,Monaco,"PingFang SC",monospace;font-size:14px;white-space:pre}.ui{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;font-size:13px}</style>
 <rect x=".5" y=".5" width="879" height="409" rx="11" fill="#1e1e1e" stroke="#3a3a3a"/>

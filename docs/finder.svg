@@ -13,7 +13,7 @@
     .stripe { fill: #252527; } .fold { fill: #3f9ae6; } .foldt { fill: #63b0ee; }
   }
 </style>
-<defs><clipPath id="win"><rect x="440" y="1" width="439" height="298" rx="10"/></clipPath><filter id="sh" x="-20%" y="-20%" width="140%" height="150%"><feDropShadow dx="0" dy="8" stdDeviation="10" flood-color="#000" flood-opacity=".18"/></filter></defs>
+<defs><clipPath id="win"><rect x="440" y="1" width="439" height="298" rx="10"/></clipPath><filter id="sh" x="-20%" y="-20%" width="140%" height="150%"><feDropShadow dx="0" dy="4" stdDeviation="8" flood-color="#000" flood-opacity=".08"/></filter></defs>
 <rect x="440" y="1" width="439" height="298" rx="10" fill="#000" filter="url(#sh)" opacity=".9"/>
 <g clip-path="url(#win)">
 <!-- 右：访达，iCloud 云盘里的回响备份 -->
