@@ -293,13 +293,15 @@ enum EchoTests {
         let fm = FileManager.default
         let t = EchoPath.real(fm.temporaryDirectory.path) + "/echo-guess-\(getpid())"
         defer { try? fm.removeItem(atPath: t) }
-        for n in ["02 二期项目", "01 一期项目", "会议", "team-doc-style", "服务器 cyanext/html-to-md-api", "a/b/c/d/深处"] { try fm.createDirectory(atPath: t + "/" + n, withIntermediateDirectories: true) }
+        for n in ["02 二期项目", "01 一期项目", "会议", "客户数据清洗", "team-doc-style", "服务器 cyanext/html-to-md-api", "a/b/c/d/深处"] { try fm.createDirectory(atPath: t + "/" + n, withIntermediateDirectories: true) }
         func g(_ n: String) -> EchoDirMove.Guess? { EchoDirMove.guess(t + "/" + n, spotlight: false) }
         check(g("项目二期") == .init(path: t + "/02 二期项目", moved: false), "没猜出改名为「02 二期项目」：\(String(describing: g("项目二期")))")
         check(g("客户资料") == nil, "不像的不该猜")
         check(g("html-to-md-api") == .init(path: t + "/服务器 cyanext/html-to-md-api", moved: true), "没猜出挪进了「服务器 cyanext」：\(String(describing: g("html-to-md-api")))")
         check(g("notes-api") == nil, "英文名按单词比，没有共同的单词不该猜（原来按字母比，html-to-md-api 猜成了 team-doc-style）")
-        check(g("old-style-guide")?.path == t + "/team-doc-style", "英文名有共同的单词（style）应猜出")
+        check(g("doc-style")?.path == t + "/team-doc-style", "英文名的单词都对上应猜出")
+        check(g("old-style-guide") == nil, "只对上一个单词（不到 6 成）不该猜")
+        check(g("客户项目") == nil, "只对上「客户」两个字（不到 6 成）不该猜成「客户数据清洗」")
         check(g("深处") == nil, "超过 3 层的同名文件夹不找")
         // 左栏搜索：拆词、摘句围着长词、整句出现时标整句，单个字不单独标
         check(EchoIndex.terms("主色定　B  靛蓝") == ["主色定", "B", "靛蓝"], "拆词不对：\(EchoIndex.terms("主色定　B  靛蓝"))")
@@ -310,7 +312,7 @@ enum EchoTests {
         check(lit(EchoSearchModel.marked("by 主色定 B（#00898A）", "主色定 B")) == ["主色定 B"], "整句出现时应只标整句")
         check(lit(EchoSearchModel.marked("Bash 里主色定了", "主色定 B")) == ["主色定"], "单个字不该单独标")
         check(EchoSearchModel.matches("回响 日期筛选", "筛选 回响") && !EchoSearchModel.matches("回响 日期筛选", "回响 搜索"), "会话名应几个词都有才算")
-        print("  ech 分段、引用、猜新位置、搜索 22 项")
+        print("  ech 分段、引用、猜新位置、搜索 24 项")
     }
 
     static func layoutTest() throws {

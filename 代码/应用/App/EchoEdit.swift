@@ -476,7 +476,7 @@ enum EchoDirMove {
     struct Guess: Equatable { var path: String; var moved: Bool }
 
     /// 先找挪走的：从还在的那一级往下 3 层找同名文件夹，没有再用 Spotlight 在主目录里找，几个同名的取离原位置最近的；
-    /// 再找改名的：上一级里名字最像的子文件夹（去掉开头的序号后，中文比共同的字、英文比共同的单词，合起来至少 2 分）。
+    /// 再找改名的：上一级里名字最像的子文件夹（去掉开头的序号后，中文比共同的字、英文比共同的单词算分，至少 2 分且对上原名的 6 成）。
     /// spotlight 测试时关掉，结果只看临时目录
     static func guess(_ path: String, spotlight: Bool = true) -> Guess? {
         let fm = FileManager.default, name = (path as NSString).lastPathComponent
@@ -507,13 +507,14 @@ enum EchoDirMove {
         func words(_ s: String) -> Set<String> {
             Set(core(s).split(whereSeparator: { !($0.isASCII && ($0.isLetter || $0.isNumber)) }).map(String.init).filter { $0.count >= 3 })
         }
-        let wc = cjk(name), ww = words(name)
+        // 至少对上原名的 6 成（「客户项目」只因都有「客户」被猜成了「客户数据清洗」）
+        let wc = cjk(name), ww = words(name), full = wc.count + 2 * ww.count
         var best: (String, Int)?
         for k in kids where !k.hasPrefix(".") {
-            let full = (parent as NSString).appendingPathComponent(k)
-            guard isDir(full) else { continue }
+            let path = (parent as NSString).appendingPathComponent(k)
+            guard isDir(path) else { continue }
             let n = cjk(k).intersection(wc).count + 2 * words(k).intersection(ww).count
-            if n >= 2, n > (best?.1 ?? 0) { best = (full, n) }
+            if n >= 2, Double(n) >= 0.6 * Double(full), n > (best?.1 ?? 0) { best = (path, n) }
         }
         return best.map { Guess(path: $0.0, moved: false) }
     }

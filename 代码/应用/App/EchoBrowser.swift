@@ -219,27 +219,33 @@ struct EchoBrowserView: View {
     /// 删除只删会话（本机的原会话和备份一起进废纸篓，其他电脑的只删备份），文件夹本身不动
     @ViewBuilder
     private func dirMenu(_ d: EchoDir) -> some View {
-        let gone = missingDirs.contains(d.path)
-        if gone {
+        // 用不了的项不显示，不摆一排灰的（看不懂）：没有能移动的会话（全是 Codex 的、在别的电脑上的）就没有「找到新位置…」「移动到」；
+        // 文件夹已不存在、归出来的组（Codex 后台任务等）没有「改名…」「在访达中显示」
+        let gone = missingDirs.contains(d.path), real = !gone && !EchoPath.isGroup(d.path)
+        let movable = !movableUnder(d).isEmpty
+        if gone, movable {
             Button("找到新位置…") { findNewPlace(d) }
             Divider()
         }
-        let movable = sessionsUnder(d).filter { $0.app == .claude && $0.computer == EchoPrefs.computerName }
-        Button("改名…") { renameDir(d) }
-            .disabled(gone || EchoPath.isGroup(d.path))
-        Menu(movable.isEmpty ? "移动到（无可移动的会话）" : "移动到") {
-            ForEach(recentDirs(except: d.all).filter { !$0.hasPrefix(d.path + "/") && $0 != d.path }, id: \.self) { t in
-                Button((t as NSString).abbreviatingWithTildeInPath) { confirmDirMove(d, to: t) }
+        if real { Button("改名…") { renameDir(d) } }
+        if movable {
+            Menu("移动到") {
+                ForEach(recentDirs(except: d.all).filter { !$0.hasPrefix(d.path + "/") && $0 != d.path }, id: \.self) { t in
+                    Button((t as NSString).abbreviatingWithTildeInPath) { confirmDirMove(d, to: t) }
+                }
+                Divider()
+                Button("选择文件夹…") { pickDirTarget(d) }
             }
-            Divider()
-            Button("选择文件夹…") { pickDirTarget(d) }
         }
-        .disabled(movable.isEmpty)
-        Button("在访达中显示") { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: d.path)]) }
-            .disabled(gone || EchoPath.isGroup(d.path))
+        if real { Button("在访达中显示") { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: d.path)]) } }
         Button("复制路径") { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(d.path, forType: .string) }
         Divider()
         Button("移到废纸篓…") { confirmDelete(d.all, folder: d.name) }
+    }
+
+    /// 能移动的：本机的 Claude Code 会话（Codex 把文件夹写在会话内容里，移不了；别的电脑上的不动）
+    private func movableUnder(_ d: EchoDir) -> [EchoSession] {
+        sessionsUnder(d).filter { $0.app == .claude && $0.computer == EchoPrefs.computerName }
     }
 
     /// 这个目录和子目录下的全部会话，不管左栏的电脑、应用、日期筛选（改名、移动目录要带上看不到的会话）
@@ -766,7 +772,7 @@ struct EchoBrowserView: View {
             } preview: { dragGhost(d.name) }
             .onDrop(of: [.text], delegate: EchoRowDrop(drag: drag, update: { dirHover(d, group: group, y: $0.y) }, exit: { leave(d.path) }, perform: { dropOnDir(d) }))
             .padding(.top, level == 0 ? 8 : 0)   // 顶层目录之间多空一点，靠留白分组，不加图标
-            .help(missingDirs.contains(d.path) ? "文件夹已不存在：\((d.path as NSString).abbreviatingWithTildeInPath)\n右键「找到新位置…」把会话移到改名后的文件夹" : (d.path as NSString).abbreviatingWithTildeInPath)
+            .help(missingDirs.contains(d.path) ? "文件夹已不存在：\((d.path as NSString).abbreviatingWithTildeInPath)\n" + (movableUnder(d).isEmpty ? "这里的会话来自 Codex 或其他电脑，无法移动" : "右键「找到新位置…」把会话移到新位置") : (d.path as NSString).abbreviatingWithTildeInPath)
             .contextMenu { dirMenu(d) }
 
             if open {
