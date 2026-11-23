@@ -46,6 +46,11 @@
   -webkit-font-smoothing: antialiased;
 }
 .conv button { font: inherit; color: inherit; }
+/* 能不能选中复制（要点栏不要选中）：整页默认不能选，只放开对话内容：你的消息、AI 回复正文和代码、
+   展开后的工具输入输出和思考过程、回顾和阶段总结的正文、命令和系统消息的文字。要点栏、我的消息栏、标题栏、按钮、日期线、时间、标签都不能选 */
+.conv { -webkit-user-select: none; user-select: none; }
+.conv .bubble, .conv .md, .conv .io, .conv .recap-text, .conv .event code, .conv .event.system span { -webkit-user-select: text; user-select: text; cursor: text; }
+.conv input { -webkit-user-select: text; user-select: text; }
 .conv svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; flex: none; }
 
 /* 标题栏（规范 需求文档/设计规范/设计规范.md「组件」）：一行，高 56 起。左边标题（当前这一段的名字，写全，长了换行）加一行小字；
