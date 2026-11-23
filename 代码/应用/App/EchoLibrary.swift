@@ -6,6 +6,7 @@ struct EchoSessionMeta: Codable, Hashable {
     var title = "", cwd = "", start = "", end = ""
     var sid: String?       // Codex：session_meta 里的会话 ID（Claude 的会话 ID 就是文件名）
     var sub: Bool?         // Codex：子代理的会话（自动审批 guardian、分派的子任务），照样备份，列表里不显示
+    var empty: Bool?       // 空会话：没有你发的消息，也没有 AI 的回复（比如只敲了一条 /resume），照样备份，列表里不显示
 }
 
 struct EchoSession: Identifiable, Hashable {
@@ -187,7 +188,7 @@ enum EchoSessionScan {
 
     /// Codex 的会话：项目路径、会话 ID 取 session_meta；起止时间、第一句话和 EchoExport.exportCodex 一致。标题在扫列表时另按 session_index.jsonl 换
     static func readCodex(_ url: URL) throws -> EchoSessionMeta {
-        var m = EchoSessionMeta(), firstUser = ""
+        var m = EchoSessionMeta(), firstUser = "", hasAI = false
         try EchoLines.each(url) { line in
             let b = EchoLines.trim(line)
             if m.sid == nil, EchoLines.has(b, needleMeta), let d = json(b), let p = d["payload"] as? [String: Any] {
@@ -206,9 +207,10 @@ enum EchoSessionScan {
                 if m.start.isEmpty { m.start = ts }
                 m.end = ts
                 if firstUser.isEmpty, !human.isEmpty { firstUser = human.prefix40 }
-            } else if !ts.isEmpty, p["role"] as? String == "assistant" { m.end = ts }
+            } else if !ts.isEmpty, p["role"] as? String == "assistant" { m.end = ts; hasAI = true }
         }
         m.title = !firstUser.isEmpty ? firstUser : m.sid ?? ""
+        if firstUser.isEmpty && !hasAI { m.empty = true }
         return m
     }
 
@@ -224,7 +226,7 @@ enum EchoSessionScan {
 
     /// 扫一遍文件取标题、项目路径、起止时间，规则和 EchoExport 一致（标题：用户改的 > AI 起的 > 第一句话）
     static func read(_ url: URL) throws -> EchoSessionMeta {
-        var m = EchoSessionMeta(), custom = "", ai = "", firstUser = ""
+        var m = EchoSessionMeta(), custom = "", ai = "", firstUser = "", hasAI = false
         try EchoLines.each(url) { line in
             let b = EchoLines.trim(line)
             if needleTitles.contains(where: { EchoLines.has(b, $0) }) {
@@ -237,6 +239,7 @@ enum EchoSessionScan {
             guard EchoLines.has(b, needleTs) else { return }
             let isUser = EchoLines.has(b, needleUser)
             guard isUser || EchoLines.has(b, Array("\"type\":\"assistant\"".utf8)) else { return }
+            if !isUser { hasAI = true }
             if m.cwd.isEmpty || (isUser && firstUser.isEmpty) || m.start.isEmpty, let d = json(b) {
                 if m.cwd.isEmpty { m.cwd = d["cwd"] as? String ?? "" }
                 if m.start.isEmpty { m.start = d["timestamp"] as? String ?? "" }
@@ -245,6 +248,7 @@ enum EchoSessionScan {
             if let ts = value(after: needleTs, in: b) { m.end = ts }
         }
         m.title = !custom.isEmpty ? custom : !ai.isEmpty ? ai : !firstUser.isEmpty ? firstUser : String(url.lastPathComponent.dropLast(6))
+        if firstUser.isEmpty && !hasAI { m.empty = true }
         return m
     }
 
@@ -285,7 +289,8 @@ enum EchoLibrary {
     /// 备份目录下每台电脑的主会话（子代理的会话第一版不显示）。同步执行，放在后台线程调用
     static func scan(backupRoot: URL) -> [EchoSession] {
         let fm = FileManager.default
-        let cacheURL = supportDir.appendingPathComponent("会话列表缓存.json")
+        let cacheURL = supportDir.appendingPathComponent("会话列表缓存2.json")   // 2：加了空会话标记，旧缓存里没有，换个文件重扫一遍
+        try? fm.removeItem(at: supportDir.appendingPathComponent("会话列表缓存.json"))
         var cache = (try? Data(contentsOf: cacheURL)).flatMap { try? JSONDecoder().decode(EchoScanCache.self, from: $0) } ?? EchoScanCache()
         var fresh = EchoScanCache()
         var out: [EchoSession] = []
@@ -328,7 +333,7 @@ enum EchoLibrary {
         for (it, m) in zip(items, metas) {
             guard var meta = m else { continue }
             fresh.entries[it.f.path] = .init(stamp: it.stamp, meta: meta)
-            if meta.start.isEmpty || meta.sub == true { continue }   // 一条对话都没有的空会话、Codex 的子代理会话不列
+            if meta.start.isEmpty || meta.sub == true || meta.empty == true { continue }   // 空会话（没有你的消息也没有 AI 回复）、Codex 的子代理会话不列
             let sid = meta.sid ?? String(it.f.lastPathComponent.dropLast(6))
             if let cwd = it.moved[sid] { meta.cwd = cwd }
             if it.app == .codex, let t = titles[it.c.path]?[sid] { meta.title = t }
