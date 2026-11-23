@@ -15,7 +15,7 @@ enum EchoTests {
 
     static func main() throws {
         let a = CommandLine.arguments
-        if a.count == 3, a[1] == "--rules" { rules(); try renameTest(fixture: URL(fileURLWithPath: a[2])); try statsTest(); try commitMatchTest(); timeTest(); try cleanTest(); try layoutTest(); try pathTest(); try echTest(); try codexBackupTest(); try autoDeleteTest(); try claudeSettingsTest() }
+        if a.count == 3, a[1] == "--rules" { rules(); try renameTest(fixture: URL(fileURLWithPath: a[2])); try statsTest(); try commitMatchTest(); timeTest(); try cleanTest(); try layoutTest(); try pathTest(); try echTest(); try codexMoveTest(); try codexBackupTest(); try autoDeleteTest(); try claudeSettingsTest() }
         else if a.count == 4, a[1] == "--overview" {   // 手动排查：按应用的方式整理总览数据，写到文件，看用了多久
             let t0 = Date()
             let list = EchoLibrary.scan(backupRoot: URL(fileURLWithPath: a[2]))
@@ -263,6 +263,44 @@ enum EchoTests {
     }
 
     /// ech：分段（开头、版本提交后、跨天、压缩）、版本号只认说明开头、引用的写法
+    /// 移动 Codex 会话：只改假数据库里这一行的 cwd，改前有整份备份，记进移动记录；2 分钟内还在写的不动
+    static func codexMoveTest() throws {
+        let fm = FileManager.default
+        let t = fm.temporaryDirectory.appendingPathComponent("回响Codex移动-\(getpid())")
+        try? fm.removeItem(at: t)
+        try fm.createDirectory(at: t, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: t) }
+        let dbURL = t.appendingPathComponent("state_5.sqlite")
+        do {
+            let db = try EchoDB(dbURL)
+            try db.exec("CREATE TABLE threads (id TEXT PRIMARY KEY, cwd TEXT NOT NULL, title TEXT NOT NULL DEFAULT '')")
+            try db.exec("INSERT INTO threads(id, cwd) VALUES ('c1', '/旧/项目'), ('c2', '/旧/项目'), ('c3', '/别处')")
+        }
+        let old = t.appendingPathComponent("old.jsonl"), fresh = t.appendingPathComponent("fresh.jsonl")
+        try Data("{}".utf8).write(to: old); try Data("{}".utf8).write(to: fresh)
+        try fm.setAttributes([.modificationDate: Date(timeIntervalSinceNow: -3600)], ofItemAtPath: old.path)
+        func sess(_ id: String) -> EchoSession {
+            EchoSession(url: t.appendingPathComponent(id + ".jsonl"), sessionId: id, computer: EchoPrefs.computerName, size: 1,
+                        meta: EchoSessionMeta(title: id, cwd: "/旧/项目", start: "x", end: "x"), app: .codex)
+        }
+        let backups = t.appendingPathComponent("备份"), movedDir = t.appendingPathComponent("codex")
+        try fm.createDirectory(at: movedDir, withIntermediateDirectories: true)
+        let r = EchoCodexMove.move([sess("c1"), sess("c2")], to: "/新/项目", db: dbURL, backups: backups, movedDir: movedDir,
+                                   original: { $0.sessionId == "c1" ? old : fresh })
+        var cwd: [String: String] = [:]
+        try EchoDB(dbURL, readonly: true).rows("SELECT id, cwd FROM threads") { cwd[$0.text(0)] = $0.text(1) }
+        check(r.done.map(\.sessionId) == ["c1"] && r.error != nil, "应只移动 c1，c2 正在写应报错：\(r.done.map(\.sessionId))")
+        check(cwd == ["c1": "/新/项目", "c2": "/旧/项目", "c3": "/别处"], "只该改 c1 那一行：\(cwd)")
+        check(EchoMoved.load(movedDir) == ["c1": "/新/项目"], "应记进移动记录")
+        let baks = (try? fm.contentsOfDirectory(atPath: backups.path)) ?? []
+        var before = ""
+        if let b = baks.first { try EchoDB(backups.appendingPathComponent(b), readonly: true).rows("SELECT cwd FROM threads WHERE id='c1'") { before = $0.text(0) } }
+        check(baks.count == 1 && before == "/旧/项目", "改前应整份备份：\(baks)")
+        let none = EchoCodexMove.move([sess("c9")], to: "/新/项目", db: dbURL, backups: backups, movedDir: movedDir, original: { _ in old })
+        check(none.done.isEmpty && none.error != nil, "Codex 里没有的会话应报错")
+        print("  移动 Codex 会话 5 项")
+    }
+
     static func echTest() throws {
         let rows = [
             #"{"type":"user","timestamp":"2026-11-20T02:00:00Z","uuid":"u1","message":{"role":"user","content":"开始做"},"origin":{"kind":"human"}}"#,

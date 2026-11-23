@@ -73,7 +73,7 @@ enum EchoCLI {
       ech segs <会话>                                列一个会话的分段（每段一个引用，如 ce57ce36#3）
       ech read <引用> [--tools]                       把一段读成对话文字：ce57ce36#3 第 3 段，ce57ce36#L1200-1500 这几行，只写会话读最后一段
       ech context <会话> [--tools]                    续上一个会话：最近一次压缩的阶段总结和之后的对话
-      ech mv <旧路径> <新路径> [--dry-run]              改名或移动文件夹，本机 Claude Code 的会话随之移动
+      ech mv <旧路径> <新路径> [--dry-run]              改名或移动文件夹，本机的会话（Claude Code、Codex）随之移动
       ech backup                                     备份并更新索引（和回响的「立即备份」一样）
       ech index                                      只更新索引和总览数据，不备份
       ech schema [命令]                              各命令的参数（JSON）
@@ -466,7 +466,7 @@ enum EchoCLI {
 
     // MARK: mv
 
-    /// 改文件夹名或挪位置，本机 Claude Code 的会话一起跟过去（和左栏目录右键「改名」同一套）。
+    /// 改文件夹名或挪位置，本机的会话（Claude Code、Codex）随之移动（和左栏目录右键「改名」同一套）。
     /// 旧路径已经不在了（在访达里改过了）只挪会话；--dry-run 只说会做什么
     static func mv(_ a: Args) throws -> String {
         guard a.pos.count == 2 else { throw Fail(text: "用法：ech mv <旧路径> <新路径> [--dry-run]") }
@@ -521,7 +521,7 @@ enum EchoCLI {
          "options": [["name": "--tools", "desc": "带上工具输出，每条前 2000 字"], ["name": "--page"], ["name": "--json"]]],
         ["command": "context", "summary": "续上一个会话：最近一次压缩的阶段总结和之后的全部对话，新会话开头读它就能接着做（只读）",
          "args": [["name": "会话", "required": true]], "options": [["name": "--tools"], ["name": "--page"], ["name": "--json"]]],
-        ["command": "mv", "summary": "改名或移动文件夹，本机 Claude Code 的会话随之移动（会写：访达里的文件夹、~/.claude 的会话位置、备份）；旧路径已不存在时只移动会话",
+        ["command": "mv", "summary": "改名或移动文件夹，本机的会话随之移动（会写：访达里的文件夹、~/.claude 的会话位置、~/.codex/state_5.sqlite 的会话文件夹、备份）；旧路径已不存在时只移动会话",
          "args": [["name": "旧路径", "required": true], ["name": "新路径", "required": true, "desc": "是已有的文件夹时移入其中，和 mv 一样"]],
          "options": [["name": "--dry-run", "desc": "只说会做什么，不动文件"], ["name": "--json"]]],
         ["command": "backup", "summary": "备份、更新索引和总览数据（和回响的「立即备份」一样，会写备份目录）"],

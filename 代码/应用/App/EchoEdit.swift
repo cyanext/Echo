@@ -389,8 +389,10 @@ extension EchoMove {
     /// 应用里的移动、目录移动和改名、ech mv 共用
     static func moveSessions(_ list: [EchoSession], to dir: String) -> (done: [EchoSession], error: Error?) {
         let dir = (dir as NSString).standardizingPath, root = EchoPrefs.backupRoot
-        var done: [EchoSession] = [], firstError: Error?, moves: [String: String] = [:], keys: [String: String] = [:]
-        for s in list {
+        // Codex 的会话另走一套：只改 Codex 记录里的文件夹（EchoCodexMove）
+        let cx = EchoCodexMove.move(list.filter { $0.app == .codex }, to: dir)
+        var done: [EchoSession] = cx.done, firstError: Error? = cx.error, moves: [String: String] = [:], keys: [String: String] = [:]
+        for s in list where s.app == .claude {
             do {
                 guard let p = paths(for: s, to: dir) else { throw fail("「\(s.meta.title)」在 \(s.computer) 上，请在该电脑上移动") }
                 try move(p, sessionId: s.sessionId)
@@ -409,6 +411,64 @@ extension EchoMove {
     }
 }
 
+/// 移动 Codex 的会话：Codex 的会话文件按日期存，所在文件夹记在 ~/.codex/state_5.sqlite 的 threads.cwd，
+/// Codex 的侧栏、codex resume 都按它归文件夹。只改这一列，改前把整个数据库备份到回响的支持目录（留最近 10 份）；
+/// 会话文件一行不动，回响按移动记录（codex/移动记录.json）显示新文件夹。2 分钟内还在写的、不在本机的不动
+enum EchoCodexMove {
+    static var db: URL { EchoBackup.codexSource.appendingPathComponent("state_5.sqlite") }
+    static var backups: URL { EchoLibrary.supportDir.appendingPathComponent("Codex 数据库备份") }
+
+    /// db、backups、movedDir、original 测试时换成临时的
+    static func move(_ list: [EchoSession], to dir: String, db: URL = db, backups: URL = backups, movedDir: URL = EchoPrefs.codexDir,
+                     original: (EchoSession) -> URL? = { EchoRename.originalURL(for: $0) }) -> (done: [EchoSession], error: Error?) {
+        guard !list.isEmpty else { return ([], nil) }
+        var done: [EchoSession] = [], firstError: Error?
+        let ok = list.filter { s in
+            guard let o = original(s) else { firstError = firstError ?? EchoMove.fail("「\(s.meta.title)」不在本机，无法移动"); return false }
+            if EchoRename.isActive(o) { firstError = firstError ?? EchoMove.fail("「\(s.meta.title)」正在使用，请结束后重试"); return false }
+            return true
+        }
+        guard !ok.isEmpty else { return ([], firstError) }
+        do {
+            guard FileManager.default.fileExists(atPath: db.path) else { throw EchoMove.fail("找不到 Codex 的会话记录") }
+            let conn = try EchoDB(db)
+            try backup(conn, to: backups)
+            try conn.exec("BEGIN IMMEDIATE")
+            var moves: [String: String] = [:]
+            do {
+                let st = try conn.prepare("UPDATE threads SET cwd = ? WHERE id = ?")
+                for s in ok {
+                    try st.bind([dir, s.sessionId])
+                    _ = try st.step()
+                    if conn.changes == 1 { moves[s.sessionId] = dir; done.append(s) }
+                    else { firstError = firstError ?? EchoMove.fail("Codex 中没有「\(s.meta.title)」的记录") }
+                }
+                try conn.exec("COMMIT")
+            } catch {
+                try? conn.exec("ROLLBACK")
+                throw error
+            }
+            try EchoMoved.add(moves, movedDir)
+        } catch {
+            done = []
+            firstError = error
+        }
+        return (done, firstError)
+    }
+
+    /// 改之前整份备份：VACUUM INTO 得到一致的副本（还在 WAL 里的也在），文件名带时间，留最近 10 份
+    static func backup(_ conn: EchoDB, to dir: URL) throws {
+        let fm = FileManager.default
+        try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        let f = DateFormatter(); f.dateFormat = "yyyyMMdd-HHmmss"
+        let out = dir.appendingPathComponent("state_5-\(f.string(from: Date())).sqlite")
+        try? fm.removeItem(at: out)
+        try conn.exec("VACUUM INTO '\(out.path.replacingOccurrences(of: "'", with: "''"))'")
+        let all = ((try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? []).filter { $0.pathExtension == "sqlite" }
+        for u in all.sorted(by: { $0.lastPathComponent > $1.lastPathComponent }).dropFirst(10) { try? fm.removeItem(at: u) }
+    }
+}
+
 /// 目录改名、挪位置，会话跟过去（需求 需求文档/版本需求/v0.9.0-目录改名后会话跟上.html）。
 /// 左栏目录右键「改名」「移动到」「找到新位置」和 ech mv 共用：先出计划（哪些挪、哪些不跟、有没有正在用的会话），再执行
 enum EchoDirMove {
@@ -416,7 +476,7 @@ enum EchoDirMove {
         var from: String, to: String
         var moveFolder: Bool                          // 同时改名或挪动文件夹本身；false 时只挪会话（文件夹已经在访达里改过了）
         var groups: [String: [EchoSession]] = [:]     // 新路径 → 挪到那里的会话（子文件夹里的对应到新位置的子文件夹）
-        var skipped: [EchoSession] = []               // 跟不过去的：Codex、只剩备份、在其他电脑上
+        var skipped: [EchoSession] = []               // 跟不过去的：只剩备份、在其他电脑上
         var missing: [EchoSession] = []               // 新位置没有对应的子文件夹（只挪会话时）
         var busy: EchoSession?                        // 2 分钟内还在写或正在 Claude 里开着
         var count: Int { groups.values.reduce(0) { $0 + $1.count } }
@@ -430,7 +490,7 @@ enum EchoDirMove {
         for s in sessions {
             let real = EchoPath.real(s.projectPath)
             guard real == from || real.hasPrefix(from + "/") else { continue }
-            guard s.app == .claude, s.computer == me, let orig = EchoRename.originalURL(for: s) else { p.skipped.append(s); continue }
+            guard s.computer == me, let orig = EchoRename.originalURL(for: s) else { p.skipped.append(s); continue }   // 只剩备份的、在其他电脑上的不跟
             let dest = to + real.dropFirst(from.count)
             if !moveFolder, !fm.fileExists(atPath: dest) { p.missing.append(s); continue }
             p.groups[dest, default: []].append(s)
@@ -460,11 +520,9 @@ enum EchoDirMove {
     static func describe(_ p: Plan) -> String {
         var out: [String] = []
         if p.count > 0 { out.append("\(p.count) 个会话将移到新位置") }
-        let codex = p.skipped.filter { $0.app != .claude }.count
-        let other = p.skipped.filter { $0.app == .claude && $0.computer != EchoPrefs.computerName }.count
-        let gone = p.skipped.count - codex - other
+        let other = p.skipped.filter { $0.computer != EchoPrefs.computerName }.count
+        let gone = p.skipped.count - other
         var not: [String] = []
-        if codex > 0 { not.append("\(codex) 个 Codex 会话") }
         if gone > 0 { not.append("\(gone) 个仅有备份的会话") }
         if other > 0 { not.append("\(other) 个其他电脑上的会话") }
         if !not.isEmpty { out.append(not.joined(separator: "、") + "不随之移动") }

@@ -26,7 +26,7 @@
 | `EchoOnboarding.swift` | 首次设置（第一次打开时的四步引导） |
 | `EchoLibrary.swift` | 扫备份出会话列表、目录树，路径和时间的公共函数 |
 | `EchoExport.swift` | 会话整理成对话页要的数据，规则以 `代码/原型/export.py` 为准 |
-| `EchoEdit.swift` | 改名、合集、删除、移动（含移动记录）、目录改名和移动（EchoDirMove，左栏和 ech mv 共用）、自动清理不活跃的会话（Claude、Codex）、关闭 Claude 的自动清理 |
+| `EchoEdit.swift` | 改名、合集、删除、移动（含移动记录；Codex 的只改 Codex 数据库里的文件夹，EchoCodexMove）、目录改名和移动（EchoDirMove，左栏和 ech mv 共用）、自动清理不活跃的会话（Claude、Codex）、关闭 Claude 的自动清理 |
 | `EchoStats.swift` | 总览的数：每天的消息、时长、Token（Claude、Codex），Git 提交归到哪个会话（EchoStats.owner，总览和 ech 共用）；备份页的汇总 |
 | `EchoIndex.swift` | ech 的本机索引（`~/Library/Application Support/回响/索引.sqlite`）：会话分段（压缩点、版本提交、跨天），全文索引；备份完增量更新 |
 | `EchoSearch.swift` | 左栏搜索：搜索框、在全部会话里按关键词找（EchoIndex.search，和 ech find 共用），结果按会话分组 |

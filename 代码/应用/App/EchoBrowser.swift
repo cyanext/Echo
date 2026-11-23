@@ -208,7 +208,7 @@ struct EchoBrowserView: View {
         guard !r.done.isEmpty else { return }
         let shown = (dir as NSString).abbreviatingWithTildeInPath
         if r.done.count == 1, let s = r.done.first {
-            moveCmd = "cd '\(dir.replacingOccurrences(of: "'", with: "'\\''"))' && claude --resume \(s.sessionId)"
+            moveCmd = "cd '\(dir.replacingOccurrences(of: "'", with: "'\\''"))' && " + (s.app == .codex ? "codex resume " : "claude --resume ") + s.sessionId
             moveDone = "已移动到 \(shown)，可复制恢复命令继续会话"
         } else {
             moveDone = "\(r.done.count) 个会话已移动到 \(shown)"
@@ -219,7 +219,7 @@ struct EchoBrowserView: View {
     /// 删除只删会话（本机的原会话和备份一起进废纸篓，其他电脑的只删备份），文件夹本身不动
     @ViewBuilder
     private func dirMenu(_ d: EchoDir) -> some View {
-        // 用不了的项不显示，不摆一排灰的（看不懂）：没有能移动的会话（全是 Codex 的、在别的电脑上的）就没有「找到新位置…」「移动到」；
+        // 用不了的项不显示，不摆一排灰的（看不懂）：没有能移动的会话（都在别的电脑上）就没有「找到新位置…」「移动到」；
         // 文件夹已不存在、归出来的组（Codex 后台任务等）没有「改名…」「在访达中显示」
         let gone = missingDirs.contains(d.path), real = !gone && !EchoPath.isGroup(d.path)
         let movable = !movableUnder(d).isEmpty
@@ -243,9 +243,9 @@ struct EchoBrowserView: View {
         Button("移到废纸篓…") { confirmDelete(d.all, folder: d.name) }
     }
 
-    /// 能移动的：本机的 Claude Code 会话（Codex 把文件夹写在会话内容里，移不了；别的电脑上的不动）
+    /// 能移动的：本机的会话（Claude、Codex）；别的电脑上的不动
     private func movableUnder(_ d: EchoDir) -> [EchoSession] {
-        sessionsUnder(d).filter { $0.app == .claude && $0.computer == EchoPrefs.computerName }
+        sessionsUnder(d).filter { $0.computer == EchoPrefs.computerName }
     }
 
     /// 这个目录和子目录下的全部会话，不管左栏的电脑、应用、日期筛选（改名、移动目录要带上看不到的会话）
@@ -330,11 +330,12 @@ struct EchoBrowserView: View {
         let a = NSAlert()
         // 文案照这句写：「已为你匹配到最可能的新目录，新位置：xxx，是否移动至新位置？」；移不了的用大白话单独一句
         a.messageText = "已为你匹配到最可能的新目录"
-        let codex = p.skipped.filter { $0.app != .claude }.count
-        let rest = p.skipped.count - codex + p.missing.count
+        let other = p.skipped.filter { $0.computer != EchoPrefs.computerName }.count
+        let gone = p.skipped.count - other
         var cant: [String] = []
-        if codex > 0 { cant.append("\(codex) 个 Codex 会话") }
-        if rest > 0 { cant.append("\(rest) 个不在本机或新位置没有对应子目录的会话") }
+        if other > 0 { cant.append("\(other) 个其他电脑上的会话") }
+        if gone > 0 { cant.append("\(gone) 个仅有备份的会话") }
+        if !p.missing.isEmpty { cant.append("\(p.missing.count) 个新位置没有对应子目录的会话") }
         let place = "新位置：" + (g.path as NSString).abbreviatingWithTildeInPath
         guard p.count > 0 else {
             // 一个都移不了：不问，直接说
@@ -412,7 +413,7 @@ struct EchoBrowserView: View {
         let local = s.computer == EchoPrefs.computerName
         let targets = group.count > 1 ? group : [s]
         if s.app == .codex, group.count < 2 {
-            // Codex 的会话：在 Codex 里改名；按日期存、不按文件夹，不挪
+            // Codex 的会话：在 Codex 里改名；能移动（只改 Codex 记录里的文件夹，EchoCodexMove）
             Button(local ? "复制恢复命令" : "复制恢复命令（在 \(s.computer) 上）") {
                 let cmd = "cd '\(s.meta.cwd.replacingOccurrences(of: "'", with: "'\\''"))' && codex resume \(s.sessionId)"
                 NSPasteboard.general.clearContents(); NSPasteboard.general.setString(cmd, forType: .string)
@@ -420,18 +421,17 @@ struct EchoBrowserView: View {
             .disabled(!local)
         } else {
             Button(local ? "改名…" : "改名…（在 \(s.computer) 上）") { startRename(.session(s)) }
-                .disabled(!local)
-            let movable = targets.allSatisfy { $0.computer == EchoPrefs.computerName && $0.app == .claude }
-            let why = targets.contains { $0.app != .claude } ? "（不支持 Codex 会话）" : "（在 \(s.computer) 上）"
-            Menu(!movable ? "移动到" + why : group.count > 1 ? "将 \(group.count) 个会话移动到" : "移动到") {
-                ForEach(recentDirs(except: targets), id: \.self) { d in
-                    Button((d as NSString).abbreviatingWithTildeInPath) { doMove(targets, d) }
-                }
-                Divider()
-                Button("选择文件夹…") { pickFolder(targets) }
-            }
-            .disabled(!movable)
+                .disabled(!local || targets.contains { $0.app != .claude })
         }
+        let movable = targets.allSatisfy { $0.computer == EchoPrefs.computerName }
+        Menu(!movable ? "移动到（在 \(s.computer) 上）" : group.count > 1 ? "将 \(group.count) 个会话移动到" : "移动到") {
+            ForEach(recentDirs(except: targets), id: \.self) { d in
+                Button((d as NSString).abbreviatingWithTildeInPath) { doMove(targets, d) }
+            }
+            Divider()
+            Button("选择文件夹…") { pickFolder(targets) }
+        }
+        .disabled(!movable)
         // 在访达中选中回响的备份文件：原会话可能已被清理、在别的电脑上，备份一直在
         Button(group.count > 1 ? "在访达中显示 \(group.count) 个备份" : "在访达中显示备份") {
             NSWorkspace.shared.activateFileViewerSelecting(targets.map(\.url))
@@ -772,7 +772,7 @@ struct EchoBrowserView: View {
             } preview: { dragGhost(d.name) }
             .onDrop(of: [.text], delegate: EchoRowDrop(drag: drag, update: { dirHover(d, group: group, y: $0.y) }, exit: { leave(d.path) }, perform: { dropOnDir(d) }))
             .padding(.top, level == 0 ? 8 : 0)   // 顶层目录之间多空一点，靠留白分组，不加图标
-            .help(missingDirs.contains(d.path) ? "文件夹已不存在：\((d.path as NSString).abbreviatingWithTildeInPath)\n" + (movableUnder(d).isEmpty ? "这里的会话来自 Codex 或其他电脑，无法移动" : "右键「找到新位置…」把会话移到新位置") : (d.path as NSString).abbreviatingWithTildeInPath)
+            .help(missingDirs.contains(d.path) ? "文件夹已不存在：\((d.path as NSString).abbreviatingWithTildeInPath)\n" + (movableUnder(d).isEmpty ? "这里的会话在其他电脑上，无法移动" : "右键「找到新位置…」把会话移到新位置") : (d.path as NSString).abbreviatingWithTildeInPath)
             .contextMenu { dirMenu(d) }
 
             if open {
@@ -870,12 +870,11 @@ struct EchoBrowserView: View {
             : EchoDropHint(key: d.path, mode: .into, ok: false, text: "目录只能在同级之间排序"))
     }
 
-    /// 会话拖到目录上能不能放：只有本机的 Claude 会话能移动，文件夹要在本机，已在这个文件夹里的不算
+    /// 会话拖到目录上能不能放：本机的会话能移动（Claude、Codex），文件夹要在本机，已在这个文件夹里的不算
     private func moveHint(_ list: [EchoSession], to d: EchoDir) -> EchoDropHint {
         let name = "「\(d.name)」"
         func no(_ t: String) -> EchoDropHint { EchoDropHint(key: d.path, mode: .into, ok: false, text: t) }
         if EchoPath.isGroup(d.path) { return no("\(name)是分组，无法移入") }
-        if list.contains(where: { $0.app != .claude }) { return no("不支持移动 Codex 会话") }
         if let s = list.first(where: { $0.computer != EchoPrefs.computerName }) { return no("会话在 \(s.computer) 上，无法移动") }
         if list.allSatisfy({ EchoPath.real($0.projectPath) == d.path }) { return no("会话已在\(name)中") }
         var isDir: ObjCBool = false
