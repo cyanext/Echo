@@ -405,7 +405,8 @@ enum EchoStats {
 
     /// 整理成 overview.js 要的 JSON。同步执行，放在后台线程调用
     static func build(_ sessions: [EchoSession], deleted: [EchoDeletedSession] = []) -> Data {
-        let cacheURL = EchoLibrary.supportDir.appendingPathComponent("总览缓存3.json")   // 2：加了每天的起止时间；3：加了提交号
+        let cacheURL = EchoLibrary.supportDir.appendingPathComponent("总览缓存4.json")   // 2：加了每天的起止时间；3：加了提交号；4：插话算进我的消息
+        try? FileManager.default.removeItem(at: EchoLibrary.supportDir.appendingPathComponent("总览缓存3.json"))   // 旧版的缓存用不上了
         let cache = (try? Data(contentsOf: cacheURL)).flatMap { try? JSONDecoder().decode(EchoStatsCache.self, from: $0) } ?? EchoStatsCache()
         var fresh = EchoStatsCache()
         var list: [[String: Any]] = []
