@@ -104,9 +104,10 @@ enum EchoTests {
         let fm = FileManager.default, home = fm.temporaryDirectory.appendingPathComponent("回响默认位置-" + UUID().uuidString)
         defer { try? fm.removeItem(at: home) }
         try fm.createDirectory(at: home, withIntermediateDirectories: true)
-        check(EchoPrefs.defaultBackupRoot(home: home).path == home.path + "/Documents/回响", "没有 iCloud 云盘时放文稿/回响")
+        let name = Locale.preferredLanguages.first?.hasPrefix("zh") == false ? "Echo Backup" : "回响备份"
+        check(EchoPrefs.defaultBackupRoot(home: home).path == home.path + "/Documents/" + name, "没有 iCloud 云盘时放文稿里")
         try fm.createDirectory(at: home.appendingPathComponent("Library/Mobile Documents/com~apple~CloudDocs"), withIntermediateDirectories: true)
-        check(EchoPrefs.defaultBackupRoot(home: home).path == home.path + "/Library/Mobile Documents/com~apple~CloudDocs/回响", "有 iCloud 云盘时放 iCloud 云盘/回响")
+        check(EchoPrefs.defaultBackupRoot(home: home).path == home.path + "/Library/Mobile Documents/com~apple~CloudDocs/" + name, "有 iCloud 云盘时放 iCloud 云盘里")
         try fm.createDirectory(at: home.appendingPathComponent("Desktop/项目代码/回响备份"), withIntermediateDirectories: true)
         check(EchoPrefs.defaultBackupRoot(home: home).path == home.path + "/Desktop/项目代码/回响备份", "旧的默认位置已有备份时接着用")
     }
