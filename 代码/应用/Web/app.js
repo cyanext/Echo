@@ -491,8 +491,11 @@
       const homeTitle = $("h-title").innerHTML, homeMeta = $("h-meta").innerHTML;
       const setHead = (k) => {
         const d = k && k.ts ? new Date(k.ts) : null;
-        $("h-title").innerHTML = k ? full(k) : homeTitle;
-        $("h-title").title = $("h-title").textContent;   // 标题栏只占一行，悬停看全文
+        // 回顾、手动压缩是一整句话：照要点栏的样子写主色小字标签加常规字重的正文，不用标题的粗体；版本、分段照旧当标题
+        const note = k && (k.kind === "recap" || k.kind === "compact");
+        $("h-title").innerHTML = !k ? homeTitle : note ? `<span class="h-tag">${k.kind === "recap" ? "回顾" : "手动压缩"}</span>${esc(k.kind === "recap" ? k.full : k.full || k.sub || "")}` : full(k);
+        $("h-title").classList.toggle("note", !!note);
+        $("h-title").title = note ? $("h-title").textContent.replace(/^(回顾|手动压缩)/, "$1：") : $("h-title").textContent;   // 标题栏只占一行，悬停看全文
         $("h-meta").innerHTML = k ? `<span>${esc(m.title)}</span>${d ? `<span>${md0(d)} ${hm(d)}</span>` : ""}` : homeMeta;
         ["h-title", "h-meta"].forEach((x) => { $(x).classList.remove("swap"); void $(x).offsetWidth; $(x).classList.add("swap"); });
         measureHead();
