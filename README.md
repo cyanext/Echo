@@ -48,10 +48,10 @@
 在终端里运行：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/cyanext/echo/main/install.sh | zsh
+curl -fsSL https://raw.githubusercontent.com/cyanext/Echo/main/install.sh | zsh
 ```
 
-会下载最新版装到 `~/Applications` 并打开。也可以到 [Releases](https://github.com/cyanext/echo/releases) 下载 `Echo-<版本>.zip`，解压后把「回响」拖到「应用程序」。用浏览器下载的，第一次打开如果提示「无法验证开发者」，到「系统设置 > 隐私与安全性」底部点「仍要打开」。
+会下载最新版装到 `~/Applications` 并打开。也可以到 [Releases](https://github.com/cyanext/Echo/releases) 下载 `Echo-<版本>.zip`，解压后把「回响」拖到「应用程序」。用浏览器下载的，第一次打开如果提示「无法验证开发者」，到「系统设置 > 隐私与安全性」底部点「仍要打开」。
 
 需要 macOS 14 或更新的版本、Apple 芯片。
 

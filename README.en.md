@@ -48,10 +48,10 @@ Echo backs up your sessions in the background, organizes them by project, and le
 Run in Terminal:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/cyanext/echo/main/install.sh | zsh
+curl -fsSL https://raw.githubusercontent.com/cyanext/Echo/main/install.sh | zsh
 ```
 
-This downloads the latest release to `~/Applications` and opens it. You can also download `Echo-<version>.zip` from [Releases](https://github.com/cyanext/echo/releases) and drag Echo to Applications. If macOS says it can't verify the developer on first launch, go to System Settings > Privacy & Security and click "Open Anyway".
+This downloads the latest release to `~/Applications` and opens it. You can also download `Echo-<version>.zip` from [Releases](https://github.com/cyanext/Echo/releases) and drag Echo to Applications. If macOS says it can't verify the developer on first launch, go to System Settings > Privacy & Security and click "Open Anyway".
 
 Requires macOS 14 or later on Apple silicon.
 

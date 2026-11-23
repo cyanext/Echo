@@ -7,7 +7,7 @@ import Security
 @MainActor
 final class EchoUpdate: NSObject {
     static let shared = EchoUpdate()
-    static let repo = "cyanext/echo"
+    static let repo = "cyanext/Echo"
     static var releasesPage: URL { URL(string: "https://github.com/\(repo)/releases")! }
     private static let skipKey = "updateSkipVersion"   // 用户点了「跳过这个版本」的版本号
 
