@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 470" width="880" height="470" role="img" aria-label="在 Claude Code 里说写一下上周的周报，AI 调 ech list 拿到两台电脑上 Claude Code 和 Codex 的全部会话、提交和版本，按项目写成周报">
+<style>
+  text { font-family: "SF Mono", Menlo, Consolas, "PingFang SC", monospace; font-size: 13.5px; }
+  .ui { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif; font-size: 12px; }
+  .fg { fill: #d7dadf; } .dim { fill: #8b929a; } .faint { fill: #5f666e; } .ok { fill: #4ec98a; } .tool { fill: #e8eaed; font-weight: 600; }
+  .h { fill: #e8eaed; font-weight: 600; } .ver { fill: #6fd3cc; }
+  .prompt { fill: #2a2e33; }
+</style>
+<rect x="0.5" y="0.5" width="879" height="469" rx="12" fill="#1b1e22" stroke="#33373d"/>
+<rect x="0.5" y="0.5" width="879" height="34" rx="12" fill="#24282d"/><rect x="0.5" y="22" width="879" height="13" fill="#24282d"/>
+<circle cx="20" cy="18" r="6" fill="#ff5f57"/><circle cx="40" cy="18" r="6" fill="#febc2e"/><circle cx="60" cy="18" r="6" fill="#28c840"/>
+<text class="ui dim" x="440" y="22" text-anchor="middle">~/Documents/周报 — claude</text>
+
+<rect class="prompt" x="20" y="50" width="840" height="30" rx="6"/>
+<text class="dim" x="34" y="70">&gt;</text><text class="fg" x="52" y="70">写一下上周的周报</text>
+
+<text class="ok" x="20" y="112">⏺</text><text class="tool" x="40" y="112">Bash</text><text class="fg" x="78" y="112">(ech list --since 11-16 --until 11-22)</text>
+<text class="faint" x="40" y="136">⎿</text><text class="dim" x="62" y="136">11-16 至 11-22：38 个会话，我的消息 412 条，提交 27 次（两台电脑，Claude Code、Codex）</text>
+<text class="dim" x="62" y="158">11-22 回响 · 回响 1.0 · 16 条 · 提交 8（0.1.0 至 0.8.0）</text>
+<text class="dim" x="62" y="180">11-21 记账本 · 预算超支提醒 · 10 条 · 提交 1（1.14.0）</text>
+<text class="dim" x="62" y="202">11-20 年度复盘 · 明年规划初稿 · 7 条 · 家里的 iMac</text>
+<text class="faint" x="62" y="224">… +35 lines</text>
+
+<text class="fg" x="20" y="260">⏺</text><text class="fg" x="40" y="260">上周的周报：</text>
+
+<text class="h" x="40" y="292">回响</text>
+<text class="fg" x="40" y="316">· 发布 <tspan class="ver">0.1.0 至 0.8.0</tspan>：自动备份、按版本回看、全局搜索、ech、目录管理，</text>
+<text class="fg" x="56" y="338">开源到 GitHub，一行命令安装、自动更新</text>
+<text class="h" x="40" y="372">记账本</text>
+<text class="fg" x="40" y="396">· <tspan class="ver">1.14.0</tspan> 预算超支提醒，<tspan class="ver">1.15.0</tspan> 分类图标改版，导入银行账单完成</text>
+<text class="h" x="40" y="430">年度复盘</text>
+<text class="fg" x="40" y="454">· 复盘提纲、数据汇总定稿，明年规划写完初稿</text>
+</svg>

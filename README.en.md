@@ -4,11 +4,13 @@
 
 <p align="center">Everything you've talked through with AI, remembered.</p>
 
-<p align="center">Backup, timeline review and search for Claude Code and Codex sessions, and your AI can look them up too.<br>A free, open-source Mac app.</p>
+<p align="center">Backup, timeline review and search for Claude Code and Codex sessions, and your AI can look them up too.<br>A free, open-source Mac app. Your sessions are stored locally and safely.</p>
 
 <p align="center"><a href="#install">Install</a> · <a href="README.md">中文</a></p>
 
 <p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/session-dark.png"><img src="docs/session-light.png" width="100%" alt="A session: the keypoint rail splits it by version, recap and compaction; hovering a recap shows its full text"></picture></p>
+
+<p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/overview-dark.png"><img src="docs/overview-light.png" width="100%" alt="Overview: tokens, cost, messages, AI time and commits per day, with a calendar and sessions by day"></picture></p>
 
 > The app's interface is currently in Chinese.
 
@@ -55,9 +57,12 @@ Start a new session and say "continue the last one". Your AI checks Echo for whe
 - Echo installs the `ech` command and a matching skill; works with Claude Code and Codex
 - When you ask "where did we leave off?" or "why did we decide this?", the AI looks it up itself; queries are read-only
 - Plain-text output, much faster and cheaper in tokens than letting the AI read raw session files
-- Weekly reports: `ech list --since 7d` lists a week of sessions, commits and versions, across all your Macs and AI tools
 
 <p align="center"><img src="docs/how-ech.svg" width="100%" alt="You say continue the last one; the AI uses ech to find the latest recap in Echo and carries on"></p>
+
+Weekly reports work the same way: one sentence, and the AI uses `ech list` to get a week of sessions, commits and versions across your Macs and AI tools, then writes it up by project.
+
+<p align="center"><img src="docs/how-weekly.svg" width="100%" alt="Ask for last week's report; the AI runs ech list for a week of sessions, commits and versions across Macs and AI tools, and writes it up by project"></p>
 
 ## Folder management
 
@@ -77,8 +82,6 @@ How many tokens you used each day and what they cost, how long the AI worked, wh
 - This week's tokens, messages, AI time and commits, compared with last week
 - A calendar shows your busiest days; click a day to expand its sessions
 - Git commits and versions are attached to their sessions; stats are kept for deleted sessions
-
-<p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/overview-dark.png"><img src="docs/overview-light.png" width="100%" alt="Overview: tokens, cost, messages, AI time and commits per day, with a calendar and sessions by day"></picture></p>
 
 ## Install
 

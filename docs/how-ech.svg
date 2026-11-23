@@ -1,67 +1,26 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 330" width="880" height="330" role="img" aria-label="你说接着上次那个做，AI 用 ech 在回响里查到上次的回顾，接着往下做">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 316" width="880" height="316" role="img" aria-label="在 Claude Code 里说接着上次那个做，AI 调 ech context 从回响取到上次的回顾，接着往下做">
 <style>
-  .card { fill: #ffffff; stroke: #e3e8e6; }
-  .soft { fill: #f3f9f6; } .me { fill: #f3f9f6; } .term { fill: #1f2725; }
-  .ink { fill: #1f2725; } .ink2 { fill: #5f6b67; } .ink3 { fill: #8f959e; }
-  .acc { fill: #008081; } .accs { stroke: #008081; } .acc3 { fill: #b5dfda; } .tag { fill: #e6f3f1; }
-  .line { stroke: #c9d3cf; } .tw { fill: #e6ece9; } .tg { fill: #7fd6cf; }
-  text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif; }
-  .mono { font-family: "SF Mono", Menlo, Consolas, monospace; }
-  .t { font-size: 16px; font-weight: 600; } .s { font-size: 14px; } .xs { font-size: 12px; } .lab { font-size: 12px; font-weight: 600; }
-  @media (prefers-color-scheme: dark) {
-    .card { fill: #232b29; stroke: #34403d; } .soft { fill: #2a3532; } .me { fill: #23302c; } .term { fill: #111615; }
-    .ink { fill: #e6ece9; } .ink2 { fill: #a9b4b0; } .ink3 { fill: #7d8783; }
-    .acc { fill: #3fc0c0; } .accs { stroke: #3fc0c0; } .acc3 { fill: #285a55; } .tag { fill: #20403c; }
-    .line { stroke: #3d4946; }
-  }
+  text { font-family: "SF Mono", Menlo, Consolas, "PingFang SC", monospace; font-size: 13.5px; }
+  .ui { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif; font-size: 12px; }
+  .fg { fill: #d7dadf; } .dim { fill: #8b929a; } .faint { fill: #5f666e; } .ok { fill: #4ec98a; } .tool { fill: #e8eaed; font-weight: 600; }
+  .prompt { fill: #2a2e33; }
 </style>
+<rect x="0.5" y="0.5" width="879" height="315" rx="12" fill="#1b1e22" stroke="#33373d"/>
+<rect x="0.5" y="0.5" width="879" height="34" rx="12" fill="#24282d"/><rect x="0.5" y="22" width="879" height="13" fill="#24282d"/>
+<circle cx="20" cy="18" r="6" fill="#ff5f57"/><circle cx="40" cy="18" r="6" fill="#febc2e"/><circle cx="60" cy="18" r="6" fill="#28c840"/>
+<text class="ui dim" x="440" y="22" text-anchor="middle">~/Projects/回响 — claude</text>
 
-<!-- 左边：你和 AI 的新会话 -->
-<rect class="card" x="10" y="10" width="520" height="310" rx="18" stroke-width="1.5"/>
-<text class="lab ink3" x="34" y="40">新开的会话</text>
+<rect class="prompt" x="20" y="50" width="840" height="30" rx="6"/>
+<text class="dim" x="34" y="70">&gt;</text><text class="fg" x="52" y="70">接着上次那个做</text>
 
-<!-- 你 -->
-<rect class="me" x="250" y="56" width="250" height="40" rx="20"/>
-<text class="s ink" x="375" y="81" text-anchor="middle">接着上次那个做</text>
+<text class="fg" x="20" y="112">⏺</text><text class="fg" x="40" y="112">我先查一下上次做到哪了。</text>
 
-<!-- AI 去查 -->
-<text class="lab ink3" x="34" y="124">AI</text>
-<text class="s ink" x="34" y="148">我先查一下上次做到哪了。</text>
-<rect class="term" x="34" y="160" width="300" height="34" rx="8"/>
-<text class="xs mono tg" x="48" y="182">$</text><text class="xs mono tw" x="62" y="182">ech context 回响 1.0</text>
+<text class="ok" x="20" y="144">⏺</text><text class="tool" x="40" y="144">Bash</text><text class="fg" x="78" y="144">(ech context "回响 1.0")</text>
+<text class="faint" x="40" y="168">⎿</text><text class="dim" x="62" y="168">回响 1.0 · 公司的 MacBook Pro · 第 7 段起（最近一次压缩之后）</text>
+<text class="dim" x="62" y="190">最近一次回顾（11-22 10:26）：1.0 的功能都做完了：备份、浏览、总览、</text>
+<text class="dim" x="62" y="212">搜索、ech、目录管理、开源和自动更新。还没做的：记忆管理。</text>
+<text class="faint" x="62" y="234">… +214 lines</text>
 
-<!-- AI 接着做 -->
-<text class="s ink" x="34" y="228">上次做到 v0.8.0，备份、搜索、ech、</text>
-<text class="s ink" x="34" y="250">目录管理都上线了，还差记忆管理。</text>
-<text class="s ink" x="34" y="272">我们接着做记忆管理：先看现在的记忆文件…</text>
-<rect class="tag" x="34" y="286" width="150" height="22" rx="11"/>
-<text class="xs acc" x="109" y="301" text-anchor="middle">不用你重新交代背景</text>
-
-<!-- 中间的箭头：去回响查、带回结果 -->
-<path class="accs" d="M338 177 C 420 177, 470 120, 560 120" fill="none" stroke-width="2" stroke-dasharray="5 5"/>
-<path class="acc" d="M556 113 l10 7 l-10 7 z"/>
-<path class="accs" d="M560 210 C 470 210, 440 236, 390 236" fill="none" stroke-width="2" stroke-dasharray="5 5"/>
-<path class="acc" d="M394 229 l-10 7 l10 7 z"/>
-
-<!-- 右边：回响 -->
-<rect class="card" x="570" y="10" width="300" height="310" rx="18" stroke-width="1.5"/>
-<g transform="translate(594 28)">
-  <rect class="soft" width="36" height="36" rx="9"/>
-  <rect class="acc" x="9" y="8" width="5" height="20" rx="2.5"/>
-  <rect class="acc" x="17" y="12" width="5" height="12" rx="2.5" opacity=".7"/>
-  <rect class="acc" x="25" y="15" width="5" height="6" rx="2.5" opacity=".4"/>
-</g>
-<text class="t ink" x="642" y="52">回响</text>
-<text class="xs ink3" x="594" y="86">所有会话的备份和索引</text>
-
-<rect class="soft" x="594" y="100" width="252" height="58" rx="10"/>
-<text class="xs ink3" x="608" y="122">找到会话</text>
-<text class="s ink" x="608" y="145">回响 1.0 · 8 个版本</text>
-
-<rect class="soft" x="594" y="168" width="252" height="128" rx="10"/>
-<text class="xs ink3" x="608" y="190">最近一次回顾</text>
-<text class="s ink" x="608" y="214">1.0 的功能都做完了：备份、</text>
-<text class="s ink" x="608" y="236">浏览、总览、搜索、ech、</text>
-<text class="s ink" x="608" y="258">目录管理、开源和自动更新。</text>
-<text class="s ink" x="608" y="280">还没做的：记忆管理。</text>
+<text class="fg" x="20" y="270">⏺</text><text class="fg" x="40" y="270">上次做到 v0.8.0，还差记忆管理。我先看一下现在的记忆文件，</text>
+<text class="fg" x="40" y="292">列出要备份、查看、合并、编辑的几类，你确认后开始做。</text>
 </svg>

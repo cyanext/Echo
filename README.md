@@ -4,11 +4,13 @@
 
 <p align="center">你和 AI 聊过的，回响都记得。</p>
 
-<p align="center">Claude Code、Codex 会话的备份、回看和检索，AI 也能自己查。<br>Mac 应用，开源免费。</p>
+<p align="center">Claude Code、Codex 会话的备份、回看和检索，AI 也能自己查。<br>Mac 应用，开源免费，本地安全存储。</p>
 
 <p align="center"><a href="#安装">安装</a> · <a href="README.en.md">English</a></p>
 
 <p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/session-dark.png"><img src="docs/session-light.png" width="100%" alt="会话「回响 1.0」：左边要点栏按版本、回顾、压缩分段，悬停浮出回顾全文；标题栏下写当前所在的版本"></picture></p>
+
+<p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/overview-dark.png"><img src="docs/overview-light.png" width="100%" alt="总览：每天的 Token、费用、消息数、AI 时长和提交，日历和每天的会话"></picture></p>
 
 - **自动备份**：会话不怕 30 天清理，占用下降 80%，几台 Mac 汇到一起
 - **按版本回看**：长会话按版本、回顾分段，一点跳到当时
@@ -53,18 +55,13 @@
 - 装好回响就带 `ech` 命令和配套 skill，Claude Code、Codex 都能用
 - AI 听到「上次聊到哪了」「以前为什么这么定」就自己去查，查询只读
 - 输出纯文本，比让 AI 读原会话文件快得多、省 Token
-- 写周报：`ech list --since 7d` 列出一周的会话、提交和版本，几台电脑、几家 AI 都在
 
 <p align="center"><img src="docs/how-ech.svg" width="100%" alt="你说接着上次那个做，AI 用 ech 在回响里查到上次的回顾，接着往下做"></p>
 
-```text
-$ ech list --since 7d
-2026-11-17 至 2026-11-23：16 个会话，我的消息 111 条，Token 35.2M，提交 13 次（总览数据）
-11-23 回响 · 记忆管理需求 · 5 条 · 1.3M · beff8384
-11-22 回响 · 回响 1.0 · 16 条 · 4.5M · 提交 8（0.1.0 至 0.8.0 共 8 个版本） · e0b9311e
-11-22 记账本 · 分类图标改版（续） · 8 条 · 2.5M · 提交 1（1.15.0） · ae5e3f1f
-…
-```
+写周报也一样：一句话，AI 用 `ech list` 拿到一周里几台电脑、几家 AI 的全部会话、提交和版本，按项目写出来。
+
+<p align="center"><img src="docs/how-weekly.svg" width="100%" alt="在 Claude Code 里说写一下上周的周报，AI 用 ech list 拿到两台电脑上 Claude Code、Codex 一周的会话、提交和版本，按项目写成周报"></p>
+
 
 ## 会话目录管理
 
@@ -84,8 +81,6 @@ $ ech list --since 7d
 - 本周的 Token、消息数、AI 时长、提交数，和上周比涨了还是跌了
 - 日历一眼看出哪几天最忙，点一天展开那天的会话
 - git 提交和版本挂到对应的会话上，删掉的会话统计照算
-
-<p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/overview-dark.png"><img src="docs/overview-light.png" width="100%" alt="总览：每天的 Token、费用、消息数、AI 时长和提交，日历和每天的会话"></picture></p>
 
 ## 安装
 
