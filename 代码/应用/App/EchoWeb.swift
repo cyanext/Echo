@@ -60,13 +60,14 @@ struct EchoConversation: View {
     let target: EchoTarget
     var at: Double?
     var q: String? = nil          // 从搜索结果进来：在 at 那一处查找这个词
+    var ver: String? = nil        // 从总览点版本号进来：先按版本号找要点
     var seq = 0                   // 同一处再点一次也跳
     @State private var loading = false
     @State private var failed: String?
 
     var body: some View {
         ZStack {
-            EchoWebView(target: target, at: at, q: q, seq: seq, loading: $loading, failed: $failed)
+            EchoWebView(target: target, at: at, q: q, ver: ver, seq: seq, loading: $loading, failed: $failed)
             if loading { ProgressView().controlSize(.small) }
             if let f = failed {
                 VStack(spacing: 6) {
@@ -82,6 +83,7 @@ struct EchoWebView: NSViewRepresentable {
     let target: EchoTarget
     var at: Double?
     var q: String?
+    var ver: String?
     var seq: Int
     @Binding var loading: Bool
     @Binding var failed: String?
@@ -95,7 +97,7 @@ struct EchoWebView: NSViewRepresentable {
     }
 
     func updateNSView(_ w: WKWebView, context: Context) {
-        context.coordinator.show(target, at: at, q: q, seq: seq, loading: $loading, failed: $failed)
+        context.coordinator.show(target, at: at, q: q, ver: ver, seq: seq, loading: $loading, failed: $failed)
     }
 
     @MainActor
@@ -106,7 +108,7 @@ struct EchoWebView: NSViewRepresentable {
         private var currentAt: Double?
         private var currentSeq = 0
 
-        func show(_ t: EchoTarget, at: Double?, q: String?, seq: Int, loading: Binding<Bool>, failed: Binding<String?>) {
+        func show(_ t: EchoTarget, at: Double?, q: String?, ver: String?, seq: Int, loading: Binding<Bool>, failed: Binding<String?>) {
             let key = t.key
             if key == current {
                 // 同一个会话已经开着：只换跳转位置；搜索结果进来的在那一处查找关键词
@@ -114,7 +116,10 @@ struct EchoWebView: NSViewRepresentable {
                     currentSeq = seq; currentAt = at
                     let arg = (try? JSONSerialization.data(withJSONObject: [q], options: .fragmentsAllowed)).flatMap { String(data: $0, encoding: .utf8) } ?? "[\"\"]"
                     web?.evaluateJavaScript("window.echoFind && window.echoFind(\(arg)[0], \(at.map { String(Int($0)) } ?? "0"))")
-                } else if q == nil, let at, at != currentAt { currentAt = at; web?.evaluateJavaScript("window.echoJump && window.echoJump(\(Int(at)))") }
+                } else if q == nil, let at, at != currentAt {
+                    currentAt = at
+                    web?.evaluateJavaScript("window.echoJump && window.echoJump(\(Int(at)), \(Self.js(ver ?? "")))")
+                }
                 return
             }
             currentAt = at
@@ -133,12 +138,18 @@ struct EchoWebView: NSViewRepresentable {
                         self.scheme.sessions = [token: data]
                         var jump = at.map { "&at=\(Int($0))" } ?? ""
                         if let q, let e = q.addingPercentEncoding(withAllowedCharacters: .alphanumerics) { jump += "&q=" + e }
+                        if let ver, let e = ver.addingPercentEncoding(withAllowedCharacters: .alphanumerics) { jump += "&v=" + e }
                         self.web?.load(URLRequest(url: URL(string: "echo://app/index.html?s=\(token)\(jump)")!))
                     case .failure(let e):
                         failed.wrappedValue = e.localizedDescription
                     }
                 }
             }
+        }
+
+        /// 字符串写成 JS 字面量
+        static func js(_ s: String) -> String {
+            (try? JSONSerialization.data(withJSONObject: [s])).flatMap { String(data: $0, encoding: .utf8) }.map { String($0.dropFirst().dropLast()) } ?? "\"\""
         }
 
         /// 网页里点「复制恢复命令」
@@ -190,6 +201,7 @@ struct EchoOverviewWeb: NSViewRepresentable {
             if let f = body["forget"] as? String { EchoState.shared.forgetStats(f); return }
             guard let id = body["open"] as? String else { return }
             EchoState.shared.openAt = (body["at"] as? NSNumber)?.doubleValue
+            EchoState.shared.openVer = (body["ver"] as? String).flatMap { $0.isEmpty ? nil : $0 }
             EchoState.shared.openSessionID = id
         }
     }

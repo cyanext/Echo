@@ -166,7 +166,7 @@
   function sessRow(s) {
     const cs = [...s.commits].sort((a, b) => b.time - a.time), vs = [];
     cs.forEach((c) => { if (c.ver && !vs.some((v) => v.ver === c.ver)) vs.push(c); });
-    const vers = vs.slice(0, 6).map((c) => `<span class="ver"${s.x ? "" : ` data-sid="${esc(s.id)}" data-at="${c.time}"`} data-tip="${esc(`${c.ver}  ${hm(c.time)} · +${c.a} -${c.r}\n${c.s}${s.x ? "" : "\n点一下跳到会话里这次提交"}`)}">${IC.tag}${c.ver}</span>`).join("") + (vs.length > 6 ? `<span class="more-ver">等 ${vs.length} 个版本</span>` : "");
+    const vers = vs.slice(0, 6).map((c) => `<span class="ver"${s.x ? "" : ` data-sid="${esc(s.id)}" data-at="${c.time}" data-ver="${esc(c.ver)}"`} data-tip="${esc(`${c.ver}  ${hm(c.time)} · +${c.a} -${c.r}\n${c.s}${s.x ? "" : "\n点一下跳到会话里这次提交"}`)}">${IC.tag}${c.ver}</span>`).join("") + (vs.length > 6 ? `<span class="more-ver">等 ${vs.length} 个版本</span>` : "");
     // 删掉的会话（s.x）：数照算，标「已删除」，点不开
     return `<div class="row sess${s.x ? " gone" : ""}"${s.x ? "" : ` data-id="${esc(s.id)}"`}>
       <div class="name"><div class="line"><span class="title">${esc(s.t)}</span>${s.x ? `<span class="gone-tag">已删除</span><span class="forget" data-forget="${esc(s.id.replace(/^deleted:/, ""))}" data-tip="备份已删除，统计数据仍计入总览">删除统计</span>` : ""}<span class="path">${esc(s.dir)}</span></div>${vers ? `<div class="vers">${vers}</div>` : ""}</div>
@@ -405,7 +405,7 @@
   $("cal").onclick = (e) => { const c = e.target.closest(".c[data-t]"); if (c) showDay(+c.dataset.t); };
   $("week").onclick = (e) => {
     const j = e.target.closest("[data-at]");                       // 版本号、「N 次」：打开会话跳到那次提交
-    if (j) { post({ open: j.dataset.sid, at: +j.dataset.at }); return; }
+    if (j) { post({ open: j.dataset.sid, at: +j.dataset.at, ver: j.dataset.ver || "" }); return; }   // 带上版本号：对话页先按版本号找要点
     const t = e.target.closest(".date[data-t], .toggle[data-t]");   // 日期、「还有 N 个会话」：展开或收起这天
     if (t) { const k = +t.dataset.t; open.has(k) ? open.delete(k) : open.add(k); week(); return; }
     const s = e.target.closest(".sess[data-id]");                  // 会话：打开

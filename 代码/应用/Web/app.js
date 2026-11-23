@@ -361,7 +361,9 @@
       const g = el.closest("details.steps");
       if (g) g.open = true;
       el.scrollIntoView({ block: "start" });
-      const fl = el.classList.contains("pa") ? el.nextElementSibling : el;
+      // 段的锚点闪它后面那一条；跳过不显示的时间标记 .ts
+      let fl = el.classList.contains("pa") ? el.nextElementSibling : el;
+      while (fl && fl.classList.contains("ts")) fl = fl.nextElementSibling;
       if (fl) { fl.classList.remove("flash"); void fl.offsetWidth; fl.classList.add("flash"); }
     };
 
@@ -673,8 +675,11 @@
     $("search").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); next(); } });
     document.addEventListener("keydown", (e) => { if ((e.metaKey || e.ctrlKey) && e.key === "f") { e.preventDefault(); $("search").focus(); $("search").select(); } });
 
-    // 从总览点版本或提交进来时带 ?at=毫秒：跳到离那个时间最近的提交要点（15 分钟内），没有就跳到那时候正在进行的那一段
-    window.echoJump = (at) => {
+    // 从总览点版本或提交进来时带 ?at=毫秒、&v=版本号：先找这个版本的要点（版本要点标在这一版最后一次提交的位置，
+    // 往往比打版本号那次提交晚，只按时间找会停到别的版本上）；没带版本号或没找到，跳到离那个时间最近的提交要点（15 分钟内），再没有就跳到那时候正在进行的那一段
+    window.echoJump = (at, ver) => {
+      const mine = ver && keys.find((k) => k.kind === "commit" && k.ver && (k.ver === ver || k.ver.endsWith(" " + ver)));
+      if (mine) return goTo(partOf[mine.turn], mine.id);
       const near = keys.filter((k) => k.kind === "commit" && k.ts).map((k) => [Math.abs(new Date(k.ts) - at), k]).sort((a, b) => a[0] - b[0])[0];
       if (near && near[0] < 15 * 60e3) return goTo(partOf[near[1].turn], near[1].id);
       let i = -1;
@@ -703,9 +708,9 @@
     };
 
     const params = new URLSearchParams(location.search);
-    const at0 = +params.get("at"), q0 = params.get("q");
+    const at0 = +params.get("at"), q0 = params.get("q"), v0 = params.get("v");
     if (q0) setTimeout(() => window.echoFind(q0, at0), 0);
-    else if (at0) setTimeout(() => window.echoJump(at0), 0);
+    else if (at0) setTimeout(() => window.echoJump(at0, v0), 0);
   }
 
   // 回归测试（tests/timeline_test.js）在 node 里加载本文件，取时间轴的规则

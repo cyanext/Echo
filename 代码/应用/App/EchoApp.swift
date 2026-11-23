@@ -115,6 +115,7 @@ final class EchoState: ObservableObject {
     @Published var openSessionID: String?
     /// 同时给了时间（毫秒）：打开后跳到那个时间的位置（总览里点了版本或提交）
     var openAt: Double?
+    var openVer: String?          // 总览点的版本号：对话页先按它找要点，找不到再按 openAt 的时间
     private var buildingOverview = false
     private var overviewAgain = false
     /// 上次跑备份的时间（成功失败都算），打开窗口时 5 分钟内跑过就不再跑

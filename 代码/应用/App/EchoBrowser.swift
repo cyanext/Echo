@@ -37,6 +37,7 @@ struct EchoBrowserView: View {
     @State private var showOverview = true                             // 打开窗口默认停在总览
     @State private var jumpAt: Double?                                 // 从总览点版本或提交进来：打开后跳到这个时间
     @State private var jumpQuery: String?                              // 从搜索结果进来：跳到 jumpAt 那一处，页面里查找这个词
+    @State private var jumpVer: String?                                // 从总览点版本号进来：先按版本号找要点
     @State private var jumpSeq = 0                                     // 同一处再点一次也要跳回去
     @StateObject private var search = EchoSearchModel()
     @State private var query = ProcessInfo.processInfo.environment["ECHO_SHOT_QUERY"] ?? ""   // 左栏搜索框；有字时目录树换成搜索结果（环境变量只给截图用）
@@ -83,7 +84,9 @@ struct EchoBrowserView: View {
             collectionID = nil
             sessionID = id
             jumpAt = state.openAt
+            jumpVer = state.openVer
             jumpQuery = nil
+            state.openVer = nil
             state.openAt = nil
             showOverview = false
         }
@@ -119,7 +122,7 @@ struct EchoBrowserView: View {
             // 右边白区：靠左栏的两个角收圆角 12，左栏的底色从圆角外露出来（照伙伴云NAS应用）；外面不描边
             ZStack {
                 if showOverview { EchoOverview() }
-                else if let t = target { EchoConversation(target: t, at: jumpAt, q: jumpQuery, seq: jumpSeq) }
+                else if let t = target { EchoConversation(target: t, at: jumpAt, q: jumpQuery, ver: jumpVer, seq: jumpSeq) }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             // 网页顶上一条 10 高的透明拖动带（照伙伴云NAS应用 v0.9.3 的 WindowDragArea）：网页把鼠标吃掉，右边顶上也要能拖窗口、双击放大。
@@ -478,7 +481,7 @@ struct EchoBrowserView: View {
                 } action: {
                     collectionID = c.id
                     picked = []
-                    jumpAt = nil; jumpQuery = nil
+                    jumpAt = nil; jumpQuery = nil; jumpVer = nil
                     showOverview = false
                 }
                 .contextMenu {
@@ -687,7 +690,7 @@ struct EchoBrowserView: View {
         picked = []
         collectionID = nil
         sessionID = s.id
-        jumpAt = nil; jumpQuery = nil
+        jumpAt = nil; jumpQuery = nil; jumpVer = nil
         searchPick = nil
         showOverview = false
     }
@@ -699,6 +702,7 @@ struct EchoBrowserView: View {
         sessionID = s.id
         jumpAt = EchoTime.fastEpoch(h.ts).map { $0 * 1000 }
         jumpQuery = EchoIndex.anchor(query.trimmed)
+        jumpVer = nil
         jumpSeq += 1
         searchPick = "\(h.fid):\(h.line)"
         showOverview = false
@@ -824,7 +828,7 @@ struct EchoBrowserView: View {
                 picked = []
                 collectionID = nil
                 sessionID = s.id
-                jumpAt = nil; jumpQuery = nil
+                jumpAt = nil; jumpQuery = nil; jumpVer = nil
                 showOverview = false
             }
         }
