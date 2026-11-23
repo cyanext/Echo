@@ -125,6 +125,7 @@ struct EchoGeneralSettings: View {
     @State private var name = EchoPrefs.computerName
     @State private var root = EchoPrefs.backupRoot.path
     @State private var hours = EchoPrefs.backupHours
+    @State private var theme = EchoPrefs.theme
     @State private var login = SMAppService.mainApp.status == .enabled
     @State private var loginError: String?
     @State private var cliInstalled = EchoCLIInstall.installed
@@ -153,6 +154,11 @@ struct EchoGeneralSettings: View {
                 Picker("", selection: $hours) { Text("每小时").tag(1); Text("每 6 小时").tag(6); Text("每天").tag(24) }
                     .labelsHidden().frame(width: 112)
                     .onChange(of: hours) { _, h in EchoPrefs.backupHours = h }
+            }
+            EchoSettingRow(title: "主题", note: nil) {
+                Picker("", selection: $theme) { Text("跟随系统").tag("system"); Text("浅色").tag("light"); Text("深色").tag("dark") }
+                    .labelsHidden().frame(width: 112)
+                    .onChange(of: theme) { _, t in EchoPrefs.theme = t }
             }
             EchoSettingRow(title: "开机自动启动", note: loginError ?? "在后台备份，不弹窗口") {
                 Toggle("", isOn: $login).toggleStyle(.switch).labelsHidden().onChange(of: login) { _, on in setLogin(on) }

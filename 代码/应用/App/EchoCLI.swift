@@ -68,7 +68,7 @@ enum EchoCLI {
 
     static let help = """
     ech：查回响备份里的会话（只读），和备份
-      ech find <关键词> [--app claude|codex] [--since 日期] [--project 词] [--limit 20]   按关键词找会话和段
+      ech find <关键词> [--app claude|codex] [--since 日期] [--project 词] [--limit 20] [--tools]   按关键词找会话和段（默认只找对话，--tools 连工具调用一起找）
       ech list [--since 日期] [--until 日期] [--project 词] [--app 名]                  按时间列会话、消息、Token、提交（默认最近 7 天）
       ech segs <会话>                                列一个会话的分段（每段一个引用，如 ce57ce36#3）
       ech read <引用> [--tools]                       把一段读成对话文字：ce57ce36#3 第 3 段，ce57ce36#L1200-1500 这几行，只写会话读最后一段
@@ -190,7 +190,9 @@ enum EchoCLI {
         let db = try openIndex()
         let limit = Int(a.opt["limit"] ?? "20") ?? 20
         let since = try a.opt["since"].map { try dayRange($0, nil).0 }
-        let hits = try EchoIndex.search(db, q, limit: limit, app: a.opt["app"], project: a.opt["project"], since: since)
+        // 默认只找对话（我说的、回顾、阶段总结、AI 回的）；--tools 连工具调用和命令一起找
+        let hits = try EchoIndex.search(db, q, limit: limit, app: a.opt["app"], project: a.opt["project"], since: since,
+                                        roles: a.flags.contains("tools") ? nil : ["我", "回顾", "总结", "AI"])
         let anchor = EchoIndex.anchor(q)
         typealias Hit = EchoIndex.Hit
         let segQ = try db.prepare("SELECT n, vers FROM segs WHERE fid=? AND l0<=? ORDER BY n DESC LIMIT 1")
@@ -301,7 +303,13 @@ enum EchoCLI {
         let f = try resolve(db, key)
         var lo = 0, label = "从头"
         try db.rows("SELECT n, l0 FROM segs WHERE fid=? AND kind='压缩' ORDER BY n DESC LIMIT 1", [f.fid]) { lo = $0.int(1); label = "第 \($0.int(0)) 段起（最近一次压缩之后）" }
-        return try render(f, lo, Int.max, label, a, again: ["ech", "context"] + a.pos)
+        // 先给最近一条回顾：Claude 写的做到哪、下一步，最快接上
+        var recap = ""
+        try db.rows("SELECT ts, text FROM lines WHERE fid=? AND role='回顾' ORDER BY line DESC LIMIT 1", [f.fid]) { recap = "最近一次回顾（\(hm($0.text(0)))）：" + $0.text(1) }
+        let body = try render(f, lo, Int.max, label, a, again: ["ech", "context"] + a.pos)
+        if recap.isEmpty || a.flags.contains("json") || a.page > 1 { return body }
+        let lines = body.split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: false)
+        return lines[0] + "\n" + recap + "\n" + (lines.count > 1 ? lines[1] : "")
     }
 
     /// 把会话文件里 lo 到 hi 行的对话写成文字：我的消息、回复、阶段总结，工具调用一行概述（--tools 带输出）
@@ -341,6 +349,7 @@ enum EchoCLI {
             switch role {
             case "user": out.append("\n[\(hm(ts))] 我：" + text); items.append(["line": line, "ts": ts, "role": "我", "text": text])
             case "summary": out.append("\n[\(hm(ts))] 阶段总结：" + text); items.append(["line": line, "ts": ts, "role": "总结", "text": text])
+            case "recap": out.append("\n[\(hm(ts))] 回顾：" + text); items.append(["line": line, "ts": ts, "role": "回顾", "text": text])
             case "command": out.append("\n[\(hm(ts))] 命令：" + text)
             default: break
             }
@@ -512,8 +521,8 @@ enum EchoCLI {
     // MARK: schema、skill
 
     static let commands: [[String: Any]] = [
-        ["command": "find", "summary": "按关键词找会话和段（只读）", "args": [["name": "关键词", "required": true, "desc": "空格分开的几个词都要有；3 个字以上走全文索引"]],
-         "options": [["name": "--app", "values": "claude | codex"], ["name": "--since", "values": "2026-11-16 | 2026/11/16 | 11-16 | 7d"], ["name": "--project", "desc": "项目路径里的词"], ["name": "--limit", "default": 20], ["name": "--page"], ["name": "--json"]]],
+        ["command": "find", "summary": "按关键词找会话和段（只读）。默认只找对话：我说的、回顾、阶段总结、AI 回的", "args": [["name": "关键词", "required": true, "desc": "空格分开的几个词都要有；3 个字以上走全文索引"]],
+         "options": [["name": "--app", "values": "claude | codex"], ["name": "--since", "values": "2026-11-16 | 2026/11/16 | 11-16 | 7d"], ["name": "--project", "desc": "项目路径里的词"], ["name": "--tools", "desc": "连工具调用和命令一起找"], ["name": "--limit", "default": 20], ["name": "--page"], ["name": "--json"]]],
         ["command": "list", "summary": "按时间列会话、我的消息、Token、提交和版本（只读，取总览数据）",
          "options": [["name": "--since", "default": "7d", "values": "2026-11-16 | 2026/11/16 | 11-16 | 7d"], ["name": "--until", "default": "今天", "values": "2026-11-22 | 11-22"], ["name": "--project"], ["name": "--app"], ["name": "--page"], ["name": "--json"]]],
         ["command": "segs", "summary": "列一个会话的分段：段号、起止行、时间、版本、第一句（只读）", "args": [["name": "会话", "required": true, "desc": "会话 ID 前 8 位或备份文件路径"]], "options": [["name": "--json"]]],

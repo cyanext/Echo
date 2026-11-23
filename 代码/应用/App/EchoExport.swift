@@ -10,7 +10,7 @@ enum EchoExport {
         "[Image:", "Caveat:", "[Request interrupted",
     ]
 
-    private static let needles = ["\"type\":\"user\"", "\"type\":\"assistant\"", "\"type\":\"custom-title\"", "\"type\":\"ai-title\"", "\"compact_boundary\""].map { Array($0.utf8) }
+    private static let needles = ["\"type\":\"user\"", "\"type\":\"assistant\"", "\"type\":\"custom-title\"", "\"type\":\"ai-title\"", "\"compact_boundary\"", "\"away_summary\"", "\"queued_command\""].map { Array($0.utf8) }   // 回顾、插话
 
     /// 逐条回调可能相关的记录（user、assistant、标题），其余 20 多种类型连解析都省掉；第二个参数是行号（从 1 起）
     static func records(_ url: URL, _ body: ([String: Any], Int) -> Void) throws {
@@ -114,6 +114,26 @@ enum EchoExport {
             let t = d["type"] as? String
             if t == "system", d["subtype"] as? String == "compact_boundary" {
                 trigger = (d["compactMetadata"] as? [String: Any])?["trigger"] as? String ?? ""
+                return
+            }
+            if let q = queuedPrompt(d) {
+                // 你在 AI 干活时插进来的消息：显示成你的消息（和原型一样）
+                let uid = d["uuid"] as? String
+                if let uid { guard !seen.contains(uid) else { return }; seen.insert(uid) } else { guard !seenNil else { return }; seenNil = true }
+                let turn = Turn(role: "user", ts: d["timestamp"] as? String ?? "", line: ln)
+                turn.text = q
+                turns.append(turn)
+                return
+            }
+            if t == "system", d["subtype"] as? String == "away_summary" {
+                // 回顾（recap）：离开一阵回来时 Claude 写的阶段小结，去掉末尾的「(disable recaps in /config)」（和原型一样）
+                let text = (d["content"] as? String ?? "").replacingOccurrences(of: #"\s*\(disable recaps in /config\)\s*$"#, with: "", options: .regularExpression).trimmed
+                let uid = d["uuid"] as? String
+                guard !text.isEmpty else { return }
+                if let uid { guard !seen.contains(uid) else { return }; seen.insert(uid) } else { guard !seenNil else { return }; seenNil = true }
+                let turn = Turn(role: "recap", ts: d["timestamp"] as? String ?? "", line: ln)
+                turn.text = text
+                turns.append(turn)
                 return
             }
             if t == "custom-title" { meta["title"] = d["customTitle"] as? String ?? "" }
@@ -250,6 +270,28 @@ extension EchoExport {
     private static func lstrip(_ s: String) -> Substring { s.drop(while: { $0.isWhitespace }) }
 
     /// 一条 user 消息拆成（人打的字，系统注入的段落）
+    /// 你在 AI 干活时插进来的消息（attachment 里 origin 是 human 的 queued_command），返回原话；不是返回 nil（规则见原型 export.py 的 queued_prompt）。
+    /// 备份清理过的（0.10 以前按系统记录清了，只剩 type）从 rendered 里那句固定开头后面取回
+    static func queuedPrompt(_ d: [String: Any]) -> String? {
+        guard d["type"] as? String == "attachment", let a = d["attachment"] as? [String: Any], a["type"] as? String == "queued_command" else { return nil }
+        if let o = a["origin"] as? [String: Any] {
+            guard o["kind"] as? String == "human" else { return nil }
+            var p = a["prompt"] as? String
+            if let list = a["prompt"] as? [[String: Any]] { p = list.compactMap { $0["type"] as? String == "text" ? $0["text"] as? String ?? "" : nil }.joined(separator: "\n") }
+            let s = p?.trimmed ?? ""
+            return s.isEmpty ? nil : s
+        }
+        guard a["origin"] == nil else { return nil }
+        for r in d["rendered"] as? [[String: Any]] ?? [] {
+            let c = r["content"] as? String ?? ""
+            guard let m = queuedRendered.firstMatch(in: c, range: NSRange(c.startIndex..., in: c)), let rg = Range(m.range(at: 1), in: c) else { continue }
+            let s = String(c[rg]).trimmed
+            return s.isEmpty ? nil : s
+        }
+        return nil
+    }
+    private static let queuedRendered = try! NSRegularExpression(pattern: #"The user sent a new message while you were working:\n([\s\S]*?)\n\nThis is how Claude Code surfaces"#)
+
     static func codexUserParts(_ p: [String: Any]) -> (human: String, system: String) {
         let kinds = (p["internal_chat_message_metadata_passthrough"] as? [String: Any])?["content_item_kinds"] as? [Any] ?? []
         var human: [String] = [], system: [String] = []

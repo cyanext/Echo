@@ -27,6 +27,7 @@ struct EchoBrowserView: View {
     @State private var currentID: String?                              // 当前打开的会话；数据变了算一次，不在每行里找
     @State private var multiComputer = false                           // 有几台电脑的会话，会话行才写电脑名
     @State private var openState: [String: Bool] = [:]                 // dirStateRaw 解析好的展开状态
+    @State private var pendingDirs: Set<String> = []                   // 正在后台改名、移动的新位置：还没真的建好，不算「已不存在」
     @State private var missingDirs: Set<String> = []                   // 访达里已经不存在的目录（改了名、挪走了），左栏标「已不存在」，数据变了算一次
     @State private var recentLocalDirs: [String] = []                  // 本机最近用过的会话目录（「移动到」用），数据变了算一次
     @State private var baseTree: [EchoDir] = []                        // 按最近用过分好的树，会话数据变了才重建；排序只在它上面套顺序
@@ -282,22 +283,32 @@ struct EchoBrowserView: View {
         runDirMove(EchoDirMove.plan(from: d.path, to: target, sessions: state.sessions, moveFolder: true), title: "改名失败")
     }
 
-    /// 执行目录移动或改名，挪完刷新列表；有错只报错（带上挪成了几个）
+    /// 执行目录改名或移动（立即做假更新，失败再提示，没失败就不管）：
+    /// 先在左栏把要移的会话挂到新位置，再在后台真改；做完按实际情况刷新列表，有错才弹提示（带上移成了几个）
     private func runDirMove(_ p: EchoDirMove.Plan, title: String) {
-        do {
-            let r = try EchoDirMove.run(p)
-            picked = []
-            if p.groups.values.joined().contains(where: { $0.id == sessionID }) { sessionID = nil }
-            state.reloadSessions()
-            if let e = r.error {
-                errorTitle = title
-                editError = "已移动 \(r.done) 个，其余未移动。" + e.localizedDescription
-            } else if !p.moveFolder, r.done > 0 {
-                moveDone = "\(r.done) 个会话已移动到 \((p.to as NSString).abbreviatingWithTildeInPath)"
+        var dest: [String: String] = [:]
+        for (to, list) in p.groups { for s in list { dest[s.id] = to } }
+        picked = []
+        if let id = sessionID, dest[id] != nil { sessionID = nil }   // 备份文件会跟着挪，会话的 id（备份路径）会变
+        pendingDirs.insert(p.to)
+        if !dest.isEmpty {
+            state.sessions = state.sessions.map { s in
+                guard let to = dest[s.id] else { return s }
+                var m = s.meta
+                m.cwd = to
+                return EchoSession(url: s.url, sessionId: s.sessionId, computer: s.computer, size: s.size, meta: m, app: s.app)
             }
-        } catch {
-            errorTitle = title
-            editError = error.localizedDescription
+        }
+        Task { @MainActor in
+            let r = await Task.detached(priority: .userInitiated) { Result { try EchoDirMove.run(p) } }.value
+            pendingDirs.remove(p.to)
+            state.reloadSessions()
+            switch r {
+            case .success(let x):
+                if let e = x.error { errorTitle = title; editError = "已移动 \(x.done) 个，其余未移动。" + e.localizedDescription }
+            case .failure(let e):
+                errorTitle = title; editError = e.localizedDescription
+            }
         }
     }
 
@@ -535,7 +546,14 @@ struct EchoBrowserView: View {
         recentLocalDirs = dirs
         // 本机路径（家目录下）已经不存在的目录；归出来的目录（Codex 后台任务等）不算
         var gone = Set<String>()
-        func walk(_ ds: [EchoDir]) { for d in ds { if d.path.hasPrefix(NSHomeDirectory() + "/"), !FileManager.default.fileExists(atPath: d.path) { gone.insert(d.path) }; walk(d.children) } }
+        let pending = pendingDirs
+        func walk(_ ds: [EchoDir]) {
+            for d in ds {
+                let waiting = pending.contains { d.path == $0 || d.path.hasPrefix($0 + "/") }
+                if !waiting, d.path.hasPrefix(NSHomeDirectory() + "/"), !FileManager.default.fileExists(atPath: d.path) { gone.insert(d.path) }
+                walk(d.children)
+            }
+        }
         walk(baseTree)
         missingDirs = gone
     }

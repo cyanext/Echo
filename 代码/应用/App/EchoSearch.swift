@@ -19,7 +19,7 @@ struct EchoSearchGroup: Identifiable {
     @Published var updated: Date?          // 索引更新时间：今天刚聊的要等下一次备份
     private var task: Task<Void, Never>?
     nonisolated static let limit = 300
-    nonisolated static let roles = ["我", "总结", "AI"]   // 先后：我说的 > 总结 > AI
+    nonisolated static let roles = ["我", "回顾", "总结", "AI"]   // 先后：我说的 > 回顾、总结 > AI（回顾是 Claude 写的阶段小结，排在压缩摘要前）
 
     /// 输入停 0.25 秒再查；sessions 是左栏按电脑、应用、日期筛过的会话，结果只列这些
     func run(_ query: String, in sessions: [EchoSession]) {

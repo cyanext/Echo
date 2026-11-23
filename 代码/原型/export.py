@@ -22,6 +22,29 @@ SYSTEM_PREFIXES = (
 THINKING_CLEANED = re.compile(r"^\[已清理：思考过程，原 (.+)\]$")
 
 
+QUEUED_RENDERED = re.compile(r"The user sent a new message while you were working:\n(.*?)\n\nThis is how Claude Code surfaces", re.S)
+
+
+def queued_prompt(d):
+    """你在 AI 干活时插进来的消息（attachment 里 origin 是 human 的 queued_command），返回原话；不是就返回 None。
+    备份清理过的（0.10 以前按系统记录清了，只剩 type）从 rendered 里那句固定开头后面取回"""
+    a = d.get("attachment")
+    if d.get("type") != "attachment" or not isinstance(a, dict) or a.get("type") != "queued_command":
+        return None
+    if (a.get("origin") or {}).get("kind") == "human":
+        p = a.get("prompt")
+        if isinstance(p, list):
+            p = "\n".join(x.get("text", "") for x in p if isinstance(x, dict) and x.get("type") == "text")
+        return p.strip() or None if isinstance(p, str) else None
+    if "origin" in a:
+        return None
+    for r in d.get("rendered") or []:
+        m = QUEUED_RENDERED.search(r.get("content", "") if isinstance(r, dict) else "")
+        if m:
+            return m.group(1).strip() or None
+    return None
+
+
 def text_of(content):
     if isinstance(content, str):
         return content
@@ -249,6 +272,21 @@ def export(path, computer):
             meta["aiTitle"] = d.get("aiTitle", "")
         if t == "system" and d.get("subtype") == "compact_boundary":
             trigger = (d.get("compactMetadata") or {}).get("trigger", "")
+            continue
+        q = queued_prompt(d)
+        if q:
+            uid = d.get("uuid")
+            if uid not in seen:
+                seen.add(uid)
+                turns.append({"role": "user", "ts": d.get("timestamp", ""), "text": q})
+            continue
+        if t == "system" and d.get("subtype") == "away_summary":
+            # 回顾（recap）：离开一阵回来时 Claude 写的阶段小结，去掉末尾的「(disable recaps in /config)」
+            text = re.sub(r"\s*\(disable recaps in /config\)\s*$", "", str(d.get("content") or "")).strip()
+            uid = d.get("uuid")
+            if text and uid not in seen:
+                seen.add(uid)
+                turns.append({"role": "recap", "ts": d.get("timestamp", ""), "text": text})
             continue
         if t not in ("user", "assistant"):
             continue

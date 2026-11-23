@@ -168,21 +168,29 @@
     return any ? any[1] : null;
   }
 
-  // 要点栏的要点（方案 需求文档/版本需求/v0.3.0-浏览窗口改版.html）：只标三类
+  // 要点栏的要点（方案 需求文档/版本需求/v0.3.0-浏览窗口改版.html）：标四类
   // 1. 手动压缩：阶段总结的 trigger 是 manual；自动压缩不标
   // 2. 版本提交：同一个「模块 + 版本号」只标最后一次；会话里一次版本提交都没有时，每次提交都标
   // 3. 合集里每个会话的开头
+  // 4. 回顾（Claude 的 recap）：隔 2 小时以上算新的一段，每段留最后一条；手动压缩前 1 小时内有回顾时，压缩那一行用回顾的话，这条回顾不再单列
+  const RECAP_GAP = 2 * 3600e3, RECAP_NEAR = 3600e3;
+  // 回顾的第一句：到第一个句号或分号为止
+  const firstSentence = (s) => { const m = s.replace(/\s+/g, " ").trim().match(/^.+?[。；;!！?？]/); return (m ? m[0] : s).replace(/[。；;]$/, "").slice(0, 80); };
   function keyPoints(turns) {
     const found = [];
-    let lastAsk = "", lastShort = "";
+    let lastAsk = "", lastShort = "", lastRecap = null;
+    const used = new Set();
     turns.forEach((t, i) => {
+      if (t.role === "recap") { lastRecap = { t, i }; return; }
       // 手动压缩的说明：压缩前最后一条 10 个字以上的消息（「做吧」这类短确认往前找，跳过 / 命令）
       if (t.role === "user" && !/^\//.test(t.text.trim())) {
         const x = t.text.replace(/\s+/g, " ").trim();
         if (x.length >= 10) lastAsk = x;
         else if (!lastAsk) lastShort = x;
       } else if (t.role === "summary" && t.trigger === "manual") {
-        found.push({ obj: t, turn: i, kind: "compact", ts: t.ts, label: "手动压缩", sub: lastAsk || lastShort || summaryLine(t.text) });
+        const r = lastRecap && t.ts && lastRecap.t.ts && new Date(t.ts) - new Date(lastRecap.t.ts) <= RECAP_NEAR ? lastRecap : null;
+        if (r) used.add(r.i);
+        found.push({ obj: t, turn: i, kind: "compact", ts: t.ts, label: "手动压缩", sub: r ? firstSentence(r.t.text) : lastAsk || lastShort || summaryLine(t.text), full: r ? r.t.text : "" });
         lastAsk = lastShort = "";
       } else if (t.role === "session") {
         found.push({ obj: t, turn: i, kind: "part", ts: t.ts, label: t.text });
@@ -193,6 +201,14 @@
         });
       }
     });
+    // 回顾按 2 小时分段，每段留最后一条（已经用在压缩那一行的不再单列），按位置插回去
+    const recaps = turns.map((t, i) => (t.role === "recap" ? { t, i } : null)).filter(Boolean);
+    recaps.forEach((r, n) => {
+      const next = recaps[n + 1];
+      const lastOfRun = !next || !r.t.ts || !next.t.ts || new Date(next.t.ts) - new Date(r.t.ts) > RECAP_GAP;
+      if (lastOfRun && !used.has(r.i)) found.push({ obj: r.t, turn: r.i, kind: "recap", ts: r.t.ts, label: firstSentence(r.t.text), full: r.t.text });
+    });
+    found.sort((a, b) => a.turn - b.turn);
     // 同一个版本标在它最后一次提交的位置：提交是这一版的终点。版本之后没带版本号的提交（「方案：按反馈改…」、小修）
     // 并进这个版本，位置延到下一个版本之前的最后一次提交；说明取这一版第一次提交那句
     const anyVer = found.some((k) => k.ver);
@@ -262,6 +278,9 @@
         out.push(`<div class="divider part" id="${t._kid}"><span><b>${esc(t.text)}</b>${t.computer ? "　" + esc(t.computer) : ""}</span></div>`);
       } else if (t.role === "command") {
         out.push(`<div class="event">${ICON.cmd}<code>${esc(t.text)}</code></div>`);
+      } else if (t.role === "recap") {
+        // 回顾：Claude 在你离开一阵后写的阶段小结，淡色小卡片，留在原来的位置
+        out.push(tsMark(t.ts) + `<div class="recap"${t._kid ? ` id="${t._kid}"` : ""}><span class="recap-tag">回顾</span><span class="recap-text">${esc(t.text)}</span><span class="recap-time">${d ? hm(d) : ""}</span></div>`);
       } else if (t.role === "summary") {
         out.push(tsMark(t.ts) + `<details class="compact"${t._kid ? ` id="${t._kid}"` : ""}><summary><div class="divider"><span>会话在这里压缩过，点开看摘要</span></div></summary>${md(t.text)}</details>`);
       } else {
@@ -461,11 +480,12 @@
       };
       const noteText = (k) => {
         if (k.kind === "compact") return `<span class="n-tag">压缩</span><span class="n-text">${esc(k.sub || "")}</span>`;
+        if (k.kind === "recap") return `<span class="n-tag">回顾</span><span class="n-text">${esc(k.label)}</span>`;
         if (k.kind === "part") return `<span class="n-text"><b>${esc(k.label)}</b></span>`;
         if (!k.ver) return `<span class="n-text">${esc(k.label.replace(PREFIX, ""))}</span>`;
         return `<span class="n-ver">${esc(verOf(k))}</span><span class="n-text">${esc(brief(k))}</span>`;
       };
-      const full = (k) => (k.kind === "compact" ? `手动压缩：${esc(k.sub || "")}` : k.kind === "part" ? esc(k.label) : esc(k.label).replace(/(v\d+\.\d+(?:\.\d+)?|\d+\.\d+\.\d+)/i, '<b class="ver">$1</b>'));
+      const full = (k) => (k.kind === "compact" ? `手动压缩：${esc(k.full || k.sub || "")}` : k.kind === "recap" ? `回顾：${esc(k.full)}` : k.kind === "part" ? esc(k.label) : esc(k.label).replace(/(v\d+\.\d+(?:\.\d+)?|\d+\.\d+\.\d+)/i, '<b class="ver">$1</b>'));
 
       // 标题跟着当前段换：标题写这一段的要点，小字写会话标题和时间；后面没有要点时恢复会话标题
       const homeTitle = $("h-title").innerHTML, homeMeta = $("h-meta").innerHTML;
@@ -634,7 +654,7 @@
       toast("已复制恢复命令");
     });
 
-    // 会话内查找：高亮所有命中，回车跳到下一个，命中在折叠处时自动展开
+    // 会话内查找：只找对话（见 search 里的 SAID），高亮所有命中，回车跳到下一个，命中在折叠的阶段总结里时自动展开
     let marks = [];
     let cur = -1;
     function clearMarks() {
@@ -648,8 +668,11 @@
       if (!q) { $("hits").textContent = ""; return; }
       const lower = q.toLowerCase();
       drawAll();
-      all("#turns details[data-i]").forEach((d) => { if (stepText(STEPS[d.dataset.i]).toLowerCase().includes(lower)) fillStep(d); });
-      const walker = document.createTreeWalker($("turns"), NodeFilter.SHOW_TEXT);
+      // 只在对话里找：你的消息、AI 回复的正文、回顾、阶段总结；思考过程、工具调用、系统消息不找
+      const SAID = ".msg.user .bubble, .msg.ai > .md, .recap-text, details.compact > .md";
+      const walker = document.createTreeWalker($("turns"), NodeFilter.SHOW_TEXT, {
+        acceptNode: (n) => (n.parentElement && n.parentElement.closest(SAID) && !n.parentElement.closest(".step, summary") ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT),
+      });
       const nodes = [];
       while (walker.nextNode()) if (walker.currentNode.nodeValue.toLowerCase().includes(lower)) nodes.push(walker.currentNode);
       nodes.forEach((node) => {

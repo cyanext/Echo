@@ -65,5 +65,18 @@ eq(ext.map((k) => `${k.turn}:${k.label}`).join(" | "), "2:方案：论文知识�
 const plain = keyPoints([{ role: "assistant", ts: "2026-11-20T01:00:00Z", blocks: [bash('git commit -m "改 A"'), bash('git commit -m "改 B"')] }]);
 eq(plain.map((k) => k.label).join(" | "), "改 A | 改 B", "会话里一次版本提交都没有时，每次提交都标");
 
+// 回顾：隔 2 小时以上算新的一段，每段留最后一条；手动压缩前 1 小时内有回顾时，压缩那一行用回顾的第一句，这条回顾不再单列
+const R = (ts, text) => ({ role: "recap", ts, text });
+const rk = keyPoints([
+  R("2026-11-20T01:00:00Z", "在做 A。下一步你看一下"),
+  R("2026-11-20T01:30:00Z", "A 做完了；下一步发版"),
+  R("2026-11-20T05:00:00Z", "在做 B。"),
+  { role: "user", ts: "2026-11-20T05:10:00Z", text: "压缩前最后一条有内容的消息" },
+  { role: "summary", ts: "2026-11-20T05:20:00Z", trigger: "manual", text: "Summary:\n很长" },
+  R("2026-11-20T09:00:00Z", "在做 C"),
+]);
+eq(rk.map((k) => `${k.kind}:${k.kind === "compact" ? k.sub : k.label}`).join(" | "), "recap:A 做完了 | compact:在做 B | recap:在做 C",
+   "回顾每 2 小时一段留最后一条，压缩前 1 小时内的回顾并进压缩那一行");
+eq(rk[0].full, "A 做完了；下一步发版", "回顾悬停写全文");
 console.log(`  要点 ${count} 项`);
 if (failed) { console.log(`失败 ${failed} 项`); process.exit(1); }

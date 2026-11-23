@@ -139,10 +139,11 @@
     return (t) => !t ? 0 : t < q(.25) ? 1 : t < q(.5) ? 2 : t < q(.75) ? 3 : 4;
   }
 
-  // 日历：一行一个月、一格一天，从第一个有会话的月起最多 6 个月；选中的周用主色框框成一段，今天加主色框；
-  // 点一格切到那周，下面本周里那天自动展开并滚过去
+  // 日历：一行一个月、一格一天，从第一个有 Token 的月起最多 6 个月；选中的周用主色框框成一段，今天加主色框；
+  // 点一格切到那周，下面本周里那天自动展开并滚过去。
+  // 颜色按 Token 算：早期的 Codex 不记 Token，只有这种会话的月份画出来全是灰的，像空的，不画；一天 Token 都没有时才按有消息的日子起
   function cal() {
-    const all = weeks.flatMap((w) => w.days).filter((x) => !x.fut), first = all.find((x) => x.tot || x.msg);
+    const all = weeks.flatMap((w) => w.days).filter((x) => !x.fut), first = all.find((x) => x.tot) || all.find((x) => x.msg);
     const days = all.filter((x) => x.date >= first.date), lv = levels(days.map((x) => x.tot)), wk = weeks[cur].days;
     const months = [...new Set(days.map((x) => x.date.getFullYear() * 12 + x.date.getMonth()))].slice(-6);
     let h = `<h2>日历<span class="leg">少<i class="q0"></i><i class="q1"></i><i class="q2"></i><i class="q3"></i><i class="q4"></i>多</span></h2><div class="calwrap"><div class="mcal"><div class="mr hd"><span></span>${[...Array(31)].map((_, d) => `<b>${[1, 5, 10, 15, 20, 25, 31].includes(d + 1) ? d + 1 : ""}</b>`).join("")}</div>`;
