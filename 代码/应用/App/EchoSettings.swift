@@ -131,7 +131,11 @@ struct EchoGeneralSettings: View {
     @State private var cliInstalled = EchoCLIInstall.installed
     @State private var cliError: String?
     @State private var autoUpdate = EchoPrefs.autoUpdate
+    @State private var place = EchoPrefs.iconPlace
     @ObservedObject private var state = EchoState.shared
+    /// 首次设置里：开机自动启动写上「推荐」
+    private let onboarding: Bool
+    init(onboarding: Bool = false) { self.onboarding = onboarding }
 
     /// ech 装在哪、AI 怎么用；~/.local/bin 不在 PATH 里时提示
     private var cliNote: String {
@@ -161,8 +165,18 @@ struct EchoGeneralSettings: View {
                     .labelsHidden().frame(width: 112)
                     .onChange(of: theme) { _, t in EchoPrefs.theme = t }
             }
-            EchoSettingRow(title: "开机自动启动", note: loginError ?? "在后台备份，不弹窗口") {
+            EchoSettingRow(title: onboarding ? "开机自动启动（推荐）" : "开机自动启动", note: loginError ?? "在后台备份，不弹窗口") {
                 Toggle("", isOn: $login).toggleStyle(.switch).labelsHidden().onChange(of: login) { _, on in setLogin(on) }
+            }
+            EchoSettingRow(title: "显示图标", note: place == "menubar" ? "程序坞和 ⌘Tab 中不显示回响，从菜单栏打开窗口" : "菜单栏图标可查看备份状态、立即备份") {
+                Picker("", selection: $place) { Text("程序坞和菜单栏").tag("both"); Text("仅菜单栏").tag("menubar"); Text("仅程序坞").tag("dock") }
+                    .labelsHidden().frame(width: 140)
+                    .onChange(of: place) { _, p in
+                        EchoPrefs.iconPlace = p
+                        EchoMenuBar.shared.apply()
+                        // 换成只在菜单栏后系统会把回响切到后台，设置窗口留在前面
+                        DispatchQueue.main.async { NSApp.activate(ignoringOtherApps: true) }
+                    }
             }
             EchoSettingRow(title: "自动检查更新", note: "当前版本 v\(EchoUpdate.current)，有新版本时提示") {
                 HStack(spacing: 12) {
