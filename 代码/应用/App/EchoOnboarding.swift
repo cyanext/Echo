@@ -101,7 +101,7 @@ struct EchoOnboardingView: View {
                 case 0: welcome
                 case 1: page("备份位置", "以后可以在「设置 → 通用」里改。") {
                     VStack(alignment: .leading, spacing: 24) {
-                        EchoGeneralSettings()
+                        EchoGeneralSettings(onboarding: true)
                         note("点「继续」后，macOS 会询问能否访问会话和备份文件夹", "请点「允许」，否则回响读不到会话")
                     }
                 }

@@ -1,4 +1,4 @@
-// 回响：程序坞应用（照伙伴云NAS应用 v0.5.0 起的做法），关掉窗口在后台照常运行，每天自动备份一次会话。
+// 回响：程序坞应用（照伙伴云NAS应用 v0.5.0 起的做法），关掉窗口在后台照常运行，每天自动备份一次会话；菜单栏也有图标（EchoMenuBar.swift）。
 // 入口、备份状态、主菜单。浏览窗口见 EchoBrowser.swift，设置见 EchoSettings.swift。
 import AppKit
 import Combine
@@ -77,6 +77,8 @@ enum EchoPrefs {
     static var backupClaude: Bool { get { d.object(forKey: "backupClaude") == nil ? true : d.bool(forKey: "backupClaude") } set { d.set(newValue, forKey: "backupClaude") } }
     /// 备不备份 Codex 的会话（默认开；本机没有 ~/.codex/sessions 时不起作用）
     static var autoUpdate: Bool { get { d.object(forKey: "autoUpdate") == nil ? true : d.bool(forKey: "autoUpdate") } set { d.set(newValue, forKey: "autoUpdate") } }
+    /// 图标显示在哪：both 程序坞和菜单栏（默认）、menubar 只在菜单栏、dock 只在程序坞。改了调 EchoMenuBar.apply()
+    static var iconPlace: String { get { d.string(forKey: "iconPlace") ?? "both" } set { d.set(newValue, forKey: "iconPlace") } }
     static var backupCodex: Bool { get { d.object(forKey: "backupCodex") == nil ? true : d.bool(forKey: "backupCodex") } set { d.set(newValue, forKey: "backupCodex") } }
     static var hasCodex: Bool { FileManager.default.fileExists(atPath: EchoBackup.codexSource.appendingPathComponent("sessions").path) }
     /// 这次要备份的应用和各自的备份文件夹
@@ -121,6 +123,8 @@ final class EchoState: ObservableObject {
     @Published var overview: Data?
     /// 总览里点了某个会话：浏览窗口打开它
     @Published var openSessionID: String?
+    /// 菜单栏点了「全局搜索…」：浏览窗口的搜索框获得焦点（每点一次加 1）
+    @Published var focusSearch = 0
     /// 同时给了时间（毫秒）：打开后跳到那个时间的位置（总览里点了版本或提交）
     var openAt: Double?
     var openVer: String?          // 总览点的版本号：对话页先按它找要点，找不到再按 openAt 的时间
@@ -373,7 +377,15 @@ enum EchoWindows {
         browser?.makeKeyAndOrderFront(nil)
     }
 
-    static func showSettings() {
+    /// 菜单栏「全局搜索…」：打开浏览窗口，等窗口出来再聚焦搜索框
+    static func showSearch() {
+        showBrowser()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { EchoState.shared.focusSearch += 1 }
+    }
+
+    /// page：打开到哪一页（菜单栏的状态行点进来时用）；不给就停在上次那一页
+    static func showSettings(_ page: EchoSettingsView.Page? = nil) {
+        if let page, let w = settings { w.contentView = NSHostingView(rootView: EchoSettingsView(start: page)) }
         if settings == nil {
             let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 680, height: 720),
                              styleMask: [.titled, .closable, .fullSizeContentView], backing: .buffered, defer: false)
@@ -381,7 +393,7 @@ enum EchoWindows {
             w.titleVisibility = .hidden
             w.titlebarAppearsTransparent = true
             w.isReleasedWhenClosed = false
-            w.contentView = NSHostingView(rootView: EchoSettingsView())
+            w.contentView = NSHostingView(rootView: EchoSettingsView(start: page ?? .general))
             w.center()
             settings = w
         }
@@ -398,6 +410,8 @@ final class EchoAppDelegate: NSObject, NSApplicationDelegate {
     private var quietLaunch = false
 
     func applicationWillFinishLaunching(_ notification: Notification) {
+        // 只在菜单栏显示时，启动前就设好，程序坞里不闪一下图标
+        if EchoPrefs.iconPlace == "menubar" { NSApp.setActivationPolicy(.accessory) }
         let e = NSAppleEventManager.shared().currentAppleEvent
         quietLaunch = e?.paramDescriptor(forKeyword: keyAEPropData)?.enumCodeValue == keyAELaunchedAsLogInItem
     }
@@ -406,6 +420,7 @@ final class EchoAppDelegate: NSObject, NSApplicationDelegate {
         EchoPrefs.applyTheme()
         MainActor.assumeIsolated {
             NSApp.mainMenu = Self.mainMenu()
+            EchoMenuBar.shared.apply()
             EchoUpdate.shared.start()
             // 第一次打开时设成开机自动启动，之后以设置里的开关为准
             if !UserDefaults.standard.bool(forKey: "loginItemAsked") {

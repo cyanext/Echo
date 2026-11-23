@@ -80,6 +80,7 @@ struct EchoBrowserView: View {
             }
             .animation(EchoMotion.show, value: pickMenu)
         }
+        .onChange(of: state.focusSearch) { _, _ in searchFocus = true }
         .onChange(of: state.openSessionID) { _, id in
             guard let id else { return }
             state.openSessionID = nil
@@ -1011,11 +1012,11 @@ struct EchoBrowserView: View {
     private var statusText: String {
         if state.running { return state.total > 0 ? "正在备份 \(state.done)/\(state.total)" : "正在备份" }
         if state.error != nil { return "备份失败，点右边重试" }
-        if !state.failures.isEmpty { return "\(state.failures.count) 个文件没备份上" }
-        if let n = state.staleDays { return "已经 \(n) 天没备份" }
-        if let n = state.cleanupDays { return "Claude Code 会删 \(n) 天前的会话" }
-        if let d = state.lastSuccess { return "上次备份 \(EchoTime.short(d))" }
-        return "还没有备份过"
+        if !state.failures.isEmpty { return "\(state.failures.count) 个文件备份失败" }
+        if let n = state.staleDays { return "已 \(n) 天未备份" }
+        if let n = state.cleanupDays { return "Claude Code 会删除 \(n) 天前的会话" }
+        if let d = state.lastSuccess { return "上次备份：\(EchoTime.short(d))" }
+        return "尚未备份"
     }
 }
 

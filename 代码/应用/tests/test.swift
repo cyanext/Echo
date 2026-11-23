@@ -22,7 +22,7 @@ enum EchoTests {
             if let r = ProcessInfo.processInfo.environment["ECHO_SHOT_ROOT"] { EchoPrefs.backupRoot = URL(fileURLWithPath: r) }
             exit(EchoCLI.main(Array(a.dropFirst(2))))
         }
-        if a.count == 3, a[1] == "--rules" { rules(); try renameTest(fixture: URL(fileURLWithPath: a[2])); try statsTest(); try commitMatchTest(); timeTest(); try cleanTest(); try layoutTest(); try pathTest(); try echTest(); try codexMoveTest(); try codexBackupTest(); try autoDeleteTest(); try claudeSettingsTest(); try updateTest(); try emptySessionTest() }
+        if a.count == 3, a[1] == "--rules" { rules(); try renameTest(fixture: URL(fileURLWithPath: a[2])); try statsTest(); try commitMatchTest(); timeTest(); try cleanTest(); try layoutTest(); try pathTest(); try echTest(); try codexMoveTest(); try codexBackupTest(); try autoDeleteTest(); try claudeSettingsTest(); try updateTest(); try emptySessionTest(); menuBarTest() }
         else if a.count == 4, a[1] == "--overview" {   // 手动排查：按应用的方式整理总览数据，写到文件，看用了多久
             let t0 = Date()
             let list = EchoLibrary.scan(backupRoot: URL(fileURLWithPath: a[2]))
@@ -120,6 +120,32 @@ enum EchoTests {
         let listed = EchoLibrary.scan(backupRoot: t.appendingPathComponent("备份")).map(\.sessionId)
         check(listed == ["n"], "列表只该有正常会话，实际 \(listed)")
         print("  空会话 5 项")
+    }
+
+    /// 菜单栏：状态行的文字、今天新增几个会话、最近会话
+    static func menuBarTest() {
+        func st(running: Bool = false, done: Int = 0, total: Int = 0, error: String? = nil, failures: Int = 0, stale: Int? = nil, cleanup: Int? = nil, last: Date? = nil) -> String {
+            EchoMenuBar.statusText(running: running, done: done, total: total, error: error, failures: failures, staleDays: stale, cleanupDays: cleanup, last: last)
+        }
+        check(st(running: true, done: 12, total: 48, error: "x") == "正在备份 12/48", "正在备份时先说进度")
+        check(st(running: true) == "正在备份…", "还没数出总数时只说正在备份")
+        check(st(error: "备份文件夹无法写入", failures: 3) == "备份失败：备份文件夹无法写入", "备份失败写原因，排在文件失败前面")
+        check(st(error: String(repeating: "长", count: 50)).count == "备份失败：".count + 41, "原因太长截到 40 个字")
+        check(st(failures: 3, stale: 5) == "3 个文件备份失败", "有文件备份失败")
+        check(st(stale: 5, cleanup: 30) == "已 5 天未备份", "多天没备份")
+        check(st(cleanup: 30) == "Claude Code 会删除 30 天前的会话", "Claude Code 会删会话")
+        check(st() == "尚未备份", "从没备份过")
+        func s(_ id: String, start: String, end: String) -> EchoSession {
+            var m = EchoSessionMeta(); m.title = id == "c" ? "c" : "会话 " + id; m.start = start; m.end = end
+            return EchoSession(url: URL(fileURLWithPath: "/tmp/\(id).jsonl"), sessionId: id, computer: "电脑", size: 1, meta: m)
+        }
+        let list = [s("a", start: "2026-11-22T12:00:00.000Z", end: "2026-11-23T12:30:00.000Z"),
+                    s("b", start: "2026-11-23T11:00:00.000Z", end: "2026-11-23T11:10:00.000Z"),
+                    s("c", start: "2026-11-23T12:00:00.000Z", end: "2026-11-23T13:00:00.000Z")]
+        check(EchoMenuBar.todayCount(list, now: EchoTime.parse("2026-11-23T12:00:00.000Z")!) == 2, "今天新增按开始时间算")
+        check(EchoMenuBar.recent(list, limit: 2).map(\.sessionId) == ["c", "a"], "最近会话按最后使用时间排")
+        check(EchoMenuBar.title(list[2]) == "未命名会话", "没有标题的写未命名会话")
+        print("  菜单栏 11 项")
     }
 
     /// 检查更新的版本号比较，默认备份位置
@@ -562,6 +588,18 @@ enum EchoTests {
             }
             let env = ProcessInfo.processInfo.environment   // 窗口大小，默认 1100×720
             view = AnyView(EchoBrowserView().environmentObject(EchoState.shared).frame(width: Double(env["ECHO_SHOT_W"] ?? "") ?? 1100, height: Double(env["ECHO_SHOT_H"] ?? "") ?? 720))
+        case "menubar-icon":   // 菜单栏图标的三种样子：平常、正在备份、出了问题，放大 4 倍，浅色菜单栏上一排、深色一排
+            view = AnyView(VStack(spacing: 0) {
+                ForEach([false, true], id: \.self) { dark in
+                    HStack(spacing: 24) {
+                        ForEach(0..<3) { i in
+                            Image(nsImage: EchoMenuBar.icon(phase: i == 1 ? 1 : nil, dot: i == 2)).renderingMode(.template)
+                                .resizable().interpolation(.high).frame(width: 72, height: 72).foregroundStyle(dark ? .white : .black)
+                        }
+                    }
+                    .padding(24).background(dark ? Color(white: 0.16) : Color(white: 0.93))
+                }
+            })
         case let x where x.hasPrefix("onboarding-"): view = AnyView(EchoOnboardingView(start: Int(x.dropFirst(11)) ?? 0) {})
         default: view = AnyView(EchoSettingsView(start: .storage))
         }
