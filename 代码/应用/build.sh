@@ -1,8 +1,10 @@
 #!/bin/zsh
-# 编译 回响.app（Apple 芯片，macOS 14+），输出 dist/回响.app。临时签名，自用。
-# 用法：zsh 代码/应用/build.sh；装到 ~/Applications 并重新打开：zsh 代码/应用/build.sh install
+# 编译 回响.app（Apple 芯片，macOS 14+），输出 dist/回响.app。
+# 用法：zsh 代码/应用/build.sh；装到 ~/Applications 并重新打开：zsh 代码/应用/build.sh install；
+# 打发版用的安装包 dist/Echo-<版本>.zip（传到 GitHub 发版，自动更新下载它）：zsh 代码/应用/build.sh release
 set -e
 VERSION=0.12.0; BUILD=21                           # 版本号只改这里
+[[ -n "$ECHO_TEST_VERSION" ]] && VERSION=$ECHO_TEST_VERSION   # 测试自动更新时临时打一个别的版本号
 D="${0:A:h}"; T=$(mktemp -d); APP="$T/回响.app"
 trap 'rm -rf "$T"' EXIT
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources/Web"
@@ -49,6 +51,12 @@ codesign --force "${SIGN[@]}" "$APP"
 codesign --verify --strict "$APP"
 rm -rf "$D/dist"; mkdir -p "$D/dist"; ditto "$APP" "$D/dist/回响.app"
 echo "已生成 $D/dist/回响.app（$VERSION，build $BUILD）"
+if [[ "$1" == release ]]; then
+  # 发版必须用固定证书签：自动更新只装签名要求和当前版本一致的包，换了签名，装了旧版的电脑就更新不了
+  [[ "${SIGN[2]}" == "Echo Local Signing" ]] || { echo "发版要用「Echo Local Signing」签名，本机没有这张证书" >&2; exit 1; }
+  ditto -c -k --keepParent "$D/dist/回响.app" "$D/dist/Echo-$VERSION.zip"
+  echo "已打包 $D/dist/Echo-$VERSION.zip"
+fi
 if [[ "$1" == install ]]; then
   osascript -e 'quit app id "com.cyanext.echo"' 2>/dev/null || true
   sleep 1; rm -rf ~/Applications/回响.app; mkdir -p ~/Applications; ditto "$D/dist/回响.app" ~/Applications/回响.app

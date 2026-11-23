@@ -75,6 +75,7 @@ enum EchoPrefs {
     /// 来源卡片上的勾：备不备份 Claude Code 的会话
     static var backupClaude: Bool { get { d.object(forKey: "backupClaude") == nil ? true : d.bool(forKey: "backupClaude") } set { d.set(newValue, forKey: "backupClaude") } }
     /// 备不备份 Codex 的会话（默认开；本机没有 ~/.codex/sessions 时不起作用）
+    static var autoUpdate: Bool { get { d.object(forKey: "autoUpdate") == nil ? true : d.bool(forKey: "autoUpdate") } set { d.set(newValue, forKey: "autoUpdate") } }
     static var backupCodex: Bool { get { d.object(forKey: "backupCodex") == nil ? true : d.bool(forKey: "backupCodex") } set { d.set(newValue, forKey: "backupCodex") } }
     static var hasCodex: Bool { FileManager.default.fileExists(atPath: EchoBackup.codexSource.appendingPathComponent("sessions").path) }
     /// 这次要备份的应用和各自的备份文件夹
@@ -404,6 +405,7 @@ final class EchoAppDelegate: NSObject, NSApplicationDelegate {
         EchoPrefs.applyTheme()
         MainActor.assumeIsolated {
             NSApp.mainMenu = Self.mainMenu()
+            EchoUpdate.shared.start()
             // 第一次打开时设成开机自动启动，之后以设置里的开关为准
             if !UserDefaults.standard.bool(forKey: "loginItemAsked") {
                 UserDefaults.standard.set(true, forKey: "loginItemAsked")
@@ -445,6 +447,7 @@ final class EchoAppDelegate: NSObject, NSApplicationDelegate {
         let main = NSMenu()
         let app = NSMenu()
         app.addItem(withTitle: "关于回响", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
+        app.addItem(EchoAction.item("检查更新…", "") { EchoUpdate.shared.check(manual: true) })
         app.addItem(.separator())
         app.addItem(EchoAction.item("设置…", ",") { EchoWindows.showSettings() })
         app.addItem(EchoAction.item("立即备份", "b") { EchoState.shared.backupNow() })

@@ -130,6 +130,7 @@ struct EchoGeneralSettings: View {
     @State private var loginError: String?
     @State private var cliInstalled = EchoCLIInstall.installed
     @State private var cliError: String?
+    @State private var autoUpdate = EchoPrefs.autoUpdate
     @ObservedObject private var state = EchoState.shared
 
     /// ech 装在哪、AI 怎么用；~/.local/bin 不在 PATH 里时提示
@@ -162,6 +163,12 @@ struct EchoGeneralSettings: View {
             }
             EchoSettingRow(title: "开机自动启动", note: loginError ?? "在后台备份，不弹窗口") {
                 Toggle("", isOn: $login).toggleStyle(.switch).labelsHidden().onChange(of: login) { _, on in setLogin(on) }
+            }
+            EchoSettingRow(title: "自动检查更新", note: "当前版本 v\(EchoUpdate.current)，有新版本时提示") {
+                HStack(spacing: 12) {
+                    Button("检查更新") { EchoUpdate.shared.check(manual: true) }
+                    Toggle("", isOn: $autoUpdate).toggleStyle(.switch).labelsHidden().onChange(of: autoUpdate) { _, on in EchoPrefs.autoUpdate = on }
+                }
             }
             EchoSettingRow(title: "命令行工具", note: cliNote) {
                 Button(cliInstalled ? "重新安装" : "安装") {
