@@ -491,16 +491,15 @@
       };
       const full = (k) => (k.kind === "compact" ? `手动压缩：${esc(k.full || k.sub || "")}` : k.kind === "recap" ? `回顾：${esc(k.full)}` : k.kind === "part" ? esc(k.label) : esc(k.label).replace(/(v\d+\.\d+(?:\.\d+)?|\d+\.\d+\.\d+)/i, '<b class="ver">$1</b>'));
 
-      // 标题跟着当前段换：标题写这一段的要点，小字写会话标题和时间；后面没有要点时恢复会话标题
-      const homeTitle = $("h-title").innerHTML, homeMeta = $("h-meta").innerHTML;
+      // 标题栏固定两行：标题一直写会话标题；小字写当前所在的要点和时间，读到第一个要点之前写会话的信息
+      const homeMeta = $("h-meta").innerHTML;
+      $("h-title").title = $("h-title").textContent;   // 标题只占一行，悬停看全文
+      const keyLine = (k) => (k.kind === "recap" ? `<span class="h-tag">回顾</span>${esc(k.full)}` : k.kind === "compact" ? `<span class="h-tag">手动压缩</span>${esc(k.full || k.sub || "")}` : full(k));
       const setHead = (k) => {
         const d = k && k.ts ? new Date(k.ts) : null;
-        // 回顾、手动压缩是一整句话：照要点栏的样子写主色小字标签加常规字重的正文，不用标题的粗体；版本、分段照旧当标题
-        const note = k && (k.kind === "recap" || k.kind === "compact");
-        $("h-title").innerHTML = !k ? homeTitle : note ? `<span class="h-tag">${k.kind === "recap" ? "回顾" : "手动压缩"}</span>${esc(k.kind === "recap" ? k.full : k.full || k.sub || "")}` : full(k);
-        $("h-title").classList.toggle("note", !!note);
-        $("h-meta").innerHTML = k ? `<span>${esc(m.title)}</span>${d ? `<span>${md0(d)} ${hm(d)}</span>` : ""}` : homeMeta;
-        ["h-title", "h-meta"].forEach((x) => { $(x).classList.remove("swap"); void $(x).offsetWidth; $(x).classList.add("swap"); });
+        $("h-meta").innerHTML = k ? `<span class="h-key">${keyLine(k)}</span>${d ? `<span class="h-time">${md0(d)} ${hm(d)}</span>` : ""}` : homeMeta;
+        $("h-meta").classList.toggle("key", !!k);
+        $("h-meta").classList.remove("swap"); void $("h-meta").offsetWidth; $("h-meta").classList.add("swap");
         measureHead();
       };
 
