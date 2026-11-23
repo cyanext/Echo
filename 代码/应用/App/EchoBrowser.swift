@@ -467,7 +467,7 @@ struct EchoBrowserView: View {
                 let on = !showOverview && c.id == collectionID
                 EchoRow(fill: nil) {
                     VStack(alignment: .leading, spacing: 1) {
-                        Text(c.title).font(.system(size: 13, weight: on ? .semibold : .regular)).lineLimit(1)
+                        Text(c.title).font(.system(size: 13)).lineLimit(1)
                             .foregroundStyle(on ? EchoColor.accentText : EchoColor.fg)
                             .frame(maxWidth: .infinity, alignment: .leading)
                         HStack(spacing: 6) {
@@ -498,7 +498,7 @@ struct EchoBrowserView: View {
             HStack(spacing: 6) {
                 Image(systemName: "house").font(.system(size: 12, weight: .medium)).frame(width: 12)
                     .foregroundStyle(showOverview ? EchoColor.accent : EchoColor.fg2)
-                Text("总览").font(.system(size: 13, weight: showOverview ? .semibold : .regular))
+                Text("总览").font(.system(size: 13))
                     .foregroundStyle(showOverview ? EchoColor.accentText : EchoColor.fg)
                 Spacer()
             }
@@ -805,8 +805,8 @@ struct EchoBrowserView: View {
         return EchoRow(fill: nil) {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 VStack(alignment: .leading, spacing: 2) {
-                    // 选中不加色块，标题主色字加粗（选中后的色块直接去掉）
-                    Text(s.meta.title == s.sessionId ? "未命名会话" : s.meta.title).font(.system(size: 13, weight: on ? .semibold : .regular)).lineLimit(1)
+                    // 选中不加色块、不加粗，只把标题换成主色字（色块去掉；加粗时字变宽，选中前后会抖）
+                    Text(s.meta.title == s.sessionId ? "未命名会话" : s.meta.title).font(.system(size: 13)).lineLimit(1)
                         .foregroundStyle(on ? EchoColor.accentText : EchoColor.fg)
                         .frame(maxWidth: .infinity, alignment: .leading)
                     HStack(spacing: 6) {
