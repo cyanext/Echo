@@ -63,10 +63,10 @@
 }
 .c-head-in { display: flex; align-items: flex-start; gap: 16px; max-width: 760px; min-height: 56px; margin: 0 auto; padding: 8px 32px; }
 .c-tt { flex: 1; min-width: 0; }
-.c-head h1 { margin: 0; font-size: 15px; line-height: 22px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }   /* 只占一行：滚到回顾这类长要点时，全文在悬停提示里 */
+.c-head h1 { margin: 0; font-size: 15px; line-height: 22px; font-weight: 600; overflow-wrap: anywhere; }   /* 长要点照常换行写全，不截断 */
 .c-head h1 .ver { font-weight: 600; color: var(--accent-text); }
-.c-head h1.note { font-size: 14px; font-weight: 400; color: var(--fg); }   /* 回顾、手动压缩：一句话，不用标题的粗体，小一号 */
-.c-head h1 .h-tag { margin-right: 6px; color: var(--accent-text); font-size: 12px; font-weight: 500; }
+.c-head h1.note { display: block; font-size: 13px; line-height: 20px; font-weight: 400; color: var(--fg); }   /* 回顾、手动压缩：一整句话，不用标题的粗体，小两号，换行也不显得重 */
+.c-head h1 .h-tag { white-space: nowrap; margin-right: 6px; color: var(--accent-text); font-size: 12px; font-weight: 500; }
 /* 会话来自哪个应用：小字那行最前面一个 14 的官方图标（目录树里不放） */
 .c-meta .c-app { width: 14px; height: 14px; margin-right: 5px; border-radius: 3px; vertical-align: -3px; }   /* 和 12 号字的中线对齐，不画线框 */
 .c-meta { font-size: 12px; line-height: 18px; color: var(--fg-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
