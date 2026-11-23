@@ -130,8 +130,8 @@
     tools.forEach((b) => (count[b.name] = (count[b.name] || 0) + 1));
     const names = Object.entries(count).sort((a, b) => b[1] - a[1]).map(([n, c]) => (c > 1 ? `${n} ${c}` : n)).join("、");
     const head = [thinking ? "思考过程" : "", tools.length ? `${tools.length} 次工具调用` : ""].filter(Boolean).join("、");
-    const errs = tools.filter((b) => b.isError).length;
-    return `<details class="steps"><summary>${ICON.chev}<span class="sum">${head}${names ? "：" + esc(names) : ""}</span>${errs ? `<span class="err">${errs} 次出错</span>` : ""}</summary>
+    // 出错只在点开后那一步标红，收起的这一行不写（外部不用显示出错）
+    return `<details class="steps"><summary>${ICON.chev}<span class="sum">${head}${names ? "：" + esc(names) : ""}</span></summary>
       <ol class="step-list">${steps.map(renderStep).join("")}</ol></details>`;
   }
 
