@@ -8,7 +8,7 @@
 
 <p align="center"><a href="README.en.md">English</a></p>
 
-<p align="center"><img src="docs/screenshot-light.png" width="860" alt="回响的浏览窗口：左栏按项目列出会话，中间是按版本分段的时间轴，右边是我的消息"></p>
+<p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/hero-dark.png"><img src="docs/hero-light.png" width="900" alt="后面是总览：每天的 Token、费用、提交和日历；前面是一个会话：左边按版本分段的要点栏，悬停浮出回顾全文"></picture></p>
 
 ## 为什么需要它
 
@@ -43,7 +43,7 @@ flowchart LR
 
 **价值**：会话占用下降 80% 以上，对话信息不丢；多台电脑的会话毫秒级检索。
 
-<p align="center"><img src="docs/search.png" width="860" alt="左栏搜索「拼音」，结果按会话列出，正文里标亮命中处"></p>
+<p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/search-dark.png"><img src="docs/search-light.png" width="860" alt="左栏搜索「备份」，按会话列出命中处，正文里标亮"></picture></p>
 
 ### 版本时间轴与消息定位
 
@@ -56,6 +56,8 @@ flowchart LR
 - 思考过程和工具调用收成一行，点开再看；AI 干活时你插进去的话也按你的消息显示。
 
 **价值**：一个项目按版本从头看到尾，复盘、交接时能讲清楚每一步为什么这么做。
+
+<p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/session-dark.png"><img src="docs/session-light.png" width="860" alt="会话「回响 1.0」：左边要点栏按版本、回顾、压缩分段，悬停浮出回顾全文；标题栏下写当前所在的版本"></picture></p>
 
 ### 面向 AI 的上下文接口：ech
 
@@ -74,27 +76,26 @@ flowchart LR
 回响装好后自带命令行工具 `ech` 和配套 skill。AI 听到「上次聊到哪了」「以前为什么这么定」时自己去查，查询命令只读：
 
 ```text
-$ ech context 968abfee
-天气小程序 1.0 · 演示电脑 · 968abfee · 第 3 段起（最近一次压缩之后）（第 28 行起）
-最近一次回顾（11-23 10:46）：1.0 系列做完：搜索、折线图、下雨提醒、分享卡片，最新是 v1.1.0。还没做的：小组件。
+$ ech context e0b9311e
+回响 1.0 · 演示电脑 · e0b9311e · 第 7 段起（最近一次压缩之后）（第 57 行起）
+最近一次回顾（11-22 10:26）：1.0 的功能都做完了：备份、浏览、总览、搜索、ech、目录管理、开源和自动更新。还没做的：记忆管理。
 
-[11-21 09:47] 阶段总结：…
-1. 首页实时天气、逐小时预报已完成（v0.9.0）
-2. 定位失败时用上次的城市，默认北京
-3. 下一步：城市搜索、七天预报
+[11-21 10:19] 阶段总结：…
+1. 备份、浏览、总览已完成
+2. 下一步：全局搜索、给 AI 用的命令行
 
-[11-22 07:25] 我：给天气小程序加一个城市搜索，输入拼音也能搜到
-  · 工具 Read ~/Projects/天气小程序/src/pages/index/index.js
+[11-21 10:32] 我：记得聊过，记不得在哪个会话，加个搜索
+  · 工具 Read ~/Projects/回响/App/EchoApp.swift
+  · 工具 Bash zsh 代码/应用/tests/run.sh
 …
 ```
 
 ```text
 $ ech list --since 7d
-2026-11-17 至 2026-11-23：12 个会话，我的消息 84 条，Token 28.8M，提交 10 次（总览数据）
-11-23 天气小程序 · 天气小程序 1.0 · 9 条 · 3.8M · 提交 4（0.9.0、1.0.0、1.0.1、1.1.0） · 968abfee
-11-22 天气小程序 · 修复定位权限弹窗 · 8 条 · 2.7M · 21f593c8
-11-22 年度复盘 · 客户案例整理 · 4 条 · 1.3M · 942bdaf4
-11-21 记账本 · 记账提醒 · 6 条 · 1.6M · 提交 1（1.9.0） · b04e5b6a
+2026-11-17 至 2026-11-23：16 个会话，我的消息 111 条，Token 35.2M，提交 13 次（总览数据）
+11-23 回响 · 记忆管理需求 · 5 条 · 1.3M · beff8384
+11-22 回响 · 回响 1.0 · 16 条 · 4.5M · 提交 8（0.1.0 至 0.8.0 共 8 个版本） · e0b9311e
+11-22 记账本 · 分类图标改版（续） · 8 条 · 2.5M · 提交 1（1.15.0） · ae5e3f1f
 …
 ```
 
@@ -122,6 +123,8 @@ flowchart LR
 
 **价值**：文件夹随便整理，会话不丢、照样能续上，本机的会话目录也不再越攒越大。
 
+<p align="center"><img src="docs/folders.png" width="760" alt="「旧官网」在访达里改了名，左栏标出已不存在；右键「找到新位置…」匹配到「官网改版」，确认后把 2 个会话移过去"></p>
+
 ## 其他功能
 
 - **用量总览**：每天的消息数、Token 用量和折合费用、AI 干活时长，git 提交和版本挂到对应的会话上；删掉的会话统计照算。
@@ -129,7 +132,6 @@ flowchart LR
 - **浅色、深色**：跟随系统，也能手动切换。
 - **自动更新**：有新版本时提示，一键下载安装，签名和当前版本一致才替换。
 
-<p align="center"><img src="docs/overview.png" width="860" alt="总览：Token、我的消息、AI 时长、Git 提交，日历和每天的会话"></p>
 
 ## 安装
 

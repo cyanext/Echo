@@ -8,7 +8,7 @@
 
 <p align="center"><a href="README.md">中文</a></p>
 
-<p align="center"><img src="docs/screenshot-light.png" width="860" alt="Echo's browser window: sessions by project on the left, a version timeline in the middle, your messages on the right"></p>
+<p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/hero-dark.png"><img src="docs/hero-light.png" width="900" alt="Overview behind (tokens, cost, commits, calendar); a session in front with the version keypoint rail and a recap tooltip"></picture></p>
 
 > The app's interface is currently in Chinese.
 
@@ -45,7 +45,7 @@ flowchart LR
 
 **Value**: session storage drops by 80% or more without losing any conversation; millisecond search across all your Macs.
 
-<p align="center"><img src="docs/search.png" width="860" alt="Searching the sidebar for a keyword: hits grouped by session, highlighted in the conversation"></p>
+<p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/search-dark.png"><img src="docs/search-light.png" width="860" alt="Searching the sidebar: hits grouped by session, highlighted in the conversation"></picture></p>
 
 ### Version timeline and message navigation
 
@@ -58,6 +58,8 @@ flowchart LR
 - Thinking and tool calls collapse into one line until you open them. Messages you typed while the AI was working show up as your messages.
 
 **Value**: read a project version by version from start to finish, and explain every step clearly in a retro or handover.
+
+<p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/session-dark.png"><img src="docs/session-light.png" width="860" alt="A session with the version keypoint rail and a recap tooltip; the header shows the current version"></picture></p>
 
 ### A context interface for AI: ech
 
@@ -76,22 +78,26 @@ flowchart LR
 Echo installs the `ech` command and a matching skill. When you ask "where did we leave off?" or "why did we decide this?", the AI looks it up itself. Query commands are read-only:
 
 ```text
-$ ech context 968abfee
-天气小程序 1.0 · 演示电脑 · 968abfee · 第 3 段起（最近一次压缩之后）（第 28 行起）
-最近一次回顾（11-23 10:46）：1.0 系列做完：搜索、折线图、下雨提醒、分享卡片，最新是 v1.1.0。还没做的：小组件。
+$ ech context e0b9311e
+回响 1.0 · 演示电脑 · e0b9311e · 第 7 段起（最近一次压缩之后）（第 57 行起）
+最近一次回顾（11-22 10:26）：1.0 的功能都做完了：备份、浏览、总览、搜索、ech、目录管理、开源和自动更新。还没做的：记忆管理。
 
-[11-21 09:47] 阶段总结：…
-1. 首页实时天气、逐小时预报已完成（v0.9.0）
-…
-[11-22 07:25] 我：给天气小程序加一个城市搜索，输入拼音也能搜到
+[11-21 10:19] 阶段总结：…
+1. 备份、浏览、总览已完成
+2. 下一步：全局搜索、给 AI 用的命令行
+
+[11-21 10:32] 我：记得聊过，记不得在哪个会话，加个搜索
+  · 工具 Read ~/Projects/回响/App/EchoApp.swift
+  · 工具 Bash zsh 代码/应用/tests/run.sh
 …
 ```
 
 ```text
 $ ech list --since 7d
-2026-11-17 至 2026-11-23：12 个会话，我的消息 84 条，Token 28.8M，提交 10 次（总览数据）
-11-23 天气小程序 · 天气小程序 1.0 · 9 条 · 3.8M · 提交 4（0.9.0、1.0.0、1.0.1、1.1.0） · 968abfee
-11-21 记账本 · 记账提醒 · 6 条 · 1.6M · 提交 1（1.9.0） · b04e5b6a
+2026-11-17 至 2026-11-23：16 个会话，我的消息 111 条，Token 35.2M，提交 13 次（总览数据）
+11-23 回响 · 记忆管理需求 · 5 条 · 1.3M · beff8384
+11-22 回响 · 回响 1.0 · 16 条 · 4.5M · 提交 8（0.1.0 至 0.8.0 共 8 个版本） · e0b9311e
+11-22 记账本 · 分类图标改版（续） · 8 条 · 2.5M · 提交 1（1.15.0） · ae5e3f1f
 …
 ```
 
@@ -121,6 +127,8 @@ flowchart LR
 
 **Value**: reorganize folders freely; sessions are never lost and still resume, and the session folders stop growing forever.
 
+<p align="center"><img src="docs/folders.png" width="760" alt="A folder renamed in Finder is marked missing; Find new location matches the renamed folder and moves its 2 sessions"></p>
+
 ## More
 
 - **Usage overview**: daily messages, token usage and estimated cost, AI working time; git commits and versions attached to their sessions; stats kept for deleted sessions.
@@ -128,7 +136,6 @@ flowchart LR
 - **Light and dark**: follows the system, or set it manually.
 - **Auto update**: notifies you of new versions and installs them with one click, only if the signature matches the current version.
 
-<p align="center"><img src="docs/overview.png" width="860" alt="Overview: tokens, messages, AI time, git commits, calendar and sessions per day"></p>
 
 ## Install
 
