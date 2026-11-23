@@ -114,6 +114,7 @@ struct EchoSearchField: View {
     @Binding var text: String
     var focused: FocusState<Bool>.Binding
     var submit: () -> Void
+    @State private var composing = false   // 输入法正在拼（字还没上屏，text 还是空的）
 
     var body: some View {
         HStack(spacing: 6) {
@@ -122,9 +123,14 @@ struct EchoSearchField: View {
             TextField("", text: $text)
                 .textFieldStyle(.plain).font(.system(size: 13))
                 .background(alignment: .leading) {
-                    if text.isEmpty { Text("搜索全部会话").font(.system(size: 13)).foregroundStyle(EchoColor.fg3).allowsHitTesting(false) }
+                    if text.isEmpty && !composing { Text("搜索全部会话").font(.system(size: 13)).foregroundStyle(EchoColor.fg3).allowsHitTesting(false) }
                 }
                 .focused(focused)
+                // 拼音还在候选里时 text 不变，只有输入框自己的文字变了：按它判断，占位字不和拼音叠在一起
+                .onReceive(NotificationCenter.default.publisher(for: NSTextStorage.didProcessEditingNotification)) { _ in
+                    guard focused.wrappedValue else { composing = false; return }
+                    composing = !((NSApp.keyWindow?.firstResponder as? NSTextView)?.string.isEmpty ?? true)
+                }
                 .onSubmit(submit)
                 .onExitCommand { if text.isEmpty { focused.wrappedValue = false } else { text = "" } }
             if !text.isEmpty {
