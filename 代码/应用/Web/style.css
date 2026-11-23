@@ -9,7 +9,7 @@
   --fg-faint: #8f959e;
   --line: #e3e5ec;
   --line-strong: #d5d8de;
-  --bubble: #f0f1f5;
+  --bubble: #eef7f3;   /* 你的消息气泡：很淡的绿（原来 #f0f1f5 偏灰蓝） */
   --bad: #d4383e;
   --good: #12a150;
   --hit: #ffe58f;
@@ -22,7 +22,7 @@
     --bg: #1d1e23; --bg-subtle: #23252b; --bg-hover: rgba(255, 255, 255, .06);
     --fg: #e6e8ec; --fg-muted: #9aa0ab; --fg-faint: #6f7581;
     --line: #2c2e35; --line-strong: #3e414a;
-    --bubble: #2a2c33; --bad: #f0686d; --good: #3ccf7e; --hit: #6b5512;
+    --bubble: #25302d; --bad: #f0686d; --good: #3ccf7e; --hit: #6b5512;
     --shadow: 0 6px 20px rgba(0, 0, 0, .45), 0 0 0 1px rgba(255, 255, 255, .06);
     color-scheme: dark;
   }
@@ -32,7 +32,7 @@
   --bg: #1d1e23; --bg-subtle: #23252b; --bg-hover: rgba(255, 255, 255, .06);
   --fg: #e6e8ec; --fg-muted: #9aa0ab; --fg-faint: #6f7581;
   --line: #2c2e35; --line-strong: #3e414a;
-  --bubble: #2a2c33; --bad: #f0686d; --good: #3ccf7e; --hit: #6b5512;
+  --bubble: #25302d; --bad: #f0686d; --good: #3ccf7e; --hit: #6b5512;
   --shadow: 0 6px 20px rgba(0, 0, 0, .45), 0 0 0 1px rgba(255, 255, 255, .06);
   color-scheme: dark;
 }
