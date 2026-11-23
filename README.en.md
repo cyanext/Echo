@@ -28,6 +28,7 @@ Runs in the background at login and keeps your Claude Code and Codex sessions, s
 - Secrets and tokens are masked before writing
 - Backups live in your own iCloud Drive, one folder per Mac, synced between your Macs through iCloud and managed in one place
 - Sessions unused for a long time are moved to Trash from Claude Code and Codex once fully backed up
+- A menu bar icon shows backup status; back up now or open a recent session from it
 
 <p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/storage-dark.png"><img src="docs/storage-light.png" width="49%" alt="Storage settings: 1.1 GB of backups split by conversation, tool calls, tool results, thinking and system records, each with its own retention"></picture> <img src="docs/finder.svg" width="49%" alt="Finder showing iCloud Drive › 回响备份 with one folder per Mac"></p>
 

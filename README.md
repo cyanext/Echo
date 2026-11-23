@@ -30,6 +30,7 @@
 - 密钥和令牌在写入前打码
 - 备份放在你自己的 iCloud 云盘里，每台电脑一个文件夹，多台电脑之间用 iCloud 同步，在一个界面里统一管理
 - 很久没用的会话，确认备份完整后移到废纸篓，原来的文件夹不会越攒越大
+- 菜单栏图标显示备份状态，点开可以立即备份、打开最近的会话
 
 <p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/storage-dark.png"><img src="docs/storage-light.png" width="49%" alt="设置里的存储页：备份共 1.1 GB，按对话消息、工具调用、工具结果、思考过程、系统记录分开统计，各自设保留期限"></picture> <img src="docs/finder.svg" width="49%" alt="访达里的 iCloud 云盘 › 回响备份：每台电脑一个文件夹，里面按应用分 claude、codex"></p>
 
