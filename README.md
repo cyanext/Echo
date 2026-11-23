@@ -4,7 +4,7 @@
 
 <p align="center">你和 AI 聊过的，回响都记得。</p>
 
-<p align="center">把 Claude Code、Codex 的会话自动存下来，你能翻能搜，AI 也能自己查。<br>开源免费的 Mac 应用，数据只存在你自己的电脑和 iCloud 里。</p>
+<p align="center">把 Claude Code、Codex 的会话自动存下来，你能翻能搜，AI 也能自己查。<br>开源免费的 Mac 应用，数据只存在你自己的电脑里，多台电脑之间用你自己的 iCloud 同步。</p>
 
 <p align="center"><a href="#安装">安装</a> · <a href="README.en.md">English</a></p>
 
@@ -31,7 +31,7 @@
 - 备份放在 iCloud 云盘，每台电脑一个文件夹，多台电脑的会话在一个界面里统一管理
 - 很久没用的会话，确认备份完整后移到废纸篓，原来的文件夹不会越攒越大
 
-<p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/storage-dark.png"><img src="docs/storage-light.png" width="100%" alt="设置里的存储页：备份共 1.1 GB，按对话消息、工具调用、工具结果、思考过程、系统记录分开统计，各自设保留期限"></picture></p>
+<p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/storage-dark.png"><img src="docs/storage-light.png" width="49%" alt="设置里的存储页：备份共 1.1 GB，按对话消息、工具调用、工具结果、思考过程、系统记录分开统计，各自设保留期限"></picture> <img src="docs/finder.svg" width="49%" alt="访达里的 iCloud 云盘 › 回响备份：每台电脑一个文件夹，里面按应用分 claude、codex"></p>
 
 ## 按版本回看
 
@@ -41,6 +41,8 @@
 - 标题栏下面一行写着你正在读的版本
 - 右边「我的消息」按天列出你发过的每一条，点一下就定位过去
 - 思考过程和工具调用默认收成一行，要看再点开
+
+<p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/timeline-dark.png"><img src="docs/timeline-light.png" width="100%" alt="会话停在 0.3.0 浏览窗口改版：左边要点栏按版本列出，中间是那一版的对话，右边「我的消息」按天列出你发过的每一条"></picture></p>
 
 ## 全局搜索
 

@@ -1,0 +1,68 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="412 -18 496 356" width="496" height="356" role="img" aria-label="访达里的 iCloud 云盘 › 回响备份：每台电脑一个文件夹，里面按应用分 claude、codex">
+<style>
+  text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", sans-serif; }
+  .ink { fill: #1d1d1f; } .ink2 { fill: #6e6e73; } .ink3 { fill: #a1a1a6; }
+  .c1 { fill: #ff9f0a; } .c2 { fill: #bf5af2; } .c3 { fill: #64d2ff; } .acc { fill: #008081; } .track { fill: #e8e8ed; }
+  .win { fill: #ffffff; } .frame { stroke: #d2d2d7; fill: none; } .side { fill: #f2f2f5; } .bar { fill: #f6f6f6; } .hair { stroke: #e5e5ea; }
+  .stripe { fill: #f5f5f7; } .sel { fill: #0a84ff; } .selt { fill: #ffffff; } .fold { fill: #5ab0f6; } .foldt { fill: #8cc9fa; } .tri { fill: #8e8e93; } .ic { fill: #0a84ff; }
+  .s { font-size: 12.5px; } .xs { font-size: 11px; } .sh { font-size: 10.5px; font-weight: 600; } .b { font-weight: 600; }
+  @media (prefers-color-scheme: dark) {
+    .ink { fill: #f5f5f7; } .ink2 { fill: #a1a1a6; } .ink3 { fill: #6e6e73; }
+    .acc { fill: #3fc0c0; } .track { fill: #3a3a3c; }
+    .win { fill: #1e1e1e; } .frame { stroke: #3a3a3c; } .side { fill: #2a2a2c; } .bar { fill: #2c2c2e; } .hair { stroke: #3a3a3c; }
+    .stripe { fill: #252527; } .fold { fill: #3f9ae6; } .foldt { fill: #63b0ee; }
+  }
+</style>
+<defs><clipPath id="win"><rect x="440" y="1" width="439" height="298" rx="10"/></clipPath><filter id="sh" x="-20%" y="-20%" width="140%" height="150%"><feDropShadow dx="0" dy="8" stdDeviation="10" flood-color="#000" flood-opacity=".18"/></filter></defs>
+<rect x="440" y="1" width="439" height="298" rx="10" fill="#000" filter="url(#sh)" opacity=".9"/>
+<g clip-path="url(#win)">
+<!-- 右：访达，iCloud 云盘里的回响备份 -->
+<rect class="win" x="440" y="1" width="439" height="298" rx="10"/>
+<path class="side" d="M450 1 h110 v298 h-110 a10 10 0 0 1 -10 -10 v-278 a10 10 0 0 1 10 -10 z"/>
+<circle cx="456" cy="16" r="5.5" fill="#ff5f57"/><circle cx="474" cy="16" r="5.5" fill="#febc2e"/><circle cx="492" cy="16" r="5.5" fill="#28c840"/>
+<text class="sh ink3" x="452" y="50">个人收藏</text>
+<g class="s ink">
+  <text x="470" y="72">最近使用</text><text x="470" y="94">应用程序</text><text x="470" y="116">桌面</text><text x="470" y="138">文稿</text>
+</g>
+<g fill="none" stroke="#0a84ff" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+  <circle cx="458.5" cy="67.5" r="5.5"/><path d="M458.5 64.5 v3 l2 1.5"/>
+  <rect x="453" y="84" width="11" height="11" rx="3"/><path d="M456 92 l2.5 -5 l2.5 5 M457 90.2 h3"/>
+  <rect x="452.5" y="106" width="12" height="8.5" rx="1.5"/><path d="M456 117.5 h5"/>
+  <path d="M454.5 127.5 h5 l3 3 v8 h-8 z M459.5 127.5 v3 h3"/>
+</g>
+<text class="sh ink3" x="452" y="168">iCloud</text>
+<rect x="446" y="176" width="108" height="22" rx="5" fill="#000" opacity=".07"/>
+<path class="ic" d="M454 191 a4 4 0 0 1 1 -7.8 a5 5 0 0 1 9.4 -1 a3.6 3.6 0 0 1 1 7.1 v1.7 z"/>
+<text class="s ink" x="470" y="192">iCloud 云盘</text>
+<line class="hair" x1="560.5" y1="1" x2="560.5" y2="299"/>
+<!-- 工具栏 -->
+<rect class="bar" x="561" y="1" width="318" height="40"/>
+<path d="M878 1 v40" class="hair"/>
+<path class="tri" d="M576 21 l6 -6 v12 z"/><path class="tri" d="M600 21 l-6 -6 v12 z" opacity=".35"/>
+<text class="s ink b" x="614" y="26">回响备份</text>
+<line class="hair" x1="561" y1="41.5" x2="879" y2="41.5"/>
+<!-- 列表 -->
+<g class="xs ink2"><text x="574" y="58">名称</text><text x="712" y="58">修改日期</text><text x="868" y="58" text-anchor="end">大小</text></g>
+<line class="hair" x1="561" y1="65.5" x2="879" y2="65.5"/>
+<rect class="stripe" x="561" y="88" width="318" height="22"/><rect class="stripe" x="561" y="132" width="318" height="22"/><rect class="stripe" x="561" y="176" width="318" height="22"/>
+<g class="s">
+  <path class="tri" d="M568 74 l7 0 l-3.5 5 z"/>
+  <path class="fold" d="M580 71 h6 l1.6 1.8 h8.4 v9.2 h-16 z"/><rect class="foldt" x="580" y="73.6" width="16" height="2"/>
+  <text class="ink" x="602" y="82">MacBook Pro</text><text class="ink2" x="712" y="82">今天 17:06</text><text class="ink2" x="868" y="82" text-anchor="end">786 MB</text>
+
+  <path class="fold" d="M598 93 h6 l1.6 1.8 h8.4 v9.2 h-16 z"/><rect class="foldt" x="598" y="95.6" width="16" height="2"/>
+  <text class="ink" x="620" y="104">claude</text><text class="ink2" x="712" y="104">今天 17:06</text><text class="ink2" x="868" y="104" text-anchor="end">612 MB</text>
+  <path class="fold" d="M598 115 h6 l1.6 1.8 h8.4 v9.2 h-16 z"/><rect class="foldt" x="598" y="117.6" width="16" height="2"/>
+  <text class="ink" x="620" y="126">codex</text><text class="ink2" x="712" y="126">今天 17:06</text><text class="ink2" x="868" y="126" text-anchor="end">174 MB</text>
+
+  <path class="tri" d="M568 140 l7 0 l-3.5 5 z"/>
+  <path class="fold" d="M580 137 h6 l1.6 1.8 h8.4 v9.2 h-16 z"/><rect class="foldt" x="580" y="139.6" width="16" height="2"/>
+  <text class="ink" x="602" y="148">家里的 iMac</text><text class="ink2" x="712" y="148">昨天 22:41</text><text class="ink2" x="868" y="148" text-anchor="end">238 MB</text>
+  <path class="fold" d="M598 159 h6 l1.6 1.8 h8.4 v9.2 h-16 z"/><rect class="foldt" x="598" y="161.6" width="16" height="2"/>
+  <text class="ink" x="620" y="170">claude</text><text class="ink2" x="712" y="170">昨天 22:41</text><text class="ink2" x="868" y="170" text-anchor="end">238 MB</text>
+</g>
+<line class="hair" x1="561" y1="268.5" x2="879" y2="268.5"/>
+<text class="xs ink2" x="720" y="288" text-anchor="middle">每台电脑只写自己的文件夹，回响把它们合在一起看</text>
+</g>
+<rect class="frame" x="440.5" y="1.5" width="438" height="297" rx="10"/>
+</svg>

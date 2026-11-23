@@ -4,7 +4,7 @@
 
 <p align="center">Everything you've talked through with AI, remembered.</p>
 
-<p align="center">Echo keeps your Claude Code and Codex sessions so you can browse and search them, and your AI can look them up too.<br>A free, open-source Mac app. Your data stays on your own Mac and in your iCloud.</p>
+<p align="center">Echo keeps your Claude Code and Codex sessions so you can browse and search them, and your AI can look them up too.<br>A free, open-source Mac app. Your data stays on your own Mac, synced between Macs through your own iCloud.</p>
 
 <p align="center"><a href="#install">Install</a> · <a href="README.md">中文</a></p>
 
@@ -29,7 +29,7 @@ Runs in the background at login and keeps your Claude Code and Codex sessions, s
 - Backups live in iCloud Drive, one folder per Mac, so sessions from all your Macs come together
 - Sessions unused for a long time are moved to Trash from Claude Code and Codex once fully backed up
 
-<p align="center"><img src="docs/how-archive.svg" width="100%" alt="Back up automatically, slim and mask secrets, gather across Macs, find the original words with a search"></p>
+<p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/storage-dark.png"><img src="docs/storage-light.png" width="49%" alt="Storage settings: 1.1 GB of backups split by conversation, tool calls, tool results, thinking and system records, each with its own retention"></picture> <img src="docs/finder.svg" width="49%" alt="Finder showing iCloud Drive › 回响备份 with one folder per Mac"></p>
 
 ## Review by version
 
@@ -39,6 +39,8 @@ A project's session easily runs thousands of turns with several compactions. Rea
 - The header shows the session title, with the version you're reading below it
 - The "my messages" panel on the right lists everything you sent, by day
 - Thinking and tool calls collapse into one line until you open them
+
+<p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/timeline-dark.png"><img src="docs/timeline-light.png" width="100%" alt="A session at version 0.3.0: the keypoint rail on the left, the conversation in the middle, your messages by day on the right"></picture></p>
 
 ## Global search
 
