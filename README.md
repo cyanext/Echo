@@ -4,7 +4,7 @@
 
 <p align="center">你和 AI 聊过的，回响都记得。</p>
 
-<p align="center">把 Claude Code、Codex 的会话自动存下来，你能翻能搜，AI 也能自己查。<br>开源免费的 Mac 应用，数据只存在你自己的电脑里，多台电脑之间用你自己的 iCloud 同步。</p>
+<p align="center">把 Claude Code、Codex 的会话自动存下来，你能翻能搜，AI 也能自己查。<br>开源免费的 Mac 应用，数据只存在你自己的电脑里。</p>
 
 <p align="center"><a href="#安装">安装</a> · <a href="README.en.md">English</a></p>
 
@@ -28,7 +28,7 @@
 
 - 对话全文永久保留；图片和思考过程不备份，工具调用的细节默认 30 天后换成占位。本机 7.6 GB 的会话，备份只占 1.1 GB
 - 密钥和令牌在写入前打码
-- 备份放在 iCloud 云盘，每台电脑一个文件夹，多台电脑的会话在一个界面里统一管理
+- 备份放在你自己的 iCloud 云盘里，每台电脑一个文件夹，多台电脑之间用 iCloud 同步，在一个界面里统一管理
 - 很久没用的会话，确认备份完整后移到废纸篓，原来的文件夹不会越攒越大
 
 <p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/storage-dark.png"><img src="docs/storage-light.png" width="49%" alt="设置里的存储页：备份共 1.1 GB，按对话消息、工具调用、工具结果、思考过程、系统记录分开统计，各自设保留期限"></picture> <img src="docs/finder.svg" width="49%" alt="访达里的 iCloud 云盘 › 回响备份：每台电脑一个文件夹，里面按应用分 claude、codex"></p>

@@ -17,6 +17,7 @@ enum EchoTests {
         let a = CommandLine.arguments
         // 截图、整理演示数据时把本机当成这台电脑（总览只统计本机会话所在文件夹的提交）
         if let c = ProcessInfo.processInfo.environment["ECHO_SHOT_COMPUTER"] { EchoPrefs.computerName = c }
+        if a.count >= 2, a[1] == "--shot", let r = ProcessInfo.processInfo.environment["ECHO_SHOT_ROOT"] { EchoPrefs.backupRoot = URL(fileURLWithPath: r) }   // 设置页截图读这个备份目录
         if a.count >= 2, a[1] == "--ech" {   // 对着 ECHO_SHOT_ROOT 这个备份目录跑 ech 命令（README 里的示例输出），索引在测试用的临时目录
             if let r = ProcessInfo.processInfo.environment["ECHO_SHOT_ROOT"] { EchoPrefs.backupRoot = URL(fileURLWithPath: r) }
             exit(EchoCLI.main(Array(a.dropFirst(2))))
