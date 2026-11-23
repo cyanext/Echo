@@ -691,7 +691,7 @@ struct EchoBrowserView: View {
     private func guides(_ level: Int) -> some View {
         ZStack(alignment: .topLeading) {
             ForEach(0..<max(0, level), id: \.self) { k in
-                Rectangle().fill(EchoColor.line).frame(width: 1).offset(x: 10 + CGFloat(k) * indentStep + 5.5)
+                Rectangle().fill(EchoColor.sideGuide).frame(width: 1).offset(x: 10 + CGFloat(k) * indentStep + 5.5)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)

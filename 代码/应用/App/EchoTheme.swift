@@ -13,7 +13,8 @@ enum EchoColor {
         })
     }
     // 颜色令牌：界面里只引用这些名字，不写色值；和网页的 Web/base.css、overview.css 同名同值
-    static let side = dyn(0xf5faf8, 0x1f2725)           // 左栏：纯色淡绿（原来 #f2f5f5 太灰，#f0f8f5 还嫌绿，再淡一档；渐变太丑，不要）
+    static let side = dyn(0xf9fcfb, 0x1f2725)           // 左栏：几乎白的淡绿（#f2f5f5 太灰，#f0f8f5、#f5faf8 还嫌绿重；渐变太丑，不要）
+    static let sideGuide = dyn(0xe9f0ed, 0x2b3331)      // 左栏目录树的竖线：比 line 淡，带一点绿（竖线太灰压压）
     static let sideFg = dyn(0x4b5468, 0xb4b9c5)
     static let surface = dyn(0xffffff, 0x1d1e23)
     static let fg = dyn(0x1f2329, 0xe6e8ec)
@@ -24,7 +25,7 @@ enum EchoColor {
     static let accentText = dyn(0x008081, 0x3fc0c0)      // 主色写字：深一档，浅色对白底 4.8:1（主色本身 3.8:1 偏淡），深色也收一点亮度
     static let sel = dyn(0x00898a, 0x4ccaca, 0.10, 0.16)
     static let hover = dyn(0x1f2329, 0xffffff, 0.05, 0.06)
-    static let sideHover = dyn(0xffffff, 0xffffff, 0.6, 0.06)      // 左栏行悬停：灰底上的半透明白，照 NAS 网站 --bg-side-hover
+    static let sideHover = dyn(0x1f2329, 0xffffff, 0.04, 0.06)     // 左栏行悬停、搜索框底：左栏几乎白了，浅色改成 4% 的深色（原来半透明白看不出）
     static let onSideHover = dyn(0x1f2329, 0xffffff, 0.08, 0.08)   // 左栏里小按钮（目录展开箭头）的悬停，照 NAS 网站 --bg-on-side-hover
     static let accentSoft = dyn(0x00898a, 0x4ccaca, 0.08, 0.14)
     static let onAccent = dyn(0xffffff, 0x10292a)                  // 主色实心底上的字：浅色白字，深色深字（和网页 --on-dark、--on-light 一样）
