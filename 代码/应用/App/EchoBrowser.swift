@@ -443,10 +443,10 @@ struct EchoBrowserView: View {
             ForEach(list) { c in
                 let members = EchoCollections.sessions(c, in: state.sessions, root: EchoPrefs.backupRoot)
                 let on = !showOverview && c.id == collectionID
-                EchoRow(fill: on ? EchoColor.sel : nil) {
+                EchoRow(fill: nil) {
                     VStack(alignment: .leading, spacing: 1) {
                         Text(c.title).font(.system(size: 13, weight: on ? .semibold : .regular)).lineLimit(1)
-                            .foregroundStyle(EchoColor.fg)
+                            .foregroundStyle(on ? EchoColor.accentText : EchoColor.fg)
                             .frame(maxWidth: .infinity, alignment: .leading)
                         HStack(spacing: 6) {
                             Text("\(members.count) 个会话")
@@ -472,11 +472,12 @@ struct EchoBrowserView: View {
 
     /// 左栏顶上一行「总览」（设计稿 设计/总览/）
     private var overviewRow: some View {
-        EchoRow(fill: showOverview ? EchoColor.sel : nil) {
+        EchoRow(fill: nil) {
             HStack(spacing: 6) {
                 Image(systemName: "house").font(.system(size: 12, weight: .medium)).frame(width: 12)
                     .foregroundStyle(showOverview ? EchoColor.accent : EchoColor.fg2)
                 Text("总览").font(.system(size: 13, weight: showOverview ? .semibold : .regular))
+                    .foregroundStyle(showOverview ? EchoColor.accentText : EchoColor.fg)
                 Spacer()
             }
             .frame(height: 32)
@@ -553,13 +554,13 @@ struct EchoBrowserView: View {
                     Image(systemName: "calendar").font(.system(size: 13))   // 从几组候选里选的（试过时钟、漏斗、三条线、滑杆）
                 } action: { pickMenu = pickMenu == "date" ? nil : "date" }
             }
-            .padding(.leading, 80).padding(.trailing, 10)
+            .padding(.leading, 80).padding(.trailing, 16)
             .frame(height: 56)
             .background(EchoWindowDrag())                                     // 红绿灯那一行，按住能拖窗口
 
             if !state.sessions.isEmpty {
                 EchoSearchField(text: $query, focused: $searchFocus) { if let g = search.groups.first { if let h = g.hits.first { openHit(g.session, h) } else { openPlain(g.session) } } }
-                    .padding(.horizontal, 10).padding(.bottom, 8)
+                    .padding(.horizontal, 16).padding(.bottom, 8)
                     .background {   // ⌥⌘F 聚焦搜索框（照「备忘录」在全部备忘录中搜索）
                         Button("") { searchFocus = true }.keyboardShortcut("f", modifiers: [.command, .option]).opacity(0).allowsHitTesting(false)
                     }
@@ -569,7 +570,7 @@ struct EchoBrowserView: View {
                 empty
             } else if !query.trimmed.isEmpty {
                 ScrollView {
-                    searchResults.padding(.horizontal, 10).padding(.bottom, 12)
+                    searchResults.padding(.horizontal, 16).padding(.bottom, 12)
                 }
                 .scrollIndicators(.never)
             } else {
@@ -583,7 +584,7 @@ struct EchoBrowserView: View {
                                 .font(.system(size: 12)).foregroundStyle(EchoColor.fg3).padding(.leading, 10).padding(.top, 14)
                         }
                     }
-                    .padding(.horizontal, 10).padding(.bottom, 12)
+                    .padding(.horizontal, 16).padding(.bottom, 12)   // 左右留白 16（多一些）
                 }
                 .scrollIndicators(.never)
             }
@@ -651,11 +652,11 @@ struct EchoBrowserView: View {
     /// 一处命中：谁说的（灰）加关键词附近的一截，关键词主色；悬停写时间
     private func searchHitRow(_ h: EchoIndex.Hit, _ s: EchoSession, q: String, anchor: String) -> some View {
         let key = "\(h.fid):\(h.line)", on = key == searchPick && !showOverview
-        return EchoRow(fill: on ? EchoColor.sel : nil) {
+        return EchoRow(fill: nil) {
             // 谁说的占一列，摘句折行时第二行和第一行对齐
             HStack(alignment: .firstTextBaseline, spacing: 4) {
-                Text(h.role).foregroundStyle(EchoColor.fg3).frame(width: 26, alignment: .leading)
-                Text(EchoSearchModel.marked(EchoSearchModel.cut(h.text, around: anchor), q)).foregroundStyle(EchoColor.fg2).lineLimit(2)
+                Text(h.role).foregroundStyle(on ? EchoColor.accentText : EchoColor.fg3).frame(width: 26, alignment: .leading)
+                Text(EchoSearchModel.marked(EchoSearchModel.cut(h.text, around: anchor), q)).foregroundStyle(on ? EchoColor.fg : EchoColor.fg2).lineLimit(2)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             .font(.system(size: 12))
@@ -780,11 +781,12 @@ struct EchoBrowserView: View {
 
     private func sessionRow(_ s: EchoSession, indent: CGFloat) -> some View {
         let on = picked.contains(s.id) || (!showOverview && picked.isEmpty && collectionID == nil && s.id == currentID)
-        return EchoRow(fill: on ? EchoColor.sel : nil) {
+        return EchoRow(fill: nil) {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 VStack(alignment: .leading, spacing: 2) {
+                    // 选中不加色块，标题主色字加粗（选中后的色块直接去掉）
                     Text(s.meta.title == s.sessionId ? "未命名会话" : s.meta.title).font(.system(size: 13, weight: on ? .semibold : .regular)).lineLimit(1)
-                        .foregroundStyle(EchoColor.fg)
+                        .foregroundStyle(on ? EchoColor.accentText : EchoColor.fg)
                         .frame(maxWidth: .infinity, alignment: .leading)
                     HStack(spacing: 6) {
                         Text(EchoTime.short(s.endDate))
@@ -953,7 +955,7 @@ struct EchoBrowserView: View {
             .disabled(state.running)
             .help("立即备份")
         }
-        .padding(.leading, 20).padding(.trailing, 12)
+        .padding(.leading, 26).padding(.trailing, 18)
         .frame(height: 44)
     }
 

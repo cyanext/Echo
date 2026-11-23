@@ -13,7 +13,7 @@ enum EchoColor {
         })
     }
     // 颜色令牌：界面里只引用这些名字，不写色值；和网页的 Web/base.css、overview.css 同名同值
-    static let side = dyn(0xf0f8f5, 0x1f2725)           // 左栏：纯色淡绿（原来 #f2f5f5 太灰，要更亮的淡淡绿；渐变太丑，不要）
+    static let side = dyn(0xf5faf8, 0x1f2725)           // 左栏：纯色淡绿（原来 #f2f5f5 太灰，#f0f8f5 还嫌绿，再淡一档；渐变太丑，不要）
     static let sideFg = dyn(0x4b5468, 0xb4b9c5)
     static let surface = dyn(0xffffff, 0x1d1e23)
     static let fg = dyn(0x1f2329, 0xe6e8ec)
