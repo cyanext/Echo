@@ -559,7 +559,7 @@ struct EchoBrowserView: View {
             .background(EchoWindowDrag())                                     // 红绿灯那一行，按住能拖窗口
 
             if !state.sessions.isEmpty {
-                EchoSearchField(text: $query, focused: $searchFocus) { if let g = search.groups.first { openHit(g.session, g.hits[0]) } }
+                EchoSearchField(text: $query, focused: $searchFocus) { if let g = search.groups.first { if let h = g.hits.first { openHit(g.session, h) } else { openPlain(g.session) } } }
                     .padding(.horizontal, 10).padding(.bottom, 8)
                     .background {   // ⌥⌘F 聚焦搜索框（照「备忘录」在全部备忘录中搜索）
                         Button("") { searchFocus = true }.keyboardShortcut("f", modifiers: [.command, .option]).opacity(0).allowsHitTesting(false)
@@ -600,6 +600,7 @@ struct EchoBrowserView: View {
         return LazyVStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(searchHead(q))
+                if !search.groups.isEmpty, let n = search.note { Text(n) }   // 会话名搜到了、对话搜不了
                 if search.groups.isEmpty, search.note == nil, !search.running, let u = search.updated {
                     Text("索引更新于 " + EchoCLI.bj(u, "M月d日 HH:mm") + "，之后的内容要等下一次备份")
                 }
@@ -611,9 +612,9 @@ struct EchoBrowserView: View {
     }
 
     private func searchHead(_ q: String) -> String {
-        if let n = search.note { return n }
+        if search.groups.isEmpty, let n = search.note { return n }
         if search.groups.isEmpty { return search.running ? "正在搜索…" : "没有找到「\(q)」" }
-        return "\(search.total) 处，\(search.groups.count) 个会话" + (search.capped ? "（只列最近 \(EchoSearchModel.limit) 处）" : "")
+        return "\(search.groups.count) 个会话" + (search.total > 0 ? "，\(search.total) 处" : "") + (search.capped ? "（对话只列前 \(EchoSearchModel.limit) 处）" : "")
     }
 
     private func searchGroup(_ g: EchoSearchGroup, _ q: String) -> some View {
@@ -622,7 +623,8 @@ struct EchoBrowserView: View {
         return VStack(alignment: .leading, spacing: 0) {
             EchoRow(fill: nil) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(s.meta.title == s.sessionId ? "未命名会话" : s.meta.title).font(.system(size: 13, weight: .semibold)).lineLimit(1)
+                    let title = s.meta.title == s.sessionId ? "未命名会话" : s.meta.title
+                    Text(g.titleHit ? EchoSearchModel.marked(title, q, size: 13) : AttributedString(title)).font(.system(size: 13, weight: .semibold)).lineLimit(1)
                         .foregroundStyle(EchoColor.fg)
                         .frame(maxWidth: .infinity, alignment: .leading)
                     HStack(spacing: 6) {
@@ -634,7 +636,7 @@ struct EchoBrowserView: View {
                     .font(.system(size: 12)).foregroundStyle(EchoColor.fg3).monospacedDigit()
                 }
                 .padding(.vertical, 6)
-            } action: { openHit(s, g.hits[0]) }
+            } action: { if let h = g.hits.first { openHit(s, h) } else { openPlain(s) } }
             .help(s.projectPath)
             ForEach(list, id: \.line) { h in searchHitRow(h, s, q: q, anchor: anchor) }
             if g.hits.count > list.count {
@@ -661,6 +663,16 @@ struct EchoBrowserView: View {
             .padding(.leading, 12).padding(.vertical, 5)
         } action: { openHit(s, h) }
         .help(EchoCLI.hm(h.ts))
+    }
+
+    /// 只有会话名命中：打开会话，不跳
+    private func openPlain(_ s: EchoSession) {
+        picked = []
+        collectionID = nil
+        sessionID = s.id
+        jumpAt = nil; jumpQuery = nil
+        searchPick = nil
+        showOverview = false
     }
 
     /// 打开命中的会话，跳到那一处：按那一行的时间找到它所在的一段，页面里查找关键词，停在那一段之后的第一个

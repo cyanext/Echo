@@ -330,8 +330,8 @@ extension EchoIndex {
     }
 
     /// 找含这几个词的行，按时间从近到远。3 个字以上的词走全文索引（trigram 至少 3 个字），短的逐行比对（全表扫，约 1 秒）
-    /// roles 只找这几种行（我、AI、总结…），nil 是全部
-    static func search(_ db: EchoDB, _ q: String, limit: Int, app: String? = nil, project: String? = nil, since: String? = nil, roles: [String]? = nil) throws -> [Hit] {
+    /// roles 只找这几种行（我、AI、总结…），nil 是全部；byRole 时按 roles 的先后排，同一种再按时间从近到远
+    static func search(_ db: EchoDB, _ q: String, limit: Int, app: String? = nil, project: String? = nil, since: String? = nil, roles: [String]? = nil, byRole: Bool = false) throws -> [Hit] {
         let ts = terms(q)
         let long = ts.filter { $0.count >= 3 }, short = ts.filter { $0.count < 3 }
         guard !ts.isEmpty else { return [] }
@@ -348,7 +348,12 @@ extension EchoIndex {
         if let project { sql += " AND f.cwd LIKE ?"; args.append("%" + project + "%") }
         if let since { sql += " AND l.ts >= ?"; args.append(since) }
         if let roles, !roles.isEmpty { sql += " AND l.role IN (" + roles.map { _ in "?" }.joined(separator: ",") + ")"; args += roles.map { $0 } }
-        sql += " ORDER BY l.ts DESC LIMIT ?"
+        sql += " ORDER BY "
+        if byRole, let roles, !roles.isEmpty {
+            sql += "CASE l.role " + roles.indices.map { "WHEN ? THEN \($0) " }.joined() + "END, "
+            args += roles.map { $0 }
+        }
+        sql += "l.ts DESC LIMIT ?"
         args.append(limit)
         var hits: [Hit] = []
         try db.rows(sql, args) { s in

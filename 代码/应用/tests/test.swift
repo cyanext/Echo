@@ -304,7 +304,8 @@ enum EchoTests {
         func lit(_ a: AttributedString) -> [String] { a.runs.filter { $0.foregroundColor != nil }.map { String(a[$0.range].characters) } }
         check(lit(EchoSearchModel.marked("by 主色定 B（#00898A）", "主色定 B")) == ["主色定 B"], "整句出现时应只标整句")
         check(lit(EchoSearchModel.marked("Bash 里主色定了", "主色定 B")) == ["主色定"], "单个字不该单独标")
-        print("  ech 分段、引用、猜新位置、搜索 17 项")
+        check(EchoSearchModel.matches("回响 日期筛选", "筛选 回响") && !EchoSearchModel.matches("回响 日期筛选", "回响 搜索"), "会话名应几个词都有才算")
+        print("  ech 分段、引用、猜新位置、搜索 18 项")
     }
 
     static func layoutTest() throws {
