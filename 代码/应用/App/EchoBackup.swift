@@ -120,6 +120,14 @@ enum EchoBackup {
 
     /// Codex：sessions/年/月/日/ 和 archived_sessions/ 下的 rollout-*.jsonl（或 Codex 压过的 .jsonl.zst），解压后都放进
     /// sessions/年/月/日/rollout-….jsonl（日期取文件名里的），压缩、归档前后写到同一处，不出两份；另外原样复制 session_index.jsonl（会话名）
+    /// 会话文件本身（Claude 项目目录下的 <会话>.jsonl、Codex 的 rollout 文件）里既没有你的消息、也没有 AI 回复。子代理和其他文件不判断
+    static func isEmptySession(_ f: Item) -> Bool {
+        let parts = f.rel.split(separator: "/")
+        if f.out.hasPrefix("sessions/") { return (try? EchoSessionScan.readCodex(f.url))?.empty == true }
+        guard parts.count == 2, f.rel.hasSuffix(".jsonl") else { return false }
+        return (try? EchoSessionScan.read(f.url))?.empty == true
+    }
+
     static func codexItems(_ source: URL) -> [Item] {
         let fm = FileManager.default
         var out: [Item] = [], seen = Set<String>()
@@ -179,6 +187,11 @@ enum EchoBackup {
             let same = record.files[f.rel] == f.stamp
             lock.unlock()
             if same, fm.fileExists(atPath: out.path) {
+                lock.lock(); result.skipped += 1; lock.unlock()
+                return
+            }
+            // 空会话（没有你的消息也没有 AI 回复，比如只敲了一条 /resume）不备份，也不记进备份记录：以后有了内容文件一变就照常备份
+            if isEmptySession(f) {
                 lock.lock(); result.skipped += 1; lock.unlock()
                 return
             }

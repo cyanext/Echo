@@ -357,7 +357,11 @@
       document.documentElement.style.setProperty("--head-h", h + "px");
       LINE = h + 48;
     };
-    let pinned = null;   // 刚点过的那一栏和当时的滚动位置，页面没动时保持点中的那项
+    // 刚点过的那一栏和滚动停下时的位置，页面没再动时保持点中的那项。点的时候正文还在平滑滚动，
+    // 要等滚动停下（150 毫秒没动）才记位置：页面到底时最后几个要点滚不到顶上，按位置算会落到前一个
+    let pinned = null, pinT = 0;
+    const settle = () => { if (pinned && pinned.y === null) pinned.y = window.scrollY; };
+    const pin = (nav) => { pinned = { rail: nav, y: null }; clearTimeout(pinT); pinT = setTimeout(settle, 250); };
     // 两栏固定在窗口两边，正文栏用左右内边距让开：要点栏 240（窗口窄于 1000 时只剩 44 宽的横线）；
     // 我的消息展开 260，正文剩下不到 560 时浮在正文上，收起时什么都不显示
     const layout = () => {
@@ -438,7 +442,7 @@
         if (!t) return;
         o.jump(byId[t.dataset.k]);   // 栏名、搜索框不带 data-k，不会走到这里
         mark(t.dataset.k);
-        pinned = { rail: nav, y: window.scrollY };
+        pin(nav);
         spot();
       });
       nav.addEventListener("mouseover", (e) => {
@@ -487,13 +491,15 @@
       };
       const full = (k) => (k.kind === "compact" ? `手动压缩：${esc(k.full || k.sub || "")}` : k.kind === "recap" ? `回顾：${esc(k.full)}` : k.kind === "part" ? esc(k.label) : esc(k.label).replace(/(v\d+\.\d+(?:\.\d+)?|\d+\.\d+\.\d+)/i, '<b class="ver">$1</b>'));
 
-      // 标题跟着当前段换：标题写这一段的要点，小字写会话标题和时间；后面没有要点时恢复会话标题
-      const homeTitle = $("h-title").innerHTML, homeMeta = $("h-meta").innerHTML;
+      // 标题栏固定两行：标题一直写会话标题；小字写当前所在的要点和时间，读到第一个要点之前写会话的信息
+      const homeMeta = $("h-meta").innerHTML;
+      $("h-title").title = $("h-title").textContent;   // 标题只占一行，悬停看全文
+      const keyLine = (k) => (k.kind === "recap" ? `<span class="h-tag">回顾</span>${esc(k.full)}` : k.kind === "compact" ? `<span class="h-tag">手动压缩</span>${esc(k.full || k.sub || "")}` : full(k));
       const setHead = (k) => {
         const d = k && k.ts ? new Date(k.ts) : null;
-        $("h-title").innerHTML = k ? full(k) : homeTitle;
-        $("h-meta").innerHTML = k ? `<span>${esc(m.title)}</span>${d ? `<span>${md0(d)} ${hm(d)}</span>` : ""}` : homeMeta;
-        ["h-title", "h-meta"].forEach((x) => { $(x).classList.remove("swap"); void $(x).offsetWidth; $(x).classList.add("swap"); });
+        $("h-meta").innerHTML = k ? `<span class="h-key">${keyLine(k)}</span>${d ? `<span class="h-time">${md0(d)} ${hm(d)}</span>` : ""}` : homeMeta;
+        $("h-meta").classList.toggle("key", !!k);
+        $("h-meta").classList.remove("swap"); void $("h-meta").offsetWidth; $("h-meta").classList.add("swap");
         measureHead();
       };
 
@@ -594,7 +600,7 @@
     }
 
     function spot() {
-      if (pinned && Math.abs(window.scrollY - pinned.y) >= 4) pinned = null;
+      if (pinned && pinned.y !== null && Math.abs(window.scrollY - pinned.y) >= 4) pinned = null;
       rails.forEach((r) => { if (!pinned || pinned.rail !== r.nav) r.mark(r.cur()); });
     }
     if (rails.length) {
@@ -602,7 +608,9 @@
       layout();
       window.addEventListener("resize", () => { layout(); measureHead(); });
       let ticking = false;
-      window.addEventListener("scroll", () => { if (!ticking) { ticking = true; setTimeout(() => { spot(); ticking = false; }, 60); } }, { passive: true });
+      window.addEventListener("scroll", () => {
+        if (pinned && pinned.y === null) { clearTimeout(pinT); pinT = setTimeout(settle, 150); }
+        if (!ticking) { ticking = true; setTimeout(() => { spot(); ticking = false; }, 60); } }, { passive: true });
       spot();
     }
 
