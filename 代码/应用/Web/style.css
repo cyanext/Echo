@@ -118,6 +118,8 @@
 
 /* 消息列 */
 .c-main { max-width: 760px; margin: 0 auto; padding: 8px 32px 120px; }
+/* 拖选跨了几段时，浅蓝的选中底色只铺在正文这一栏，不铺到两边的要点栏、我的消息上：translate(0) 不改位置，只让正文栏成为单独的选区边界 */
+.c-main { transform: translate(0); }
 
 .msg { margin: 28px 0; }
 .msg.user { display: flex; flex-direction: column; align-items: flex-end; }
