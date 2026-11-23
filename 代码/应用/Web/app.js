@@ -357,7 +357,11 @@
       document.documentElement.style.setProperty("--head-h", h + "px");
       LINE = h + 48;
     };
-    let pinned = null;   // 刚点过的那一栏和当时的滚动位置，页面没动时保持点中的那项
+    // 刚点过的那一栏和滚动停下时的位置，页面没再动时保持点中的那项。点的时候正文还在平滑滚动，
+    // 要等滚动停下（150 毫秒没动）才记位置：页面到底时最后几个要点滚不到顶上，按位置算会落到前一个
+    let pinned = null, pinT = 0;
+    const settle = () => { if (pinned && pinned.y === null) pinned.y = window.scrollY; };
+    const pin = (nav) => { pinned = { rail: nav, y: null }; clearTimeout(pinT); pinT = setTimeout(settle, 250); };
     // 两栏固定在窗口两边，正文栏用左右内边距让开：要点栏 240（窗口窄于 1000 时只剩 44 宽的横线）；
     // 我的消息展开 260，正文剩下不到 560 时浮在正文上，收起时什么都不显示
     const layout = () => {
@@ -438,7 +442,7 @@
         if (!t) return;
         o.jump(byId[t.dataset.k]);   // 栏名、搜索框不带 data-k，不会走到这里
         mark(t.dataset.k);
-        pinned = { rail: nav, y: window.scrollY };
+        pin(nav);
         spot();
       });
       nav.addEventListener("mouseover", (e) => {
@@ -597,7 +601,7 @@
     }
 
     function spot() {
-      if (pinned && Math.abs(window.scrollY - pinned.y) >= 4) pinned = null;
+      if (pinned && pinned.y !== null && Math.abs(window.scrollY - pinned.y) >= 4) pinned = null;
       rails.forEach((r) => { if (!pinned || pinned.rail !== r.nav) r.mark(r.cur()); });
     }
     if (rails.length) {
@@ -605,7 +609,9 @@
       layout();
       window.addEventListener("resize", () => { layout(); measureHead(); });
       let ticking = false;
-      window.addEventListener("scroll", () => { if (!ticking) { ticking = true; setTimeout(() => { spot(); ticking = false; }, 60); } }, { passive: true });
+      window.addEventListener("scroll", () => {
+        if (pinned && pinned.y === null) { clearTimeout(pinT); pinT = setTimeout(settle, 150); }
+        if (!ticking) { ticking = true; setTimeout(() => { spot(); ticking = false; }, 60); } }, { passive: true });
       spot();
     }
 
