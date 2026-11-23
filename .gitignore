@@ -6,5 +6,5 @@
 .worktrees/
 .DS_Store
 __pycache__/
-# 需求文档、设计稿：另一个私有仓库 cyanext/EchoDocs
+# 需求文档、设计稿：另一个私有仓库 cyanext/Echo-docs
 文档/
