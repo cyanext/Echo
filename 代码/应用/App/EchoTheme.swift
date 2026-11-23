@@ -31,6 +31,7 @@ enum EchoColor {
     static let onAccent = dyn(0xffffff, 0x10292a)                  // 主色实心底上的字：浅色白字，深色深字（和网页 --on-dark、--on-light 一样）
     static let chrome = dyn(0xf6f7f7, 0x232529)
     static let subtle = dyn(0xf2f4f4, 0x292e2f)
+    static let card = dyn(0xf3f9f6, 0x232b29)          // 设置、首次设置的卡片底：和你的消息气泡同一个淡绿
     // 主色由浅到深的色阶（深色模式反过来，q4 最亮），和网页 overview.css 的 --q1…--q4 一致；mute 两档灰
     static let q2 = dyn(0x64c3c3, 0x006d6d)
     static let q3 = dyn(0x009fa0, 0x009a9b)

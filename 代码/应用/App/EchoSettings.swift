@@ -70,7 +70,7 @@ enum EchoSettingsStyle {
         return i
     }
     static let chrome = EchoColor.chrome
-    static let subtle = EchoColor.subtle
+    static let subtle = EchoColor.card   // 卡片底：淡绿，和消息气泡一个色
     static let accentSoft = EchoColor.accentSoft
     /// 占用条和类型行的颜色：保留的几类主色由深到浅，思考、系统记录灰（默认不备份）
     static func color(_ k: EchoStorage.Kind) -> Color {
