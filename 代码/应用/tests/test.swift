@@ -15,7 +15,7 @@ enum EchoTests {
 
     static func main() throws {
         let a = CommandLine.arguments
-        if a.count == 3, a[1] == "--rules" { rules(); try renameTest(fixture: URL(fileURLWithPath: a[2])); try statsTest(); try commitMatchTest(); timeTest(); try cleanTest(); try layoutTest(); try pathTest(); try echTest(); try codexMoveTest(); try codexBackupTest(); try autoDeleteTest(); try claudeSettingsTest() }
+        if a.count == 3, a[1] == "--rules" { rules(); try renameTest(fixture: URL(fileURLWithPath: a[2])); try statsTest(); try commitMatchTest(); timeTest(); try cleanTest(); try layoutTest(); try pathTest(); try echTest(); try codexMoveTest(); try codexBackupTest(); try autoDeleteTest(); try claudeSettingsTest(); try updateTest() }
         else if a.count == 4, a[1] == "--overview" {   // 手动排查：按应用的方式整理总览数据，写到文件，看用了多久
             let t0 = Date()
             let list = EchoLibrary.scan(backupRoot: URL(fileURLWithPath: a[2]))
@@ -95,6 +95,22 @@ enum EchoTests {
     }
 
     /// 总览的数：我的消息只算人打的字；同一次回复拆成几行按 requestId 只算一次；AI 干活取 turn_duration；写缓存分 5 分钟和 1 小时
+    /// 检查更新的版本号比较，默认备份位置
+    static func updateTest() throws {
+        check(EchoUpdate.version(fromTag: "app-v0.13.0") == "0.13.0", "发版标签去掉 app-v")
+        check(EchoUpdate.isNewer("0.13.0", than: "0.9.1"), "0.13.0 应比 0.9.1 新")
+        check(!EchoUpdate.isNewer("0.12.0", than: "0.12.0"), "同一版本不算新")
+        check(EchoUpdate.isNewer("1.0", than: "0.99.9") && !EchoUpdate.isNewer("0.12", than: "0.12.1"), "段数不同时补 0 比")
+        let fm = FileManager.default, home = fm.temporaryDirectory.appendingPathComponent("回响默认位置-" + UUID().uuidString)
+        defer { try? fm.removeItem(at: home) }
+        try fm.createDirectory(at: home, withIntermediateDirectories: true)
+        check(EchoPrefs.defaultBackupRoot(home: home).path == home.path + "/Documents/回响", "没有 iCloud 云盘时放文稿/回响")
+        try fm.createDirectory(at: home.appendingPathComponent("Library/Mobile Documents/com~apple~CloudDocs"), withIntermediateDirectories: true)
+        check(EchoPrefs.defaultBackupRoot(home: home).path == home.path + "/Library/Mobile Documents/com~apple~CloudDocs/回响", "有 iCloud 云盘时放 iCloud 云盘/回响")
+        try fm.createDirectory(at: home.appendingPathComponent("Desktop/项目代码/回响备份"), withIntermediateDirectories: true)
+        check(EchoPrefs.defaultBackupRoot(home: home).path == home.path + "/Desktop/项目代码/回响备份", "旧的默认位置已有备份时接着用")
+    }
+
     static func statsTest() throws {
         let rows = [
             #"{"type":"user","timestamp":"2026-11-20T02:00:00Z","message":{"role":"user","content":"做总览"},"origin":{"kind":"human"}}"#,
@@ -512,7 +528,12 @@ enum EchoTests {
         case "browser":   // 浏览窗口：读 ECHO_SHOT_ROOT 这个备份目录；ECHO_SHOT_MENU=computer、app 时展开那个筛选菜单
             UserDefaults.standard.set(ProcessInfo.processInfo.environment["ECHO_SHOT_APP"] ?? "", forKey: "filterApp")   // 先选好的应用筛选
             EchoState.shared.sessions = EchoLibrary.scan(backupRoot: URL(fileURLWithPath: ProcessInfo.processInfo.environment["ECHO_SHOT_ROOT"] ?? "/tmp"))
-            view = AnyView(EchoBrowserView().environmentObject(EchoState.shared).frame(width: 1100, height: 720))
+            EchoState.shared.lastSuccess = Date(timeIntervalSinceNow: -600)   // 底部写「10 分钟前备份」
+            if let id = ProcessInfo.processInfo.environment["ECHO_SHOT_OPEN"] {   // 打开这个会话（左栏显示选中）
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1) { EchoState.shared.openSessionID = id }
+            }
+            let env = ProcessInfo.processInfo.environment   // 窗口大小，默认 1100×720
+            view = AnyView(EchoBrowserView().environmentObject(EchoState.shared).frame(width: Double(env["ECHO_SHOT_W"] ?? "") ?? 1100, height: Double(env["ECHO_SHOT_H"] ?? "") ?? 720))
         case let x where x.hasPrefix("onboarding-"): view = AnyView(EchoOnboardingView(start: Int(x.dropFirst(11)) ?? 0) {})
         default: view = AnyView(EchoSettingsView(start: .storage))
         }

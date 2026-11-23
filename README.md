@@ -1,78 +1,93 @@
-# 回响
+<p align="center"><img src="docs/icon.png" width="128" alt="回响图标"></p>
 
-个人的 AI 记忆和上下文存档，Mac 应用。立项方案（已归档）见 [需求文档/归档/方案.md](需求文档/归档/方案.md)，各版本的需求见 `需求文档/版本需求/`，更新记录见 [CHANGELOG.md](CHANGELOG.md)。
+<h1 align="center">回响 Echo</h1>
 
-```text
-需求文档/     版本需求/（一类事一篇，开工时叫「待定-<主题>」，发版时改成「v<号>-<主题>」）、设计规范/、归档/（立项方案）、.pm-doc/
-设计/         设计稿，一个主题一个文件夹，每个文件夹一份说明
-代码/应用/    Mac 应用：App/ 源码（Echo*.swift，见下）、skill/ech/ 跟着应用发的 ech skill（打包时写上版本号）、Web/ 对话页面和总览页面（overview.*，单价表 prices.json，两页共用的 base.*、缺省插画 blank-*.svg）、icon/ 应用图标（改图标跑 make_icon.py）、tests/、tools/、build.sh
-代码/原型/    Python 和网页原型，瘦身和消息显示以它为准，测试拿它比对
-样例/         真实会话和它的浏览页面（页面从 代码/原型/viewer/ 拷来，数据 export.py 生成），整个不进 git
+<p align="center">你和 AI 聊过的，回响都记得。</p>
+
+<p align="center">自动备份 Claude Code、Codex 的会话，随时翻看、搜索，AI 也能自己查。</p>
+
+<p align="center"><a href="README.en.md">English</a></p>
+
+<p align="center"><img src="docs/screenshot-light.png" width="800" alt="回响的浏览窗口：左边按项目文件夹列出会话，右边是对话和按版本分段的要点"></p>
+
+## 为什么需要它
+
+用 Claude Code、Codex 做事，写方案、改代码、整理资料，真正有价值的东西都在会话里：当时为什么这么定、试过哪些路、最后怎么解决的。这些很少写进文档，可会话本身留不住：
+
+- Claude Code 默认 30 天就删掉会话。
+- 会话散在各个文件夹里，只能在同一个文件夹、同一台电脑上找回来；文件夹改个名，`/resume` 就找不到了。
+- 每开一个新会话，AI 都从零开始，上次的背景要你再讲一遍。
+
+回响在后台把会话备份下来，按项目整理好，随时翻看、搜索；还带一个命令行工具 `ech`，让 AI 自己去查以前的会话，接着上次的进度做。
+
+## 用在哪儿
+
+- **「这里当时为什么这么做？」** 三周前定的方案，原会话早被删了。在回响里搜一个关键词，跳到那次提交前后的对话，看到当时的原话和取舍。
+- **新会话接上旧进度。** 新开一个会话说「接着上次那个做」，AI 用 `ech` 找到上次的回顾和最后几段对话，不用你重新交代背景。
+- **一周做了什么，一条命令列出来。** 每个项目的会话、提交的版本、用了多少 Token，写周报、做复盘直接用。
+- **两台 Mac，会话汇到一起。** 备份放在 iCloud 云盘，在家里那台上也能翻、能搜公司那台上的会话。
+- **整理文件夹不丢会话。** 在回响里给文件夹改名、挪位置，里面的会话跟着走，Claude Code 在新位置照样能接着聊。
+
+## 功能
+
+- **自动备份**：开机在后台运行，按设定的频率增量备份 Claude Code、Codex 的会话。
+- **精简存储**：图片、思考过程不备份，工具调用的细节默认 30 天后换成占位，对话全文一直保留；密钥、令牌自动打码。备份约为原会话的十分之一。
+- **多台电脑**：每台电脑一个文件夹，放在 iCloud 云盘里自动汇到一起。
+- **按项目浏览**：左栏按文件夹列出会话；对话按版本提交、压缩点和回顾分段，右侧的要点一点就跳到当时。
+- **全局搜索**：会话名、你说的话、阶段总结、AI 的回复都能搜，命中处高亮。
+- **总览**：每天的消息数、Token 用量和费用，做了哪些提交和版本。
+- **整理会话**：改名、删除（移到废纸篓，能放回）、移动到别的文件夹；文件夹改名后会话跟着走。
+- **自动清理**：Claude Code、Codex 里很久没用的会话，备份完整后移到废纸篓，原来的文件夹不再越攒越大。
+- **ech 命令**：给 AI 用的命令行工具，按关键词、时间查会话，读出当时的原话，接上上次的进度。
+- **自动更新**：有新版本时提示，点「更新」自动下载安装。
+
+<p align="center"><img src="docs/screenshot-dark.png" width="800" alt="深色模式"></p>
+
+## 安装
+
+在终端里运行：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/cyanext/echo/main/install.sh | zsh
 ```
 
-备份默认在本目录旁边的 `../回响备份/<电脑名>/`（桌面在 iCloud 里，两台电脑共用），设置里能改；0.5.0 及以前在本目录的 `备份/`，新版打开时自动挪过去。
+会下载最新版装到 `~/Applications` 并打开。也可以到 [Releases](https://github.com/cyanext/echo/releases) 下载 `Echo-<版本>.zip`，解压后把「回响」拖到「应用程序」。用浏览器下载的，第一次打开如果提示「无法验证开发者」，到「系统设置 > 隐私与安全性」底部点「仍要打开」。
 
-`代码/应用/App/` 各文件：
+需要 macOS 14 或更新的版本、Apple 芯片。
 
-| 文件 | 管什么 |
-|---|---|
-| `EchoApp.swift` | 入口、主菜单、设置项（EchoPrefs）、全局状态（EchoState：备份、会话列表、总览、改名删除移动合集） |
-| `EchoSources.swift` | 来源（Claude Code、Codex、WorkBuddy），备份里按应用分的文件夹，老布局挪进 `claude/` |
-| `EchoBackup.swift` | 增量备份：Claude 从 `~/.claude/projects`，Codex 从 `~/.codex` 的 sessions、archived_sessions（解压后按日期放）；备份日志 |
-| `EchoPrices.swift` | 模型单价：内置 `Web/prices.json`，每周从 LiteLLM 公开价格表拉一次覆盖 |
-| `EchoSlim.swift` | 按行读文件（`.zst` 边读边解压，静态链接 Homebrew 的 libzstd，模块定义在 `tools/zstd/`）；写备份的规则（Claude、Codex 各一套）：去掉图片、请求记录，按保留期限换成占位，密钥打码 |
-| `EchoClean.swift` | 清理备份：按保留期限重写到期的备份文件，旧文件进废纸篓；清理记录（本机）记每个文件最早到期，没到的跳过 |
-| `EchoStorage.swift` | 设置「存储」页的数：备份各类占用、各应用消息数，Claude、Codex 会话数和占用 |
-| `EchoOnboarding.swift` | 首次设置（第一次打开时的四步引导） |
-| `EchoLibrary.swift` | 扫备份出会话列表、目录树，路径和时间的公共函数 |
-| `EchoExport.swift` | 会话整理成对话页要的数据，规则以 `代码/原型/export.py` 为准 |
-| `EchoEdit.swift` | 改名、合集、删除、移动（含移动记录；Codex 的只改 Codex 数据库里的文件夹，EchoCodexMove）、目录改名和移动（EchoDirMove，左栏和 ech mv 共用）、自动清理不活跃的会话（Claude、Codex）、关闭 Claude 的自动清理 |
-| `EchoStats.swift` | 总览的数：每天的消息、时长、Token（Claude、Codex），Git 提交归到哪个会话（EchoStats.owner，总览和 ech 共用）；备份页的汇总 |
-| `EchoIndex.swift` | ech 的本机索引（`~/Library/Application Support/回响/索引.sqlite`）：会话分段（压缩点、版本提交、跨天），全文索引；备份完增量更新 |
-| `EchoSearch.swift` | 左栏搜索：搜索框、在全部会话里按关键词找（EchoIndex.search，和 ech find 共用），结果按会话分组 |
-| `EchoCLI.swift` | 命令行工具 `ech`（同一个程序用 `ech` 这个名字调用时走这里）和它的安装（`~/.local/bin/ech`、skill） |
-| `EchoBrowser.swift` | 浏览窗口：左栏目录树、右栏切换、底部备份状态 |
-| `EchoWeb.swift` | 右栏网页：对话、总览，`echo://app/` 取文件和数据 |
-| `EchoTheme.swift` | 颜色、左栏的行、按钮等原生公共部件，自绘图标 |
-| `EchoSettings.swift` | 设置窗口：通用、存储两页，各块也给首次设置用 |
+## 使用
 
-## ech 命令
-
-回响带的命令行工具，哪家 AI 都能用，装在 `~/.local/bin/ech`（指向应用里的程序）；配套的 skill 装在 `~/.claude/skills/ech`，本机有 Codex 时也装到 `~/.codex/skills/ech`。首次设置完成时自动装，设置「通用」里能重装；回响升级后启动时 skill 跟着更新。用法 `ech help`，参数 `ech schema [命令]`：
+1. 第一次打开时按引导选好备份位置、要备份的应用和清理规则，点「完成，开始备份」。macOS 询问能否访问文件夹时点「允许」。
+2. 点程序坞里的回响打开浏览窗口。关掉窗口后照常在后台备份。
+3. 让 AI 查以前的会话：直接说「上次聊到哪了」「以前为什么这么定」，回响装好的 `ech` skill 会去查。自己在终端里也能用：
 
 | 命令 | 做什么 |
 |---|---|
-| `ech find <关键词>` | 在全部备份里找，按会话列命中，每处带引用（`会话#段号`） |
-| `ech segs <会话>` | 会话的分段：起止行、时间、提交的版本、第一句话 |
-| `ech read <引用>` | 读一段的对话文字（`ce57ce36#3`、`ce57ce36#L1200-1500`），`--tools` 带工具输出 |
-| `ech context <会话>` | 续上一个会话：最近一次压缩的阶段总结和之后的全部对话 |
-| `ech list --since 2026-11-16 --until 2026-11-22` | 按时间列会话、我的消息、Token、提交和版本（取总览数据，周报用）；日期也能写 `11-16`、`7d` |
-| `ech backup` / `ech index` | 备份并更新索引和总览数据 / 只更新索引和总览数据 |
-| `ech mv <旧> <新>` | 改文件夹名或移动文件夹，本机 Claude Code 的会话随之移动，`--dry-run` 预览 |
+| `ech find <关键词>` | 在全部会话里找，按会话列出命中处 |
+| `ech read <会话>#<段号>` | 读一段对话的原文 |
+| `ech context <会话>` | 续上一个会话：最近的回顾、阶段总结和之后的对话 |
+| `ech list --since 7d` | 按时间列会话、消息数、Token、提交和版本 |
+| `ech mv <旧路径> <新路径>` | 改文件夹名或移动文件夹，会话随之移动 |
+| `ech backup` | 立即备份并更新索引 |
 
-输出纯文本，一页最多 8000 字，`--page` 翻页，`--json` 给脚本用。开发时测：编出程序后 `ln -s <程序> <临时目录>/ech`，用这个替身调用。
+`ech help` 看全部命令，加 `--json` 输出给脚本用。
 
-## 开发
+## 数据安全
 
-- 编译：`zsh 代码/应用/build.sh`，输出 `代码/应用/dist/回响.app`，临时签名。`zsh 代码/应用/build.sh install` 装到 `~/Applications` 并重新打开。
-- 测试：`zsh 代码/应用/tests/run.sh [会话.jsonl…]`：瘦身和消息显示和原型现场生成的结果比对，备份规则、改名、合集、删除、移动、隐藏标记、总览统计，要点栏取点（node）。改了 `代码/应用/App/`、`Web/app.js` 必跑。看总览在真实备份上整理得对不对、要多久：测试程序带 `--overview <备份目录> <输出.json>`。
-- 验收全量备份：编出测试程序后运行 `test --backup <临时目录>`，跑两遍，看大小、文件数和耗时。
-- 测试程序的其他手动用法：`--backup-codex <目录>` 把本机 Codex 会话全量备份到临时目录（跑两遍）；`--slim-compare <会话> <原型瘦身结果>` 只比瘦身（Codex 会话用）；`--cat <文件>` 按行读出（`.zst` 解压），和 `zstd -dc` 比对；`--prices <LiteLLM 价格表>` 看解析留下哪些模型；`--slim <会话> <输出>` 按默认期限瘦身一个文件看用时；`--clean-estimate <电脑备份目录>` 估算按默认期限能释放多少；`--autodelete-preview <电脑备份目录> <天数>` 列出会被自动删除的会话（只列不删）；`--shot <settings-general|settings-storage|onboarding-0…3|browser> <输出.png> [dark] [等几秒]` 离屏截界面（不弹窗口、不装应用，图标要设 `ECHO_WEB=代码/应用/Web`；`browser` 读 `ECHO_SHOT_ROOT` 这个备份目录，`ECHO_SHOT_MENU=computer|app` 时展开那个筛选菜单）。
-- 编译要先装 zstd：`brew install zstd`（静态链接进应用，装好的回响不依赖 Homebrew）。
+- 只读 `~/.claude`、`~/.codex` 里的会话，会话内容一行不改。只有你点了改名、删除、移动，或开着自动清理时，才会改动会话文件；删除一律移到废纸篓。
+- 备份只写到你选的文件夹，除了 iCloud 不传到任何地方。
+- 联网只有两处，都只发一个请求，不带任何本机信息：每周下载一次公开的模型价格表，每天检查一次新版本（可在设置里关掉）。
 
-## 版本和发版
+## 从源码编译
 
-版本号、需求怎么拆、什么时候给号、CHANGELOG 和更新说明，按 devguide（`~/.claude/skills/devguide/SKILL.md`）。回响是自用应用：合进 main 并装到本机就算一次发布。本项目特有的：
+需要 Xcode 命令行工具和 zstd（`brew install zstd`）：
 
-- 开发时分支工作区按主题起名（`.worktrees/<主题>`），`build.sh` 的 `VERSION` 保持上一个已发布的号，需求叫「待定-<主题>」。
-- 发版步骤：
-  1. 给号，`build.sh` 改 `VERSION`、`BUILD` 加一；这次发的需求改名「v<号>-<主题>」，页头写「已发布」和日期。
-  2. `CHANGELOG.md` 最上面写一节 `## v<号>（日期）`，这次发的每篇需求一条；修已发版本的小问题写现象、原因、改法。
-  3. 跑测试，`zsh 代码/应用/build.sh install` 装到本机。
-  4. 合进 main，打 tag `app-v<号>`，删掉分支工作区，推远端（`git push origin main --tags`）。
+```bash
+zsh 代码/应用/build.sh install
+```
 
-## 待做
+没有签名证书时用临时签名。开发说明见 [开发说明.md](开发说明.md)。
 
-按主题排，不编号；开工时写「待定-<主题>」需求。
+## 许可
 
-- 界面减法待定项：合集的叠卡片图标、我的消息栏的条数、左栏底部的云图标、标题切换的淡入动画。
+[MIT](LICENSE)
