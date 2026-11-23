@@ -296,7 +296,16 @@ enum EchoTests {
         for n in ["02 二期项目", "01 一期项目", "会议"] { try fm.createDirectory(atPath: t + "/" + n, withIntermediateDirectories: true) }
         check(EchoDirMove.guess(t + "/项目二期") == t + "/02 二期项目", "没猜出「02 二期项目」：\(EchoDirMove.guess(t + "/项目二期") ?? "无")")
         check(EchoDirMove.guess(t + "/客户资料") == nil, "不像的不该猜")
-        print("  ech 分段、引用、猜新位置 12 项")
+        // 左栏搜索：拆词、摘句围着长词、整句出现时标整句，单个字不单独标
+        check(EchoIndex.terms("主色定　B  靛蓝") == ["主色定", "B", "靛蓝"], "拆词不对：\(EchoIndex.terms("主色定　B  靛蓝"))")
+        check(EchoIndex.anchor("B 主色定") == "主色定" && EchoIndex.anchor("靛蓝") == "靛蓝", "摘句应围着 3 个字以上的词")
+        let cut = EchoSearchModel.cut(String(repeating: "前", count: 40) + "\n关键词" + String(repeating: "后", count: 200), around: "关键词")
+        check(cut.hasPrefix("…" + String(repeating: "前", count: 11) + " 关键词") && cut.hasSuffix("…"), "摘句应在关键词前留 12 个字：\(cut.prefix(20))")
+        func lit(_ a: AttributedString) -> [String] { a.runs.filter { $0.foregroundColor != nil }.map { String(a[$0.range].characters) } }
+        check(lit(EchoSearchModel.marked("by 主色定 B（#00898A）", "主色定 B")) == ["主色定 B"], "整句出现时应只标整句")
+        check(lit(EchoSearchModel.marked("Bash 里主色定了", "主色定 B")) == ["主色定"], "单个字不该单独标")
+        check(EchoSearchModel.matches("回响 日期筛选", "筛选 回响") && !EchoSearchModel.matches("回响 日期筛选", "回响 搜索"), "会话名应几个词都有才算")
+        print("  ech 分段、引用、猜新位置、搜索 18 项")
     }
 
     static func layoutTest() throws {

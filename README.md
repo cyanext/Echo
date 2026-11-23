@@ -29,6 +29,7 @@
 | `EchoEdit.swift` | 改名、合集、删除、移动（含移动记录）、目录改名和移动（EchoDirMove，左栏和 ech mv 共用）、自动清理不活跃的会话（Claude、Codex）、关闭 Claude 的自动清理 |
 | `EchoStats.swift` | 总览的数：每天的消息、时长、Token（Claude、Codex），Git 提交归到哪个会话（EchoStats.owner，总览和 ech 共用）；备份页的汇总 |
 | `EchoIndex.swift` | ech 的本机索引（`~/Library/Application Support/回响/索引.sqlite`）：会话分段（压缩点、版本提交、跨天），全文索引；备份完增量更新 |
+| `EchoSearch.swift` | 左栏搜索：搜索框、在全部会话里按关键词找（EchoIndex.search，和 ech find 共用），结果按会话分组 |
 | `EchoCLI.swift` | 命令行工具 `ech`（同一个程序用 `ech` 这个名字调用时走这里）和它的安装（`~/.local/bin/ech`、skill） |
 | `EchoBrowser.swift` | 浏览窗口：左栏目录树、右栏切换、底部备份状态 |
 | `EchoWeb.swift` | 右栏网页：对话、总览，`echo://app/` 取文件和数据 |
@@ -74,5 +75,4 @@
 
 按主题排，不编号；开工时写「待定-<主题>」需求。
 
-- 全局搜索和按段浏览：左栏顶上搜所有会话的内容，长会话按段展开，用 ech 的分段和索引。
 - 界面减法待定项：合集的叠卡片图标、我的消息栏的条数、左栏底部的云图标、标题切换的淡入动画。

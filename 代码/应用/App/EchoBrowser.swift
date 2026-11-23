@@ -36,6 +36,14 @@ struct EchoBrowserView: View {
     @State private var showAll: Set<String> = []                       // 点过「再显示」的项目
     @State private var showOverview = true                             // 打开窗口默认停在总览
     @State private var jumpAt: Double?                                 // 从总览点版本或提交进来：打开后跳到这个时间
+    @State private var jumpQuery: String?                              // 从搜索结果进来：跳到 jumpAt 那一处，页面里查找这个词
+    @State private var jumpSeq = 0                                     // 同一处再点一次也要跳回去
+    @StateObject private var search = EchoSearchModel()
+    @State private var query = ProcessInfo.processInfo.environment["ECHO_SHOT_QUERY"] ?? ""   // 左栏搜索框；有字时目录树换成搜索结果（环境变量只给截图用）
+    @FocusState private var searchFocus: Bool
+    @State private var shown: [EchoSession] = []                       // 按电脑、应用、日期筛过的会话，搜索只在这些里找
+    @State private var searchPick: String?                             // 搜索结果里点过的那一处「文件编号:行号」
+    @State private var searchMore: Set<String> = []                    // 点了「还有 N 处」的会话
     @AppStorage("sidebarWidth") private var sideW: Double = 272        // 左栏宽，拖右边缘改，200 到 420（照 NAS 网站）
 
     private var computers: [String] { Array(Set(state.sessions.map(\.computer))).sorted() }
@@ -75,6 +83,7 @@ struct EchoBrowserView: View {
             collectionID = nil
             sessionID = id
             jumpAt = state.openAt
+            jumpQuery = nil
             state.openAt = nil
             showOverview = false
         }
@@ -110,7 +119,7 @@ struct EchoBrowserView: View {
             // 右边白区：靠左栏的两个角收圆角 12，左栏的灰底从圆角外露出来（照伙伴云NAS应用）
             ZStack {
                 if showOverview { EchoOverview() }
-                else if let t = target { EchoConversation(target: t, at: jumpAt) }
+                else if let t = target { EchoConversation(target: t, at: jumpAt, q: jumpQuery, seq: jumpSeq) }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             // 网页顶上一条 10 高的透明拖动带（照伙伴云NAS应用 v0.9.3 的 WindowDragArea）：网页把鼠标吃掉，右边顶上也要能拖窗口、双击放大。
@@ -135,6 +144,7 @@ struct EchoBrowserView: View {
         }
         .onChange(of: sessionID) { _, _ in currentID = session?.id }
         .onChange(of: dirStateRaw) { _, _ in openState = dirState }
+        .onChange(of: query) { _, q in searchPick = nil; searchMore = []; search.run(q, in: shown) }
     }
 
     private func startRename(_ t: EchoTarget) {
@@ -450,7 +460,7 @@ struct EchoBrowserView: View {
                 } action: {
                     collectionID = c.id
                     picked = []
-                    jumpAt = nil
+                    jumpAt = nil; jumpQuery = nil
                     showOverview = false
                 }
                 .contextMenu {
@@ -480,10 +490,12 @@ struct EchoBrowserView: View {
 
     private func regroup() {
         let range = EchoDateFilter.range(dateFilter)
-        baseTree = EchoLibrary.dirTree(state.sessions.filter {
+        shown = state.sessions.filter {
             (computer.isEmpty || $0.computer == computer) && (appFilter.isEmpty || $0.app.rawValue == appFilter)
                 && (range == nil || range!.contains($0.endDate ?? .distantPast))
-        })
+        }
+        baseTree = EchoLibrary.dirTree(shown)
+        if !query.trimmed.isEmpty { search.run(query, in: shown) }
         months = Set(state.sessions.compactMap { $0.endDate.map(EchoDateFilter.monthKey) })
         multiApp = Set(state.sessions.map(\.app)).count > 1
         tree = EchoOrder.arrange(baseTree, orderMap)
@@ -546,9 +558,21 @@ struct EchoBrowserView: View {
             .frame(height: 56)
             .background(EchoWindowDrag())                                     // 红绿灯那一行，按住能拖窗口
 
+            if !state.sessions.isEmpty {
+                EchoSearchField(text: $query, focused: $searchFocus) { if let g = search.groups.first { if let h = g.hits.first { openHit(g.session, h) } else { openPlain(g.session) } } }
+                    .padding(.horizontal, 10).padding(.bottom, 8)
+                    .background {   // ⌥⌘F 聚焦搜索框（照「备忘录」在全部备忘录中搜索）
+                        Button("") { searchFocus = true }.keyboardShortcut("f", modifiers: [.command, .option]).opacity(0).allowsHitTesting(false)
+                    }
+            }
 
             if state.sessions.isEmpty {
                 empty
+            } else if !query.trimmed.isEmpty {
+                ScrollView {
+                    searchResults.padding(.horizontal, 10).padding(.bottom, 12)
+                }
+                .scrollIndicators(.never)
             } else {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 0) {
@@ -566,6 +590,101 @@ struct EchoBrowserView: View {
             }
             footer
         }
+    }
+
+    // MARK: 左栏：搜索结果
+
+    /// 搜索结果：顶上一行写找到几处，下面按会话分组，每组先列最近的 3 处
+    private var searchResults: some View {
+        let q = query.trimmed
+        return LazyVStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(searchHead(q))
+                if !search.groups.isEmpty, let n = search.note { Text(n) }   // 会话名搜到了、对话搜不了
+                if search.groups.isEmpty, search.note == nil, !search.running, let u = search.updated {
+                    Text("索引更新于 " + EchoCLI.bj(u, "M月d日 HH:mm") + "，之后的内容要等下一次备份")
+                }
+            }
+            .font(.system(size: 12)).foregroundStyle(EchoColor.fg3)
+            .padding(.leading, 10).padding(.top, 2).padding(.bottom, 4)
+            ForEach(search.groups) { g in searchGroup(g, q) }
+        }
+    }
+
+    private func searchHead(_ q: String) -> String {
+        if search.groups.isEmpty, let n = search.note { return n }
+        if search.groups.isEmpty { return search.running ? "正在搜索…" : "没有找到「\(q)」" }
+        return "\(search.groups.count) 个会话" + (search.total > 0 ? "，\(search.total) 处" : "") + (search.capped ? "（对话只列前 \(EchoSearchModel.limit) 处）" : "")
+    }
+
+    private func searchGroup(_ g: EchoSearchGroup, _ q: String) -> some View {
+        let s = g.session, anchor = EchoIndex.anchor(q)
+        let list = searchMore.contains(g.id) ? g.hits : Array(g.hits.prefix(3))
+        return VStack(alignment: .leading, spacing: 0) {
+            EchoRow(fill: nil) {
+                VStack(alignment: .leading, spacing: 2) {
+                    let title = s.meta.title == s.sessionId ? "未命名会话" : s.meta.title
+                    Text(g.titleHit ? EchoSearchModel.marked(title, q, size: 13) : AttributedString(title)).font(.system(size: 13, weight: .semibold)).lineLimit(1)
+                        .foregroundStyle(EchoColor.fg)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    HStack(spacing: 6) {
+                        Text((s.projectPath as NSString).lastPathComponent).lineLimit(1)
+                        if multiComputer { Text(s.computer).lineLimit(1) }
+                        Spacer(minLength: 4)
+                        Text(EchoTime.short(s.endDate))
+                    }
+                    .font(.system(size: 12)).foregroundStyle(EchoColor.fg3).monospacedDigit()
+                }
+                .padding(.vertical, 6)
+            } action: { if let h = g.hits.first { openHit(s, h) } else { openPlain(s) } }
+            .help(s.projectPath)
+            ForEach(list, id: \.line) { h in searchHitRow(h, s, q: q, anchor: anchor) }
+            if g.hits.count > list.count {
+                Text("还有 \(g.hits.count - list.count) 处").font(.system(size: 12)).foregroundStyle(EchoColor.accentText)
+                    .padding(.leading, 22).padding(.vertical, 5)
+                    .contentShape(Rectangle())
+                    .onTapGesture { searchMore.insert(g.id) }
+            }
+        }
+        .padding(.top, 6)
+    }
+
+    /// 一处命中：谁说的（灰）加关键词附近的一截，关键词主色；悬停写时间
+    private func searchHitRow(_ h: EchoIndex.Hit, _ s: EchoSession, q: String, anchor: String) -> some View {
+        let key = "\(h.fid):\(h.line)", on = key == searchPick && !showOverview
+        return EchoRow(fill: on ? EchoColor.sideOn : nil, shadow: on) {
+            // 谁说的占一列，摘句折行时第二行和第一行对齐
+            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                Text(h.role).foregroundStyle(EchoColor.fg3).frame(width: 26, alignment: .leading)
+                Text(EchoSearchModel.marked(EchoSearchModel.cut(h.text, around: anchor), q)).foregroundStyle(EchoColor.fg2).lineLimit(2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .font(.system(size: 12))
+            .padding(.leading, 12).padding(.vertical, 5)
+        } action: { openHit(s, h) }
+        .help(EchoCLI.hm(h.ts))
+    }
+
+    /// 只有会话名命中：打开会话，不跳
+    private func openPlain(_ s: EchoSession) {
+        picked = []
+        collectionID = nil
+        sessionID = s.id
+        jumpAt = nil; jumpQuery = nil
+        searchPick = nil
+        showOverview = false
+    }
+
+    /// 打开命中的会话，跳到那一处：按那一行的时间找到它所在的一段，页面里查找关键词，停在那一段之后的第一个
+    private func openHit(_ s: EchoSession, _ h: EchoIndex.Hit) {
+        picked = []
+        collectionID = nil
+        sessionID = s.id
+        jumpAt = EchoTime.fastEpoch(h.ts).map { $0 * 1000 }
+        jumpQuery = EchoIndex.anchor(query.trimmed)
+        jumpSeq += 1
+        searchPick = "\(h.fid):\(h.line)"
+        showOverview = false
     }
 
     /// 树的竖线：每一级祖先的小三角正下方一条 1px 竖线，从上一级展开处一直连到这一级最后一行
@@ -607,12 +726,14 @@ struct EchoBrowserView: View {
                 HStack(spacing: 6) {
                     // 展开按钮：照 NAS 网站目录树，收起朝右、展开朝下，自己有悬停底
                     EchoTwist(open: open) { toggle(d, level: level) }
-                    Text(d.name).foregroundStyle(EchoColor.fg)
+                    let gone = missingDirs.contains(d.path)
+                    // 文件夹已不存在：名字灰掉，后面一个小图标，悬停写原路径和怎么处理（文字标签占地方）
+                    Text(d.name).foregroundStyle(gone ? EchoColor.fg3 : EchoColor.fg)
                         .font(.system(size: 13)).lineLimit(1)
-                    // 顶层有同名目录（~/伙伴云NAS/客户文档 和 ~/Desktop/客户文档）：名字后面用灰色小字写上一级文件夹
-                    if missingDirs.contains(d.path) {
-                        Text("已不存在").font(.system(size: 12)).foregroundStyle(EchoColor.fg3).lineLimit(1)
+                    if gone {
+                        Image(systemName: "exclamationmark.circle").font(.system(size: 12)).foregroundStyle(EchoColor.fg3)
                     }
+                    // 顶层有同名目录（~/伙伴云NAS/客户文档 和 ~/Desktop/客户文档）：名字后面用灰色小字写上一级文件夹
                     if level == 0, dupRoots.contains(d.name) {
                         Text(Self.parentName(d.path)).font(.system(size: 12)).foregroundStyle(EchoColor.fg3).lineLimit(1)
                     }
@@ -632,7 +753,7 @@ struct EchoBrowserView: View {
             } preview: { dragGhost(d.name) }
             .onDrop(of: [.text], delegate: EchoRowDrop(drag: drag, update: { dirHover(d, group: group, y: $0.y) }, exit: { leave(d.path) }, perform: { dropOnDir(d) }))
             .padding(.top, level == 0 ? 8 : 0)   // 顶层目录之间多空一点，靠留白分组，不加图标
-            .help(missingDirs.contains(d.path) ? "\((d.path as NSString).abbreviatingWithTildeInPath) 已不存在，可右键「找到新位置…」" : (d.path as NSString).abbreviatingWithTildeInPath)
+            .help(missingDirs.contains(d.path) ? "文件夹已不存在：\((d.path as NSString).abbreviatingWithTildeInPath)\n右键「找到新位置…」把会话移到改名后的文件夹" : (d.path as NSString).abbreviatingWithTildeInPath)
             .contextMenu { dirMenu(d) }
 
             if open {
@@ -685,7 +806,7 @@ struct EchoBrowserView: View {
                 picked = []
                 collectionID = nil
                 sessionID = s.id
-                jumpAt = nil
+                jumpAt = nil; jumpQuery = nil
                 showOverview = false
             }
         }
