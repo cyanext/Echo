@@ -8,26 +8,30 @@
 
 <p align="center"><a href="#安装">安装</a> · <a href="README.en.md">English</a></p>
 
-<p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/session-dark.png"><img src="docs/session-light.png" width="100%" alt="会话「回响 1.0」：左边要点栏按版本、回顾、压缩分段，悬停浮出回顾全文；标题栏下写当前所在的版本"></picture></p>
+用 Claude Code、Codex 干活，最值钱的常常是会话里的过程：当时为什么这么定、试过哪些路、最后怎么解决的。可 Claude Code 默认 30 天就清理会话，会话散在各个文件夹里，换台电脑也看不到。
 
-<p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/overview-dark.png"><img src="docs/overview-light.png" width="100%" alt="总览：每天的 Token、费用、消息数、AI 时长和提交，日历和每天的会话"></picture></p>
+回响把这些会话自动存下来，整理成一份能翻、能搜、AI 也能查的记录：
 
-- **自动备份**：会话不会再被 30 天清理掉，备份比原会话小 80%，几台 Mac 的会话都能看
+- **自动备份**：会话不会再被 30 天清理掉，备份比原会话小 80%，多台电脑的会话在一个界面里统一管理
 - **按版本回看**：长会话按版本分好段，点一下就回到当时
 - **全局搜索**：输入关键词，几毫秒找到当时的原话
 - **ech**：AI 能自己查以前的会话，接着上次的进度做
 - **目录管理**：给文件夹改名或挪位置，会话会跟着过去
 
+<p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/session-dark.png"><img src="docs/session-light.png" width="100%" alt="会话「回响 1.0」：左边要点栏按版本、回顾、压缩分段，悬停浮出回顾全文；标题栏下写当前所在的版本"></picture></p>
+
+<p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/overview-dark.png"><img src="docs/overview-light.png" width="100%" alt="总览：每天的 Token、费用、消息数、AI 时长和提交，日历和每天的会话"></picture></p>
+
 ## 自动备份
 
 回响在后台运行，自动备份 Claude Code 和 Codex 的会话。会话不会再被清理掉，换一台电脑也能看到。
 
-- 只留对话全文，图片和思考过程不备份，工具调用的细节 30 天后换成占位，备份比原会话小 80% 以上
+- 对话全文永久保留；图片和思考过程不备份，工具调用的细节默认 30 天后换成占位。本机 7.6 GB 的会话，备份只占 1.1 GB
 - 密钥和令牌在写入前打码
-- 备份放在 iCloud 云盘，每台电脑一个文件夹，几台 Mac 的会话合在一起看
+- 备份放在 iCloud 云盘，每台电脑一个文件夹，多台电脑的会话在一个界面里统一管理
 - 很久没用的会话，确认备份完整后移到废纸篓，原来的文件夹不会越攒越大
 
-<p align="center"><img src="docs/how-archive.svg" width="100%" alt="自动备份、精简打码，几台 Mac 汇到一起，一搜就找到原话"></p>
+<p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/storage-dark.png"><img src="docs/storage-light.png" width="100%" alt="设置里的存储页：备份共 1.1 GB，按对话消息、工具调用、工具结果、思考过程、系统记录分开统计，各自设保留期限"></picture></p>
 
 ## 按版本回看
 
