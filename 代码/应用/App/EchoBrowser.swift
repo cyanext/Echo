@@ -323,10 +323,12 @@ struct EchoBrowserView: View {
         let name = (g.path as NSString).lastPathComponent
         let p = EchoDirMove.plan(from: d.path, to: g.path, sessions: state.sessions, moveFolder: false)
         let a = NSAlert()
-        // 挪走的问在哪个文件夹里，改名的问改成了什么；都写出新位置的完整路径，同名、相像的文件夹多时好核对
-        a.messageText = g.moved ? "「\(d.name)」已不存在，是否已移到「\(((g.path as NSString).deletingLastPathComponent as NSString).lastPathComponent)」中？"
-                                : "「\(d.name)」已不存在，是否已改名为「\(name)」？"
-        a.informativeText = "新位置：\((g.path as NSString).abbreviatingWithTildeInPath)\n" + EchoDirMove.describe(p) + "。移动后在新位置恢复会话。"
+        // 挪走的写从共同的上一级算起的新路径（「服务器 cyanext/html-to-md-api」），改名的写新名字；正文只写移几个、哪些不移（文案长了）
+        let old = d.path.split(separator: "/"), new = g.path.split(separator: "/")
+        let same = zip(old, new).prefix { $0 == $1 }.count
+        let rel = same > 2 ? new.dropFirst(same).joined(separator: "/") : (g.path as NSString).abbreviatingWithTildeInPath
+        a.messageText = g.moved ? "「\(d.name)」已不存在，是否已移到「\(rel)」？" : "「\(d.name)」已不存在，是否已改名为「\(name)」？"
+        a.informativeText = EchoDirMove.describe(p) + "。"
         a.addButton(withTitle: "移动会话")
         a.addButton(withTitle: "选择其他文件夹…")
         a.addButton(withTitle: "取消")
