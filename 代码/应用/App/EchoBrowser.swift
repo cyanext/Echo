@@ -320,16 +320,25 @@ struct EchoBrowserView: View {
     /// 文件夹已不存在：先猜它改成了什么（上一级里名字最像的子文件夹），问一句；猜不到或选「选择其他文件夹…」就打开选择框
     private func findNewPlace(_ d: EchoDir) {
         guard let g = EchoDirMove.guess(d.path) else { pickDirTarget(d); return }
-        let name = (g.path as NSString).lastPathComponent
         let p = EchoDirMove.plan(from: d.path, to: g.path, sessions: state.sessions, moveFolder: false)
         let a = NSAlert()
-        // 挪走的写从共同的上一级算起的新路径（「服务器 cyanext/html-to-md-api」），改名的写新名字；正文只写移几个、哪些不移（文案长了）
-        let old = d.path.split(separator: "/"), new = g.path.split(separator: "/")
-        let same = zip(old, new).prefix { $0 == $1 }.count
-        let rel = same > 2 ? new.dropFirst(same).joined(separator: "/") : (g.path as NSString).abbreviatingWithTildeInPath
-        a.messageText = g.moved ? "「\(d.name)」已不存在，是否已移到「\(rel)」？" : "「\(d.name)」已不存在，是否已改名为「\(name)」？"
-        a.informativeText = EchoDirMove.describe(p) + "。"
-        a.addButton(withTitle: "移动会话")
+        // 文案照这句写：「已为你匹配到最可能的新目录，新位置：xxx，是否移动至新位置？」；移不了的用大白话单独一句
+        a.messageText = "已为你匹配到最可能的新目录"
+        let codex = p.skipped.filter { $0.app != .claude }.count
+        let rest = p.skipped.count - codex + p.missing.count
+        var cant: [String] = []
+        if codex > 0 { cant.append("\(codex) 个 Codex 会话") }
+        if rest > 0 { cant.append("\(rest) 个不在本机或新位置没有对应子目录的会话") }
+        let place = "新位置：" + (g.path as NSString).abbreviatingWithTildeInPath
+        guard p.count > 0 else {
+            // 一个都移不了：不问，直接说
+            a.informativeText = place + "\n" + (cant.isEmpty ? "这里没有需要移动的会话。" : "这里的 " + cant.joined(separator: "、") + "无法移动。")
+            a.addButton(withTitle: "好")
+            a.runModal()
+            return
+        }
+        a.informativeText = place + "\n是否将 \(p.count) 个会话移动至新位置？" + (cant.isEmpty ? "" : "另有 " + cant.joined(separator: "、") + "无法移动。")
+        a.addButton(withTitle: "移动")
         a.addButton(withTitle: "选择其他文件夹…")
         a.addButton(withTitle: "取消")
         switch a.runModal() {
