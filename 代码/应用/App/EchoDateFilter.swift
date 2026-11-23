@@ -38,6 +38,14 @@ enum EchoDateFilter {
         if let (y, m) = month(key) { return "\(y)年\(m)月" }
         return key
     }
+
+    /// 筛选按钮上写的：近 30 天、今天、全部时间、2026年10月（把近 30 天的文字显示出来）
+    static func short(_ key: String) -> String {
+        key.hasPrefix("d") && key != "d1" ? "近 \(key.dropFirst()) 天" : title(key)
+    }
+
+    /// 打开窗口时默认的：近 30 天
+    static let initial = "d30"
 }
 
 /// 日期筛选面板：上面快捷选项竖着一项一行（和其他筛选菜单一样），下面「选择月份」输入框，点开在下面出月份选择器（输入框照伙伴云的日期筛选）。

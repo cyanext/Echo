@@ -8,7 +8,7 @@ struct EchoBrowserView: View {
     @EnvironmentObject var state: EchoState
     @AppStorage("filterComputer") private var computer = ""           // 空表示全部电脑
     @AppStorage("filterApp") private var appFilter = ""               // 空表示全部应用（EchoSource 的 rawValue）
-    @State private var dateFilter = ProcessInfo.processInfo.environment["ECHO_SHOT_DATE"] ?? ""                                // 日期筛选：空是全部时间，「d7」最近 7 天，「m2026-11」某个月；不记住，每次打开窗口都是全部（会话少了容易以为丢了）
+    @State private var dateFilter = ProcessInfo.processInfo.environment["ECHO_SHOT_DATE"] ?? EchoDateFilter.initial                                // 日期筛选：空是全部时间，「d7」最近 7 天，「m2026-11」某个月；不记住，每次打开窗口是近 30 天，按钮上写着范围，不会以为会话丢了
     @State private var months: Set<String> = []                       // 有会话的月份「m2026-11」（月份选择器用），数据变了算一次
     @State private var pickMenu: String? = ProcessInfo.processInfo.environment["ECHO_SHOT_MENU"]   // 左栏右上角展开的筛选菜单：computer、app、date（环境变量只给截图用）
     @State private var multiApp = false                               // 有几个应用的会话，才显示应用筛选和会话行图标
@@ -41,7 +41,7 @@ struct EchoBrowserView: View {
     @StateObject private var search = EchoSearchModel()
     @State private var query = ProcessInfo.processInfo.environment["ECHO_SHOT_QUERY"] ?? ""   // 左栏搜索框；有字时目录树换成搜索结果（环境变量只给截图用）
     @FocusState private var searchFocus: Bool
-    @State private var shown: [EchoSession] = []                       // 按电脑、应用、日期筛过的会话，搜索只在这些里找
+    @State private var shown: [EchoSession] = []                       // 按电脑、应用筛过的会话，搜索在这些里找；不管日期（默认只看近 30 天，搜索要找全部）
     @State private var searchPick: String?                             // 搜索结果里点过的那一处「文件编号:行号」
     @State private var searchMore: Set<String> = []                    // 点了「还有 N 处」的会话
     @AppStorage("sidebarWidth") private var sideW: Double = 272        // 左栏宽，拖右边缘改，200 到 420（照 NAS 网站）
@@ -509,11 +509,8 @@ struct EchoBrowserView: View {
 
     private func regroup() {
         let range = EchoDateFilter.range(dateFilter)
-        shown = state.sessions.filter {
-            (computer.isEmpty || $0.computer == computer) && (appFilter.isEmpty || $0.app.rawValue == appFilter)
-                && (range == nil || range!.contains($0.endDate ?? .distantPast))
-        }
-        baseTree = EchoLibrary.dirTree(shown)
+        shown = state.sessions.filter { (computer.isEmpty || $0.computer == computer) && (appFilter.isEmpty || $0.app.rawValue == appFilter) }
+        baseTree = EchoLibrary.dirTree(shown.filter { range == nil || range!.contains($0.endDate ?? .distantPast) })
         if !query.trimmed.isEmpty { search.run(query, in: shown) }
         months = Set(state.sessions.compactMap { $0.endDate.map(EchoDateFilter.monthKey) })
         multiApp = Set(state.sessions.map(\.app)).count > 1
@@ -569,7 +566,8 @@ struct EchoBrowserView: View {
                         }
                     } action: { pickMenu = pickMenu == "app" ? nil : "app" }
                 }
-                EchoPickButton(on: !dateFilter.isEmpty, help: EchoDateFilter.title(dateFilter)) {
+                // 图标后写当前范围，默认近 30 天；字已经说明在筛，图标不再变主色
+                EchoPickButton(on: false, help: "按最后使用时间筛选", label: EchoDateFilter.short(dateFilter)) {
                     Image(systemName: "calendar").font(.system(size: 13))   // 从几组候选里选的（试过时钟、漏斗、三条线、滑杆）
                 } action: { pickMenu = pickMenu == "date" ? nil : "date" }
             }

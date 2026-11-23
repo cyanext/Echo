@@ -200,6 +200,7 @@ struct EchoIcon: View {
 struct EchoPickButton<Icon: View>: View {
     let on: Bool
     let help: String
+    var label: String? = nil          // 图标后面写的字（日期筛选写当前范围）
     @ViewBuilder let icon: () -> Icon
     let action: () -> Void
     @State private var hover = false
@@ -207,6 +208,7 @@ struct EchoPickButton<Icon: View>: View {
         Button(action: action) {
             HStack(spacing: 3) {
                 icon()
+                if let label { Text(label).font(.system(size: 12)).padding(.leading, 2) }
                 Image(systemName: "chevron.down").font(.system(size: 8, weight: .semibold))
             }
             .foregroundStyle(on ? EchoColor.accent : EchoColor.fg2)
