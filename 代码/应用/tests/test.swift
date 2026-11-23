@@ -15,6 +15,12 @@ enum EchoTests {
 
     static func main() throws {
         let a = CommandLine.arguments
+        // 截图、整理演示数据时把本机当成这台电脑（总览只统计本机会话所在文件夹的提交）
+        if let c = ProcessInfo.processInfo.environment["ECHO_SHOT_COMPUTER"] { EchoPrefs.computerName = c }
+        if a.count >= 2, a[1] == "--ech" {   // 对着 ECHO_SHOT_ROOT 这个备份目录跑 ech 命令（README 里的示例输出），索引在测试用的临时目录
+            if let r = ProcessInfo.processInfo.environment["ECHO_SHOT_ROOT"] { EchoPrefs.backupRoot = URL(fileURLWithPath: r) }
+            exit(EchoCLI.main(Array(a.dropFirst(2))))
+        }
         if a.count == 3, a[1] == "--rules" { rules(); try renameTest(fixture: URL(fileURLWithPath: a[2])); try statsTest(); try commitMatchTest(); timeTest(); try cleanTest(); try layoutTest(); try pathTest(); try echTest(); try codexMoveTest(); try codexBackupTest(); try autoDeleteTest(); try claudeSettingsTest(); try updateTest() }
         else if a.count == 4, a[1] == "--overview" {   // 手动排查：按应用的方式整理总览数据，写到文件，看用了多久
             let t0 = Date()
