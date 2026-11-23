@@ -1,0 +1,83 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 300" width="880" height="300" role="img" aria-label="会话自动备份、精简打码，几台 Mac 汇到一起，一搜就找到原话">
+<style>
+  .card { fill: #ffffff; stroke: #e3e8e6; }
+  .soft { fill: #f3f9f6; }
+  .ink { fill: #1f2725; } .ink2 { fill: #5f6b67; } .ink3 { fill: #8f959e; }
+  .acc { fill: #008081; } .accs { stroke: #008081; } .acc2 { fill: #5fb8b0; } .acc3 { fill: #b5dfda; }
+  .line { stroke: #c9d3cf; } .fade { fill: #e3e8e6; } .white { fill: #ffffff; }
+  .hl { fill: #ffe58f; }
+  text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif; }
+  .t { font-size: 16px; font-weight: 600; } .s { font-size: 13px; } .xs { font-size: 11px; } .num { font-size: 12px; font-weight: 700; }
+  @media (prefers-color-scheme: dark) {
+    .card { fill: #232b29; stroke: #34403d; } .soft { fill: #2a3532; }
+    .ink { fill: #e6ece9; } .ink2 { fill: #a9b4b0; } .ink3 { fill: #7d8783; }
+    .acc { fill: #3fc0c0; } .accs { stroke: #3fc0c0; } .acc2 { fill: #2f8f88; } .acc3 { fill: #285a55; }
+    .line { stroke: #3d4946; } .fade { fill: #34403d; } .white { fill: #1b2220; } .hl { fill: #8a7320; }
+  }
+</style>
+
+<!-- 步骤 1：自动备份 -->
+<rect class="card" x="10" y="10" width="270" height="280" rx="18" stroke-width="1.5"/>
+<circle class="acc" cx="38" cy="38" r="12"/><text class="num" x="38" y="42" text-anchor="middle" fill="#fff">1</text>
+<text class="t ink" x="58" y="44">自动备份</text>
+<!-- 一台 Mac，屏幕里是对话气泡 -->
+<rect class="soft" x="55" y="70" width="180" height="116" rx="10"/>
+<rect class="fade" x="40" y="188" width="210" height="10" rx="5"/>
+<rect class="white" x="70" y="84" width="150" height="40" rx="9"/>
+<rect x="82" y="94" width="20" height="20" rx="5" fill="#D97757"/>
+<text class="s ink" x="110" y="109">Claude Code 会话</text>
+<rect class="white" x="70" y="132" width="150" height="40" rx="9"/>
+<circle cx="92" cy="152" r="10" fill="#7A9DFF"/>
+<text class="s ink" x="110" y="157">Codex 会话</text>
+<text class="s ink2" x="145" y="230" text-anchor="middle">开机在后台运行，</text>
+<text class="s ink2" x="145" y="252" text-anchor="middle">Claude Code、Codex 的会话</text>
+<text class="s ink2" x="145" y="274" text-anchor="middle">都留下来，不怕 30 天清理</text>
+
+<path class="accs" d="M286 150 h20" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+<path class="acc" d="M304 143 l10 7 l-10 7 z"/>
+
+<!-- 步骤 2：精简打码 -->
+<rect class="card" x="320" y="10" width="240" height="280" rx="18" stroke-width="1.5"/>
+<circle class="acc" cx="348" cy="38" r="12"/><text class="num" x="348" y="42" text-anchor="middle" fill="#fff">2</text>
+<text class="t ink" x="368" y="44">精简、打码</text>
+<!-- 大文件变小文件 -->
+<rect class="fade" x="350" y="74" width="74" height="96" rx="8"/>
+<rect class="white" x="360" y="88" width="54" height="16" rx="3"/>
+<rect class="white" x="360" y="110" width="54" height="16" rx="3"/>
+<rect class="white" x="360" y="132" width="40" height="16" rx="3"/>
+<text class="xs ink3" x="387" y="188" text-anchor="middle">原会话</text>
+<path class="line" d="M432 122 h26" stroke-width="2" fill="none" stroke-dasharray="3 4"/>
+<path class="ink3" d="M456 116 l8 6 l-8 6 z"/>
+<rect class="acc3" x="472" y="104" width="42" height="40" rx="7"/>
+<rect class="acc" x="480" y="114" width="26" height="5" rx="2.5"/>
+<rect class="acc" x="480" y="124" width="18" height="5" rx="2.5"/>
+<text class="xs ink3" x="493" y="160" text-anchor="middle">备份</text>
+<text class="num acc" x="493" y="188" text-anchor="middle">占用 -80%</text>
+<text class="s ink2" x="440" y="230" text-anchor="middle">图片、过程数据不备份，</text>
+<text class="s ink2" x="440" y="252" text-anchor="middle">对话全文永久保留，</text>
+<text class="s ink2" x="440" y="274" text-anchor="middle">密钥写入前打码</text>
+
+<path class="accs" d="M566 150 h20" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+<path class="acc" d="M584 143 l10 7 l-10 7 z"/>
+
+<!-- 步骤 3：多台汇总，一搜就找到 -->
+<rect class="card" x="600" y="10" width="270" height="280" rx="18" stroke-width="1.5"/>
+<circle class="acc" cx="628" cy="38" r="12"/><text class="num" x="628" y="42" text-anchor="middle" fill="#fff">3</text>
+<text class="t ink" x="648" y="44">汇到一起，随时搜</text>
+<!-- 云和两台 Mac -->
+<path class="acc3" d="M700 92 a18 18 0 0 1 34 -8 a14 14 0 0 1 24 10 a12 12 0 0 1 -2 24 h-52 a13 13 0 0 1 -4 -26 z"/>
+<text class="xs acc" x="730" y="110" text-anchor="middle" font-weight="600">iCloud</text>
+<rect class="soft" x="640" y="96" width="44" height="30" rx="4"/><rect class="fade" x="634" y="127" width="56" height="5" rx="2.5"/>
+<rect class="soft" x="776" y="96" width="44" height="30" rx="4"/><rect class="fade" x="770" y="127" width="56" height="5" rx="2.5"/>
+<path class="line" d="M686 110 h10 M764 110 h10" stroke-width="2" fill="none"/>
+<!-- 搜索框和结果 -->
+<rect class="soft" x="634" y="146" width="202" height="28" rx="14"/>
+<circle class="accs" cx="652" cy="160" r="6" fill="none" stroke-width="2"/><path class="accs" d="M656 164 l5 5" stroke-width="2" stroke-linecap="round"/>
+<text class="s ink" x="668" y="165">为什么这么定</text>
+<rect class="white" x="634" y="180" width="202" height="22" rx="6"/>
+<rect class="hl" x="696" y="184" width="68" height="14" rx="3" opacity=".85"/>
+<text class="xs ink2" x="642" y="195">我：…当时为什么这么定…</text>
+<text class="s ink2" x="735" y="230" text-anchor="middle">每台电脑一个文件夹，</text>
+<text class="s ink2" x="735" y="252" text-anchor="middle">几台 Mac 的会话汇到一起，</text>
+<text class="s ink2" x="735" y="274" text-anchor="middle">毫秒级找到当时的原话</text>
+</svg>
