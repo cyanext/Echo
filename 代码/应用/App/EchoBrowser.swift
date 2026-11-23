@@ -116,7 +116,7 @@ struct EchoBrowserView: View {
         HStack(spacing: 0) {            sidebar
                 .frame(width: sideW)
                 .overlay(alignment: .trailing) { EchoResizeHandle(width: $sideW).frame(width: 10) }
-            // 右边白区：靠左栏的两个角收圆角 12，左栏的灰底从圆角外露出来（照伙伴云NAS应用）
+            // 右边白区：靠左栏的两个角收圆角 12，左栏的底色从圆角外露出来（照伙伴云NAS应用）；外面不描边
             ZStack {
                 if showOverview { EchoOverview() }
                 else if let t = target { EchoConversation(target: t, at: jumpAt, q: jumpQuery, seq: jumpSeq) }
@@ -127,7 +127,6 @@ struct EchoBrowserView: View {
             .overlay(alignment: .top) { EchoWindowDrag().frame(height: 10) }
             .background(EchoColor.surface)
             .clipShape(UnevenRoundedRectangle(topLeadingRadius: 12, bottomLeadingRadius: 12))
-            .overlay(UnevenRoundedRectangle(topLeadingRadius: 12, bottomLeadingRadius: 12).strokeBorder(EchoColor.sideLine, lineWidth: 1).padding(.trailing, -1))
         }
         .background(EchoColor.side)
         .foregroundStyle(EchoColor.fg)
@@ -444,7 +443,7 @@ struct EchoBrowserView: View {
             ForEach(list) { c in
                 let members = EchoCollections.sessions(c, in: state.sessions, root: EchoPrefs.backupRoot)
                 let on = !showOverview && c.id == collectionID
-                EchoRow(fill: on ? EchoColor.sideOn : nil, shadow: on) {
+                EchoRow(fill: on ? EchoColor.sel : nil) {
                     VStack(alignment: .leading, spacing: 1) {
                         Text(c.title).font(.system(size: 13, weight: on ? .semibold : .regular)).lineLimit(1)
                             .foregroundStyle(EchoColor.fg)
@@ -473,7 +472,7 @@ struct EchoBrowserView: View {
 
     /// 左栏顶上一行「总览」（设计稿 设计/总览/）
     private var overviewRow: some View {
-        EchoRow(fill: showOverview ? EchoColor.sideOn : nil, shadow: showOverview) {
+        EchoRow(fill: showOverview ? EchoColor.sel : nil) {
             HStack(spacing: 6) {
                 Image(systemName: "house").font(.system(size: 12, weight: .medium)).frame(width: 12)
                     .foregroundStyle(showOverview ? EchoColor.accent : EchoColor.fg2)
@@ -652,7 +651,7 @@ struct EchoBrowserView: View {
     /// 一处命中：谁说的（灰）加关键词附近的一截，关键词主色；悬停写时间
     private func searchHitRow(_ h: EchoIndex.Hit, _ s: EchoSession, q: String, anchor: String) -> some View {
         let key = "\(h.fid):\(h.line)", on = key == searchPick && !showOverview
-        return EchoRow(fill: on ? EchoColor.sideOn : nil, shadow: on) {
+        return EchoRow(fill: on ? EchoColor.sel : nil) {
             // 谁说的占一列，摘句折行时第二行和第一行对齐
             HStack(alignment: .firstTextBaseline, spacing: 4) {
                 Text(h.role).foregroundStyle(EchoColor.fg3).frame(width: 26, alignment: .leading)
@@ -781,7 +780,7 @@ struct EchoBrowserView: View {
 
     private func sessionRow(_ s: EchoSession, indent: CGFloat) -> some View {
         let on = picked.contains(s.id) || (!showOverview && picked.isEmpty && collectionID == nil && s.id == currentID)
-        return EchoRow(fill: on ? EchoColor.sideOn : nil, shadow: on) {
+        return EchoRow(fill: on ? EchoColor.sel : nil) {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(s.meta.title == s.sessionId ? "未命名会话" : s.meta.title).font(.system(size: 13, weight: on ? .semibold : .regular)).lineLimit(1)
