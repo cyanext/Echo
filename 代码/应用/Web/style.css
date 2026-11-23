@@ -230,7 +230,7 @@
 .r-count { flex: none; font-size: 12px; color: var(--fg-faint); }
 .r-count:empty { display: none; }
 
-.r-scroll { position: absolute; left: 0; right: 0; top: 0; bottom: 0; overflow-y: auto; scrollbar-width: none; }
+.r-scroll { position: absolute; left: 0; right: 0; top: 0; bottom: 0; overflow-y: auto; scrollbar-width: none; overscroll-behavior: contain; }
 .r-scroll::-webkit-scrollbar { display: none; }
 .c-rail.left .r-scroll { display: flex; flex-direction: column; padding: 0 10px 24px 0; }
 .c-rail.left .r-list { margin: auto 0; padding: 8px 0; }   /* 条数少时上下居中，多了从顶上开始滚 */

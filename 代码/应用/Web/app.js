@@ -384,6 +384,16 @@
       });
       nav.innerHTML = `${o.head}<div class="r-scroll"><div class="r-list">${html}</div></div><div class="tip"></div>`;
       const scroller = nav.querySelector(".r-scroll"), tip = nav.querySelector(".tip");
+      // 在栏里滚动只滚栏，不带着正文滚：栏滚到头就停；栏名、搜索框这些不能滚的地方滚轮不起作用
+      if (!nav.dataset.trap) {
+        nav.dataset.trap = "1";
+        nav.addEventListener("wheel", (e) => {
+          const sc = e.target.closest(".r-scroll");
+          if (!sc) { e.preventDefault(); return; }
+          const up = e.deltaY < 0;
+          if ((up && sc.scrollTop <= 0) || (!up && sc.scrollTop + sc.clientHeight >= sc.scrollHeight - 1)) e.preventDefault();
+        }, { passive: false });
+      }
       const rows = [...nav.querySelectorAll(".k-row")];
       const byId = Object.fromEntries(items.map((it) => [it.id, it]));
       // 悬停浮出全文：要点栏的一行会截断，鼠标移上去在栏右边浮出这一条的全文；我的消息栏的气泡已经写全，不浮
