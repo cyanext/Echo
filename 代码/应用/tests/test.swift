@@ -15,7 +15,7 @@ enum EchoTests {
 
     static func main() throws {
         let a = CommandLine.arguments
-        if a.count == 3, a[1] == "--rules" { rules(); try renameTest(fixture: URL(fileURLWithPath: a[2])); try statsTest(); try commitMatchTest(); timeTest(); try cleanTest(); try layoutTest(); try pathTest(); try echTest(); try codexMoveTest(); try codexBackupTest(); try autoDeleteTest(); try claudeSettingsTest(); try updateTest() }
+        if a.count == 3, a[1] == "--rules" { rules(); try renameTest(fixture: URL(fileURLWithPath: a[2])); try statsTest(); try commitMatchTest(); timeTest(); try cleanTest(); try layoutTest(); try pathTest(); try echTest(); try codexMoveTest(); try codexBackupTest(); try autoDeleteTest(); try claudeSettingsTest(); try updateTest(); try emptySessionTest() }
         else if a.count == 4, a[1] == "--overview" {   // 手动排查：按应用的方式整理总览数据，写到文件，看用了多久
             let t0 = Date()
             let list = EchoLibrary.scan(backupRoot: URL(fileURLWithPath: a[2]))
@@ -95,6 +95,26 @@ enum EchoTests {
     }
 
     /// 总览的数：我的消息只算人打的字；同一次回复拆成几行按 requestId 只算一次；AI 干活取 turn_duration；写缓存分 5 分钟和 1 小时
+    /// 空会话（只有一条 /resume 这类命令，没有你的消息也没有 AI 回复）不列出、不备份
+    static func emptySessionTest() throws {
+        let fm = FileManager.default, t = fm.temporaryDirectory.appendingPathComponent("回响空会话-" + UUID().uuidString)
+        defer { try? fm.removeItem(at: t) }
+        let src = t.appendingPathComponent("projects/-tmp-p"), comp = t.appendingPathComponent("备份/电脑/claude")
+        try fm.createDirectory(at: src, withIntermediateDirectories: true)
+        let cmd = #"{"type":"user","uuid":"u1","timestamp":"2026-11-23T03:11:00.000Z","cwd":"/tmp/p","sessionId":"e","message":{"role":"user","content":"<command-name>/resume</command-name>\n<command-message>resume</command-message>\n<command-args>dc18a693</command-args>"}}"#
+        let ask = #"{"type":"user","uuid":"u2","timestamp":"2026-11-23T03:12:00.000Z","cwd":"/tmp/p","sessionId":"n","origin":{"kind":"human"},"message":{"role":"user","content":"你好"}}"#
+        try (cmd + "\n").write(to: src.appendingPathComponent("e.jsonl"), atomically: true, encoding: .utf8)
+        try (ask + "\n").write(to: src.appendingPathComponent("n.jsonl"), atomically: true, encoding: .utf8)
+        check(try EchoSessionScan.read(src.appendingPathComponent("e.jsonl")).empty == true, "只有 /resume 的会话应算空会话")
+        check(try EchoSessionScan.read(src.appendingPathComponent("n.jsonl")).empty == nil, "有你的消息的会话不算空会话")
+        _ = try EchoBackup.run(source: t.appendingPathComponent("projects"), computerDir: comp)
+        check(!fm.fileExists(atPath: comp.appendingPathComponent("projects/-tmp-p/e.jsonl").path), "空会话不该备份")
+        check(fm.fileExists(atPath: comp.appendingPathComponent("projects/-tmp-p/n.jsonl").path), "正常会话应备份")
+        let listed = EchoLibrary.scan(backupRoot: t.appendingPathComponent("备份")).map(\.sessionId)
+        check(listed == ["n"], "列表只该有正常会话，实际 \(listed)")
+        print("  空会话 5 项")
+    }
+
     /// 检查更新的版本号比较，默认备份位置
     static func updateTest() throws {
         check(EchoUpdate.version(fromTag: "app-v0.13.0") == "0.13.0", "发版标签去掉 app-v")

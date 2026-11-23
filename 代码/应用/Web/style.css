@@ -63,10 +63,14 @@
 }
 .c-head-in { display: flex; align-items: flex-start; gap: 16px; max-width: 760px; min-height: 56px; margin: 0 auto; padding: 8px 32px; }
 .c-tt { flex: 1; min-width: 0; }
-.c-head h1 { margin: 0; font-size: 15px; line-height: 22px; font-weight: 600; overflow-wrap: anywhere; }   /* 长要点照常换行写全，不截断 */
+.c-head h1 { margin: 0; font-size: 15px; line-height: 22px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }   /* 会话标题，只占一行 */
 .c-head h1 .ver { font-weight: 600; color: var(--accent-text); }
-.c-head h1.note { display: block; font-size: 13px; line-height: 20px; font-weight: 400; color: var(--fg); }   /* 回顾、手动压缩：一整句话，不用标题的粗体，小两号，换行也不显得重 */
-.c-head h1 .h-tag { white-space: nowrap; margin-right: 6px; color: var(--accent-text); font-size: 12px; font-weight: 500; }
+/* 小字一行写当前要点：版本号主色，回顾、手动压缩前面一个主色标签；放不下时要点截断，时间留着。全文在要点栏悬停时看 */
+.c-meta.key { display: flex; }
+.c-meta.key .h-key { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg-muted); }
+.c-meta.key .h-time { flex-shrink: 0; }
+.c-meta .ver { font-weight: 600; color: var(--accent-text); }
+.c-meta .h-tag { margin-right: 6px; color: var(--accent-text); }
 /* 会话来自哪个应用：小字那行最前面一个 14 的官方图标（目录树里不放） */
 .c-meta .c-app { width: 14px; height: 14px; margin-right: 5px; border-radius: 3px; vertical-align: -3px; }   /* 和 12 号字的中线对齐，不画线框 */
 .c-meta { font-size: 12px; line-height: 18px; color: var(--fg-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -114,6 +118,8 @@
 
 /* 消息列 */
 .c-main { max-width: 760px; margin: 0 auto; padding: 8px 32px 120px; }
+/* 拖选跨了几段时，浅蓝的选中底色只铺在正文这一栏，不铺到两边的要点栏、我的消息上：translate(0) 不改位置，只让正文栏成为单独的选区边界 */
+.c-main { transform: translate(0); }
 
 .msg { margin: 28px 0; }
 .msg.user { display: flex; flex-direction: column; align-items: flex-end; }
@@ -222,7 +228,7 @@
    窗口窄时只剩横线（slim）。我的消息收起时什么都不显示，展开后从顶到底，正文放不下就浮在正文上（float）。
    两栏固定在窗口两边，正文栏用左右留白让开（JS 的 layout 设 #conv 的左右内边距） */
 .c-rail { display: none; }
-.has-rail .c-rail.left { display: block; position: fixed; left: 0; top: var(--head-h, 56px); bottom: 16px; width: 240px; z-index: 4; }
+.has-rail .c-rail.left { display: block; position: fixed; left: 0; top: var(--head-h, 56px); bottom: 16px; width: 240px; z-index: 6; }   /* 比标题栏（5）高一层：悬停浮出的全文不被标题栏压住 */
 .has-rail .c-rail.left.slim { width: 44px; }
 .has-urail .c-rail.right.open { display: block; position: fixed; right: 0; top: 0; bottom: 0; width: 260px; z-index: 6; background: var(--bg); border-left: 1px solid var(--line); }
 .has-urail .c-rail.right.open.float { border-left: 0; box-shadow: var(--shadow); }
