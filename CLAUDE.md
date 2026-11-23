@@ -24,7 +24,7 @@
 - 记忆文件只读。
 - `ech` 的查询命令（find、segs、read、context、list、schema）只读备份、本机索引和总览数据。会写的：`ech backup` 和回响的「立即备份」一样；`ech index` 只写本机索引和总览数据；`ech mv` 见上表「目录改名」；`ech install-skill` 写 `~/.claude/skills/ech`，本机有 Codex 时也写 `~/.codex/skills/ech`（只有这个 skill 目录，会话不动）。安装命令行工具时在 `~/.local/bin/ech` 建一个指向回响程序的替身，那里已有别的文件时不覆盖。
 - 会话里可能有密钥。写备份时打码（规则见 `代码/原型/slim.py`）；备份（默认 `../回响备份/`，每台电脑一个文件夹，里面按应用分 `claude/`、`codex/`）和 `样例/` 不进 git，除 iCloud 外不传到任何地方。
-- 联网只有一处：每周从 LiteLLM 的公开价格表（GitHub）下载一次模型单价，只发一个 GET，不带任何本机信息。
+- 联网只有两处，都只发一个 GET，不带任何本机信息：每周从 LiteLLM 的公开价格表（GitHub）下载一次模型单价；每天查一次 GitHub 上回响最新的发版（设置里能关），用户点了更新才下载安装包。
 - 回响自己的备份按保留期限清理：到期的内容换成占位、不删行，清理前的文件移到废纸篓。
 
 ## 开发流程
@@ -32,7 +32,7 @@
 照伙伴云NAS应用的做法（`../NAS/伙伴云NAS应用/README.md`「开发」「发版」）：
 
 - 编译：`swiftc` 直接编译加脚本拼 `.app`，参考 `../NAS/伙伴云NAS应用/mac/build.sh`、`mac/tools/swift-env.sh`。签名用本机的固定自签名证书「Echo Local Signing」，重装后 macOS 的授权还在；证书和恢复步骤在密码管理器。
-- 版本号、发版、版本需求、CHANGELOG：按 devguide；回响特有的（tag 前缀、发版步骤）见 README「版本和发版」。
+- 版本号、发版、版本需求、CHANGELOG：按 devguide；回响特有的（tag 前缀、发版步骤）见 `开发说明.md`「版本和发版」；README 是给用户看的，不写开发内容。
 - git：主目录始终在 main，分支工作区只建在 `.worktrees/<主题>`，合完当场删。发版合进 main 后直接推远端（main 和标签）。
 - 提交前用 `git ls-files` 查同步工具补出来的「X 2」副本。
 - 代码、测试、CHANGELOG、提交说明里不写人名和客户名（按 devguide），代码会公开。
