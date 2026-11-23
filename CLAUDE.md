@@ -35,6 +35,7 @@
 - 版本号、发版、版本需求、CHANGELOG：按 devguide；回响特有的（tag 前缀、发版步骤）见 README「版本和发版」。
 - git：主目录始终在 main，分支工作区只建在 `.worktrees/<主题>`，合完当场删。发版合进 main 后直接推远端（main 和标签）。
 - 提交前用 `git ls-files` 查同步工具补出来的「X 2」副本。
+- 代码、测试、CHANGELOG、提交说明里不写人名和客户名（按 devguide），代码会公开。
 - 测试：瘦身、消息显示、分段规则都写回归测试，改了必跑。
 - 测试版装在 `~/Applications`，用 `env -u TZ open` 启动（终端带美国时区）。
 - 不建伙伴云任务。
