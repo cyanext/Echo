@@ -301,7 +301,13 @@ enum EchoCLI {
         let f = try resolve(db, key)
         var lo = 0, label = "从头"
         try db.rows("SELECT n, l0 FROM segs WHERE fid=? AND kind='压缩' ORDER BY n DESC LIMIT 1", [f.fid]) { lo = $0.int(1); label = "第 \($0.int(0)) 段起（最近一次压缩之后）" }
-        return try render(f, lo, Int.max, label, a, again: ["ech", "context"] + a.pos)
+        // 先给最近一条回顾：Claude 写的做到哪、下一步，最快接上
+        var recap = ""
+        try db.rows("SELECT ts, text FROM lines WHERE fid=? AND role='回顾' ORDER BY line DESC LIMIT 1", [f.fid]) { recap = "最近一次回顾（\(hm($0.text(0)))）：" + $0.text(1) }
+        let body = try render(f, lo, Int.max, label, a, again: ["ech", "context"] + a.pos)
+        if recap.isEmpty || a.flags.contains("json") || a.page > 1 { return body }
+        let lines = body.split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: false)
+        return lines[0] + "\n" + recap + "\n" + (lines.count > 1 ? lines[1] : "")
     }
 
     /// 把会话文件里 lo 到 hi 行的对话写成文字：我的消息、回复、阶段总结，工具调用一行概述（--tools 带输出）
@@ -343,6 +349,7 @@ enum EchoCLI {
             case "summary": out.append("\n[\(hm(ts))] 阶段总结：" + text); items.append(["line": line, "ts": ts, "role": "总结", "text": text])
             case "command": out.append("\n[\(hm(ts))] 命令：" + text)
             default: break
+            case "recap": out.append("\n[\(hm(ts))] 回顾：" + text); items.append(["line": line, "ts": ts, "role": "回顾", "text": text])
             }
         }
         if a.flags.contains("json") { return json(["session": f.sid, "title": f.title, "range": label, "items": items]) }

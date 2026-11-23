@@ -258,6 +258,7 @@ enum EchoSlim {
     private static let vThinking = RawJSON.quoted("thinking"), vRedacted = RawJSON.quoted("redacted_thinking")
     private static let vToolUse = RawJSON.quoted("tool_use"), vToolResult = RawJSON.quoted("tool_result"), vBash = RawJSON.quoted("Bash")
     private static let vAssistant = RawJSON.quoted("assistant"), vUser = RawJSON.quoted("user"), vAttachment = RawJSON.quoted("attachment")
+    private static let kOrigin = RawJSON.quoted("origin"), kKind = RawJSON.quoted("kind"), vHuman = RawJSON.quoted("human"), vQueued = RawJSON.quoted("queued_command")
     /// 请求记录：请求参数、哈希和对话的重复副本，浏览和恢复都用不到
     static let dropTypes: Set<[UInt8]> = Set(["api-request", "api-request-blob", "api-request-shape"].map(RawJSON.quoted))
     private static let needleRequest = Array("\"api-request".utf8)
@@ -405,6 +406,8 @@ enum EchoSlim {
                 items[ri].value = .string(jsonString(placeholder("工具结果", rawLen(items[ri].value))))
                 changed = true
             }
+        } else if t == vAttachment, obj[kAttachment]?[kType]?.stringRaw == vQueued, obj[kAttachment]?[kOrigin]?[kKind]?.stringRaw == vHuman {
+            // 你在 AI 干活时插进来的消息：算对话消息，永久保留，不按系统记录清理（和原型 slim.py 的 human_queued 一样）
         } else if t == vAttachment, !policy.expired(policy.system, ts), obj[kAttachment]?[kCleaned] == nil {
             next = min(next, policy.expiry(policy.system, ts))
         } else if t == vAttachment, policy.expired(policy.system, ts), let ai = index(kAttachment),

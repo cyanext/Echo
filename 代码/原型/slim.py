@@ -70,6 +70,11 @@ def expired(days, ts, now):
     return ts is not None and now - ts > timedelta(days=days)
 
 
+def human_queued(a):
+    """你在 AI 干活时插进来的消息（attachment 里 origin 是 human 的 queued_command）：算对话消息，永久保留，不按系统记录清理"""
+    return isinstance(a, dict) and a.get("type") == "queued_command" and (a.get("origin") or {}).get("kind") == "human"
+
+
 def is_cleaned(v):
     return (isinstance(v, str) and v.startswith(f"[{CLEANED_KEY}：")) or (isinstance(v, dict) and CLEANED_KEY in v)
 
@@ -142,7 +147,7 @@ def apply_policy(obj, policy, now, git_ids):
         if hit and "toolUseResult" in obj and not is_cleaned(obj["toolUseResult"]):
             obj["toolUseResult"] = placeholder("工具结果", raw_len(obj["toolUseResult"]))
             changed = True
-    elif t == "attachment" and expired(policy["system"], ts, now):
+    elif t == "attachment" and not human_queued(obj.get("attachment")) and expired(policy["system"], ts, now):
         a = obj.get("attachment")
         if isinstance(a, dict) and CLEANED_KEY not in a:
             obj["attachment"] = {"type": a.get("type"), CLEANED_KEY: f"系统记录，原 {size_text(raw_len(a))}"}

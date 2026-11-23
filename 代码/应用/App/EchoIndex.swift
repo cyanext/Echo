@@ -86,12 +86,14 @@ final class EchoStmt {
 enum EchoIndex {
     static var url: URL { EchoLibrary.supportDir.appendingPathComponent("索引.sqlite") }
     /// 表结构改了就加一，旧索引整个重建
-    static let schemaVersion = "3"
+    static let schemaVersion = "4"   // 4：回顾（recap）进索引，分段第一句优先用回顾
     /// 一行进索引的字最多多长：贴进来的长文按前面这些字搜
     static let maxText = 8000
 
     struct Row { var line: Int; var role: String; var ts: String; var text: String }
-    struct Seg { var n: Int; var l0: Int; var l1: Int; var t0: String; var t1: String; var vers: [String]; var head: String; var kind: String }
+    struct Seg { var n: Int; var l0: Int; var l1: Int; var t0: String; var t1: String; var vers: [String]; var head: String; var kind: String
+        var recap = ""   // 这一段最后一条回顾：段的第一句优先用它（Claude 写的阶段小结，比我说的第一句更能说明这段做了什么）
+    }
 
     // MARK: 从整理好的会话取行
 
@@ -109,6 +111,7 @@ enum EchoIndex {
             switch role {
             case "user": add(line, "我", ts, t["text"] as? String ?? "")
             case "summary": add(line, "总结", ts, t["text"] as? String ?? "")
+            case "recap": add(line, "回顾", ts, t["text"] as? String ?? "")
             case "command": add(line, "命令", ts, t["text"] as? String ?? "")
             case "assistant":
                 for b in t["blocks"] as? [[String: Any]] ?? [] {
@@ -186,8 +189,13 @@ enum EchoIndex {
         var segs: [Seg] = []
         var cur: Seg?
         var closeNext = false
+        func close(_ c: Seg) -> Seg {
+            var c = c
+            if !c.recap.isEmpty { c.head = firstSentence(c.recap) }
+            return c
+        }
         func start(_ r: Row, _ kind: String) {
-            if let c = cur { segs.append(c) }
+            if let c = cur { segs.append(close(c)) }
             cur = Seg(n: segs.count + 1, l0: r.line, l1: r.line, t0: r.ts, t1: r.ts, vers: [], head: "", kind: kind)
         }
         for r in rs {
@@ -200,10 +208,11 @@ enum EchoIndex {
             if !r.ts.isEmpty { cur!.t1 = r.ts; if cur!.t0.isEmpty { cur!.t0 = r.ts } }
             // 第一句：我说的第一句；Codex 的阶段总结是正文，可以用；Claude Code 的压缩摘要开头是固定的一句套话，跳过
             if cur!.head.isEmpty, r.role == "我" || (r.role == "总结" && !r.text.hasPrefix("This session is being continued")) { cur!.head = firstSentence(r.text) }
+            if r.role == "回顾" { cur!.recap = r.text }
             for v in versions(r) where !cur!.vers.contains(v) { cur!.vers.append(v) }
             if ends.contains(r.line) { closeNext = true }
         }
-        if let c = cur { segs.append(c) }
+        if let c = cur { segs.append(close(c)) }
         return segs
     }
 

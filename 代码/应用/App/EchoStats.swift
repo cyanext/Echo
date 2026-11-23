@@ -84,6 +84,7 @@ enum EchoStats {
     private static let needleAsst = Array("\"type\":\"assistant\"".utf8)
     private static let needleUsage = Array("\"usage\"".utf8)
     private static let needleTurn = Array("\"turn_duration\"".utf8)
+    private static let needleQueued = Array("\"queued_command\"".utf8)   // 你在 AI 干活时插进来的消息，也算我的消息
 
     /// 本机时区的「年-月-日」
     static func dayKey(_ ts: String) -> String? {
@@ -188,9 +189,10 @@ enum EchoStats {
             let isUser = EchoLines.has(b, needleUser)
             let isUsage = !isUser && EchoLines.has(b, needleAsst) && EchoLines.has(b, needleUsage)
             let isTurn = !isUser && !isUsage && EchoLines.has(b, needleTurn)
+            let isQueued = !isUser && !isUsage && !isTurn && EchoLines.has(b, needleQueued)
             if isUser, EchoLines.has(b, needleToolResult) { commitHashes(b, into: &g) }
             else if !isUser, EchoLines.has(b, needleAsst) { commitMessages(b, into: &g) }
-            guard isUser || isUsage || isTurn, let j = RawJSON.parse(b),
+            guard isUser || isUsage || isTurn || isQueued, let j = RawJSON.parse(b),
                   let ts = str(j[kTs]), let t = epoch(ts) else { return }
             let day = localDay(t, &offsets)
             var span = days[day, default: .init()]
@@ -203,6 +205,9 @@ enum EchoStats {
                 guard type == "user", !EchoLines.has(b, needleToolResult),
                       let d = try? JSONSerialization.jsonObject(with: Data(buffer: b)) as? [String: Any],
                       EchoExport.userRole(d)?.role == "user" else { return }
+                days[day, default: .init()].m += 1
+            } else if isQueued {
+                guard let d = try? JSONSerialization.jsonObject(with: Data(buffer: b)) as? [String: Any], EchoExport.queuedPrompt(d) != nil else { return }
                 days[day, default: .init()].m += 1
             } else if isUsage {
                 guard type == "assistant", let msg = j[kMessage], let u = msg[kUsage], case .object = u else { return }
