@@ -28,7 +28,7 @@ enum EchoPrefs {
     }
 
     /// 没在设置里选过位置时用的：0.12.0 及以前的默认位置（桌面/项目代码/回响备份）已有备份的接着用，不挪；
-    /// 新装的用应用名作文件夹：有 iCloud 云盘放「iCloud 云盘/回响」（几台电脑共用），没有放「文稿/回响」
+    /// 新装的：有 iCloud 云盘放「iCloud 云盘/回响备份」（几台电脑共用），没有放「文稿/回响备份」；系统语言不是中文时文件夹叫「Echo Backup」
     static var defaultBackupRoot: URL { defaultBackupRoot(home: URL(fileURLWithPath: NSHomeDirectory())) }
 
     static func defaultBackupRoot(home: URL) -> URL {
@@ -36,7 +36,8 @@ enum EchoPrefs {
         let legacy = home.appendingPathComponent("Desktop/项目代码/回响备份")
         if fm.fileExists(atPath: legacy.path) { return legacy }
         let icloud = home.appendingPathComponent("Library/Mobile Documents/com~apple~CloudDocs")
-        return fm.fileExists(atPath: icloud.path) ? icloud.appendingPathComponent("回响") : home.appendingPathComponent("Documents/回响")
+        let name = Locale.preferredLanguages.first?.hasPrefix("zh") == false ? "Echo Backup" : "回响备份"
+        return fm.fileExists(atPath: icloud.path) ? icloud.appendingPathComponent(name) : home.appendingPathComponent("Documents/" + name)
     }
 
     /// 启动时把默认位置记进设置：之后开了 iCloud 云盘、建了旧文件夹，位置也不会变

@@ -330,5 +330,3 @@
 
 img[src="app-workbuddy.svg"] { transform: scale(.86); }   /* WorkBuddy 整块绿底，缩到 86% 和另两家视觉一样大 */
 
-/* Claude 的螃蟹又扁又宽，白底在白面上看不见：放大 12%、往下 1 像素，和 Codex 图标、旁边文字视觉对齐 */
-img[src="app-claude.svg"] { transform: translateY(1px) scale(1.12); }
