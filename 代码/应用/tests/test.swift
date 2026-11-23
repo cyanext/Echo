@@ -528,7 +528,12 @@ enum EchoTests {
         case "browser":   // 浏览窗口：读 ECHO_SHOT_ROOT 这个备份目录；ECHO_SHOT_MENU=computer、app 时展开那个筛选菜单
             UserDefaults.standard.set(ProcessInfo.processInfo.environment["ECHO_SHOT_APP"] ?? "", forKey: "filterApp")   // 先选好的应用筛选
             EchoState.shared.sessions = EchoLibrary.scan(backupRoot: URL(fileURLWithPath: ProcessInfo.processInfo.environment["ECHO_SHOT_ROOT"] ?? "/tmp"))
-            view = AnyView(EchoBrowserView().environmentObject(EchoState.shared).frame(width: 1100, height: 720))
+            EchoState.shared.lastSuccess = Date(timeIntervalSinceNow: -600)   // 底部写「10 分钟前备份」
+            if let id = ProcessInfo.processInfo.environment["ECHO_SHOT_OPEN"] {   // 打开这个会话（左栏显示选中）
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1) { EchoState.shared.openSessionID = id }
+            }
+            let env = ProcessInfo.processInfo.environment   // 窗口大小，默认 1100×720
+            view = AnyView(EchoBrowserView().environmentObject(EchoState.shared).frame(width: Double(env["ECHO_SHOT_W"] ?? "") ?? 1100, height: Double(env["ECHO_SHOT_H"] ?? "") ?? 720))
         case let x where x.hasPrefix("onboarding-"): view = AnyView(EchoOnboardingView(start: Int(x.dropFirst(11)) ?? 0) {})
         default: view = AnyView(EchoSettingsView(start: .storage))
         }
