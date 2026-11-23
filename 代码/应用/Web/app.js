@@ -654,7 +654,7 @@
       toast("已复制恢复命令");
     });
 
-    // 会话内查找：高亮所有命中，回车跳到下一个，命中在折叠处时自动展开
+    // 会话内查找：只找对话（见 search 里的 SAID），高亮所有命中，回车跳到下一个，命中在折叠的阶段总结里时自动展开
     let marks = [];
     let cur = -1;
     function clearMarks() {
@@ -668,8 +668,11 @@
       if (!q) { $("hits").textContent = ""; return; }
       const lower = q.toLowerCase();
       drawAll();
-      all("#turns details[data-i]").forEach((d) => { if (stepText(STEPS[d.dataset.i]).toLowerCase().includes(lower)) fillStep(d); });
-      const walker = document.createTreeWalker($("turns"), NodeFilter.SHOW_TEXT);
+      // 只在对话里找：你的消息、AI 回复的正文、回顾、阶段总结；思考过程、工具调用、系统消息不找
+      const SAID = ".msg.user .bubble, .msg.ai > .md, .recap-text, details.compact > .md";
+      const walker = document.createTreeWalker($("turns"), NodeFilter.SHOW_TEXT, {
+        acceptNode: (n) => (n.parentElement && n.parentElement.closest(SAID) && !n.parentElement.closest(".step, summary") ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT),
+      });
       const nodes = [];
       while (walker.nextNode()) if (walker.currentNode.nodeValue.toLowerCase().includes(lower)) nodes.push(walker.currentNode);
       nodes.forEach((node) => {
