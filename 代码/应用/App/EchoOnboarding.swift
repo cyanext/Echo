@@ -1,4 +1,4 @@
-// 首次设置：第一次打开回响（没完成过引导、本机也还没有备份记录）时出现，四步：欢迎、备份放在哪、备份什么、怎么清理。
+// 首次设置：第一次打开回响（没完成过引导、本机也还没有备份记录）时出现，四步：欢迎、备份位置、备份内容、自动清理。
 // 设计稿 设计/首次设置/。第 2～4 步直接用设置窗口的各块（EchoSettings），改的就是设置。点「完成，开始备份」后才开始备份。
 import AppKit
 import SwiftUI
@@ -99,13 +99,13 @@ struct EchoOnboardingView: View {
             Group {
                 switch step {
                 case 0: welcome
-                case 1: page("备份放在哪", "以后可以在「设置 → 通用」里改。") {
+                case 1: page("备份位置", "以后可以在「设置 → 通用」里改。") {
                     VStack(alignment: .leading, spacing: 24) {
                         EchoGeneralSettings()
                         note("点「继续」后，macOS 会询问能否访问会话和备份文件夹", "请点「允许」，否则回响读不到会话")
                     }
                 }
-                case 2: page("备份什么", "勾选要备份的应用，各类内容按下面的期限备份。") {
+                case 2: page("备份内容", "勾选要备份的应用，各类内容按下面的期限备份。") {
                     VStack(alignment: .leading, spacing: 16) {
                         EchoSourcesBlock(model: model, onboarding: true, showCleanup: false)
                             .onChange(of: backupClaude) { _, _ in estimateFirst() }
@@ -124,7 +124,7 @@ struct EchoOnboardingView: View {
                         .background(EchoSettingsStyle.subtle, in: RoundedRectangle(cornerRadius: 8))
                     }
                 }
-                default: page("怎么清理", "以后可以在「设置 → 存储」里改。") {
+                default: page("自动清理", "以后可以在「设置 → 存储」里改。") {
                     EchoSourcesBlock(model: model, onboarding: true, closeClaude: $closeClaude)
                 }
                 }

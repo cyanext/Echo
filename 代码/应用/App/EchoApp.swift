@@ -27,20 +27,21 @@ enum EchoPrefs {
         set { d.set(newValue.trimmed.replacingOccurrences(of: "/", with: "-"), forKey: "computerName") }
     }
 
-    /// 默认放代码目录旁边的「回响备份」（桌面在 iCloud 里，两台电脑共用），和代码分开
-    static var defaultBackupRoot: URL {
-        URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Desktop/项目代码/回响备份")
+    /// 没在设置里选过位置时用的：0.12.0 及以前的默认位置（桌面/项目代码/回响备份）已有备份的接着用，不挪；
+    /// 新装的用应用名作文件夹：有 iCloud 云盘放「iCloud 云盘/回响」（几台电脑共用），没有放「文稿/回响」
+    static var defaultBackupRoot: URL { defaultBackupRoot(home: URL(fileURLWithPath: NSHomeDirectory())) }
+
+    static func defaultBackupRoot(home: URL) -> URL {
+        let fm = FileManager.default
+        let legacy = home.appendingPathComponent("Desktop/项目代码/回响备份")
+        if fm.fileExists(atPath: legacy.path) { return legacy }
+        let icloud = home.appendingPathComponent("Library/Mobile Documents/com~apple~CloudDocs")
+        return fm.fileExists(atPath: icloud.path) ? icloud.appendingPathComponent("回响") : home.appendingPathComponent("Documents/回响")
     }
 
-    /// 以前的默认位置：0.5.0 及以前在代码目录里（项目代码/回响/备份），开发时试过 iCloud 云盘/回响。
-    /// 没在设置里改过目录、新位置还没有时，整个挪过去，一次就好
-    static func moveOldBackup() {
-        guard d.string(forKey: "backupRoot") == nil else { return }
-        let fm = FileManager.default, home = URL(fileURLWithPath: NSHomeDirectory())
-        guard !fm.fileExists(atPath: defaultBackupRoot.path) else { return }
-        let olds = ["Desktop/项目代码/回响/备份", "Library/Mobile Documents/com~apple~CloudDocs/回响"].map { home.appendingPathComponent($0) }
-        guard let old = olds.first(where: { fm.fileExists(atPath: $0.path) }) else { return }
-        do { try fm.moveItem(at: old, to: defaultBackupRoot) } catch { NSLog("回响：旧备份目录没挪成：%@", error.localizedDescription) }
+    /// 启动时把默认位置记进设置：之后开了 iCloud 云盘、建了旧文件夹，位置也不会变
+    static func pinBackupRoot() {
+        if d.string(forKey: "backupRoot") == nil { d.set(defaultBackupRoot.path, forKey: "backupRoot") }
     }
 
     static var backupRoot: URL {
@@ -129,7 +130,7 @@ final class EchoState: ObservableObject {
     private var timer: Timer?
 
     func start() {
-        EchoPrefs.moveOldBackup()
+        EchoPrefs.pinBackupRoot()
         do { try EchoLayout.migrate(EchoPrefs.computerDir) } catch { NSLog("回响：Claude 的备份没挪进 claude/：%@", error.localizedDescription) }
         overview = EchoStats.loadLast()   // 先显示上次整理好的总览，后台再刷新
         EchoPrices.refreshIfDue()
