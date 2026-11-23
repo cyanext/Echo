@@ -8,7 +8,9 @@
 
 <p align="center"><a href="README.md">中文</a></p>
 
-<p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/hero-dark.png"><img src="docs/hero-light.png" width="900" alt="Overview behind (tokens, cost, commits, calendar); a session in front with the version keypoint rail and a recap tooltip"></picture></p>
+<p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/session-dark.png"><img src="docs/session-light.png" width="860" alt="A session with the version keypoint rail and a recap tooltip; the header shows the current version"></picture></p>
+
+<p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/overview-dark.png"><img src="docs/overview-light.png" width="100%" alt="Overview: tokens, cost, messages, AI time and commits per day, with a calendar and sessions by day"></picture></p>
 
 > The app's interface is currently in Chinese.
 
@@ -45,7 +47,7 @@ flowchart LR
 
 **Value**: session storage drops by 80% or more without losing any conversation; millisecond search across all your Macs.
 
-<p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/search-dark.png"><img src="docs/search-light.png" width="860" alt="Searching the sidebar: hits grouped by session, highlighted in the conversation"></picture></p>
+<p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/search-dark.png"><img src="docs/search-light.png" width="100%" alt="Searching the sidebar: hits grouped by session, highlighted in the conversation"></picture></p>
 
 ### Version timeline and message navigation
 
@@ -58,8 +60,6 @@ flowchart LR
 - Thinking and tool calls collapse into one line until you open them. Messages you typed while the AI was working show up as your messages.
 
 **Value**: read a project version by version from start to finish, and explain every step clearly in a retro or handover.
-
-<p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/session-dark.png"><img src="docs/session-light.png" width="860" alt="A session with the version keypoint rail and a recap tooltip; the header shows the current version"></picture></p>
 
 ### A context interface for AI: ech
 
@@ -127,7 +127,7 @@ flowchart LR
 
 **Value**: reorganize folders freely; sessions are never lost and still resume, and the session folders stop growing forever.
 
-<p align="center"><img src="docs/folders.png" width="760" alt="A folder renamed in Finder is marked missing; Find new location matches the renamed folder and moves its 2 sessions"></p>
+<p align="center"><img src="docs/folders.png" width="100%" alt="A folder renamed in Finder is marked missing; Find new location matches the renamed folder and moves its 2 sessions"></p>
 
 ## More
 

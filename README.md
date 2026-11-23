@@ -8,7 +8,9 @@
 
 <p align="center"><a href="README.en.md">English</a></p>
 
-<p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/hero-dark.png"><img src="docs/hero-light.png" width="900" alt="后面是总览：每天的 Token、费用、提交和日历；前面是一个会话：左边按版本分段的要点栏，悬停浮出回顾全文"></picture></p>
+<p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/session-dark.png"><img src="docs/session-light.png" width="860" alt="会话「回响 1.0」：左边要点栏按版本、回顾、压缩分段，悬停浮出回顾全文；标题栏下写当前所在的版本"></picture></p>
+
+<p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/overview-dark.png"><img src="docs/overview-light.png" width="100%" alt="总览：每天的 Token、费用、消息数、AI 时长和提交，日历和每天的会话"></picture></p>
 
 ## 为什么需要它
 
@@ -43,7 +45,7 @@ flowchart LR
 
 **价值**：会话占用下降 80% 以上，对话信息不丢；多台电脑的会话毫秒级检索。
 
-<p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/search-dark.png"><img src="docs/search-light.png" width="860" alt="左栏搜索「备份」，按会话列出命中处，正文里标亮"></picture></p>
+<p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/search-dark.png"><img src="docs/search-light.png" width="100%" alt="左栏搜索「备份」，按会话列出命中处，正文里标亮"></picture></p>
 
 ### 版本时间轴与消息定位
 
@@ -56,8 +58,6 @@ flowchart LR
 - 思考过程和工具调用收成一行，点开再看；AI 干活时你插进去的话也按你的消息显示。
 
 **价值**：一个项目按版本从头看到尾，复盘、交接时能讲清楚每一步为什么这么做。
-
-<p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/session-dark.png"><img src="docs/session-light.png" width="860" alt="会话「回响 1.0」：左边要点栏按版本、回顾、压缩分段，悬停浮出回顾全文；标题栏下写当前所在的版本"></picture></p>
 
 ### 面向 AI 的上下文接口：ech
 
@@ -123,7 +123,7 @@ flowchart LR
 
 **价值**：文件夹随便整理，会话不丢、照样能续上，本机的会话目录也不再越攒越大。
 
-<p align="center"><img src="docs/folders.png" width="760" alt="「旧官网」在访达里改了名，左栏标出已不存在；右键「找到新位置…」匹配到「官网改版」，确认后把 2 个会话移过去"></p>
+<p align="center"><img src="docs/folders.png" width="100%" alt="「旧官网」在访达里改了名，左栏标出已不存在；右键「找到新位置…」匹配到「官网改版」，确认后把 2 个会话移过去"></p>
 
 ## 其他功能
 
