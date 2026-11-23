@@ -320,11 +320,13 @@ struct EchoBrowserView: View {
     /// 文件夹已不存在：先猜它改成了什么（上一级里名字最像的子文件夹），问一句；猜不到或选「选择其他文件夹…」就打开选择框
     private func findNewPlace(_ d: EchoDir) {
         guard let g = EchoDirMove.guess(d.path) else { pickDirTarget(d); return }
-        let name = (g as NSString).lastPathComponent
-        let p = EchoDirMove.plan(from: d.path, to: g, sessions: state.sessions, moveFolder: false)
+        let name = (g.path as NSString).lastPathComponent
+        let p = EchoDirMove.plan(from: d.path, to: g.path, sessions: state.sessions, moveFolder: false)
         let a = NSAlert()
-        a.messageText = "「\(d.name)」已不存在，是否已改名为「\(name)」？"
-        a.informativeText = EchoDirMove.describe(p) + "。移动后在「\(name)」中恢复会话。"
+        // 挪走的问在哪个文件夹里，改名的问改成了什么；都写出新位置的完整路径，同名、相像的文件夹多时好核对
+        a.messageText = g.moved ? "「\(d.name)」已不存在，是否已移到「\(((g.path as NSString).deletingLastPathComponent as NSString).lastPathComponent)」中？"
+                                : "「\(d.name)」已不存在，是否已改名为「\(name)」？"
+        a.informativeText = "新位置：\((g.path as NSString).abbreviatingWithTildeInPath)\n" + EchoDirMove.describe(p) + "。移动后在新位置恢复会话。"
         a.addButton(withTitle: "移动会话")
         a.addButton(withTitle: "选择其他文件夹…")
         a.addButton(withTitle: "取消")

@@ -472,22 +472,67 @@ enum EchoDirMove {
         return out.isEmpty ? "此文件夹中没有会话" : out.joined(separator: "；")
     }
 
-    /// 文件夹已不存在时猜它改成了什么：上一级文件夹（还在的话）里名字最像的子文件夹。去掉开头的序号（「02 」「1.」）后比共同的字，至少 2 个字相同
-    static func guess(_ path: String) -> String? {
-        let parent = (path as NSString).deletingLastPathComponent
-        guard let kids = try? FileManager.default.contentsOfDirectory(atPath: parent) else { return nil }
-        func core(_ s: String) -> Set<Character> {
-            Set(s.replacingOccurrences(of: #"^[0-9]+[ .、_-]*"#, with: "", options: .regularExpression).filter { !$0.isWhitespace })
+    /// 文件夹已不存在时猜它去哪了。moved：同名文件夹在别处（挪走了）；否则是同一位置改了名
+    struct Guess: Equatable { var path: String; var moved: Bool }
+
+    /// 先找挪走的：从还在的那一级往下 3 层找同名文件夹，没有再用 Spotlight 在主目录里找，几个同名的取离原位置最近的；
+    /// 再找改名的：上一级里名字最像的子文件夹（去掉开头的序号后，中文比共同的字、英文比共同的单词，合起来至少 2 分）。
+    /// spotlight 测试时关掉，结果只看临时目录
+    static func guess(_ path: String, spotlight: Bool = true) -> Guess? {
+        let fm = FileManager.default, name = (path as NSString).lastPathComponent
+        func isDir(_ p: String) -> Bool { var d: ObjCBool = false; return fm.fileExists(atPath: p, isDirectory: &d) && d.boolValue }
+        // 离原位置多近：共同的上级越多越近
+        func near(_ p: String) -> Int { zip(p.split(separator: "/"), path.split(separator: "/")).prefix { $0 == $1 }.count }
+        var top = (path as NSString).deletingLastPathComponent
+        while !isDir(top), top.count > 1 { top = (top as NSString).deletingLastPathComponent }
+        let skip: Set<String> = ["node_modules", "Library", ".git", "build", "dist"]
+        var found: [String] = []
+        func walk(_ dir: String, _ depth: Int) {
+            guard depth > 0, let kids = try? fm.contentsOfDirectory(atPath: dir) else { return }
+            for k in kids where !k.hasPrefix(".") && !skip.contains(k) {
+                let full = (dir as NSString).appendingPathComponent(k)
+                guard isDir(full) else { continue }
+                if k == name, full != path { found.append(full) }
+                walk(full, depth - 1)
+            }
         }
-        let want = core((path as NSString).lastPathComponent)
+        if top.hasPrefix(NSHomeDirectory() + "/") || !spotlight { walk(top, 3) }
+        if found.isEmpty, spotlight { found = spotlightFolders(name).filter { $0 != path && isDir($0) } }
+        if let best = found.max(by: { near($0) < near($1) }) { return Guess(path: best, moved: true) }
+
+        let parent = (path as NSString).deletingLastPathComponent
+        guard let kids = try? fm.contentsOfDirectory(atPath: parent) else { return nil }
+        func core(_ s: String) -> String { s.replacingOccurrences(of: #"^[0-9]+[ .、_-]*"#, with: "", options: .regularExpression).lowercased() }
+        func cjk(_ s: String) -> Set<Character> { Set(core(s).filter { $0.unicodeScalars.allSatisfy { $0.value >= 0x3400 && $0.value <= 0x9fff } }) }
+        func words(_ s: String) -> Set<String> {
+            Set(core(s).split(whereSeparator: { !($0.isASCII && ($0.isLetter || $0.isNumber)) }).map(String.init).filter { $0.count >= 3 })
+        }
+        let wc = cjk(name), ww = words(name)
         var best: (String, Int)?
         for k in kids where !k.hasPrefix(".") {
-            var isDir: ObjCBool = false
             let full = (parent as NSString).appendingPathComponent(k)
-            guard FileManager.default.fileExists(atPath: full, isDirectory: &isDir), isDir.boolValue else { continue }
-            let n = core(k).intersection(want).count
+            guard isDir(full) else { continue }
+            let n = cjk(k).intersection(wc).count + 2 * words(k).intersection(ww).count
             if n >= 2, n > (best?.1 ?? 0) { best = (full, n) }
         }
-        return best?.0
+        return best.map { Guess(path: $0.0, moved: false) }
+    }
+
+    /// Spotlight 按名字找文件夹（主目录里，跳过废纸篓和资源库），最多等 3 秒
+    static func spotlightFolders(_ name: String) -> [String] {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/mdfind")
+        let q = name.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
+        p.arguments = ["-onlyin", NSHomeDirectory(), "kMDItemFSName == \"\(q)\" && kMDItemContentType == \"public.folder\""]
+        let out = Pipe()
+        p.standardOutput = out
+        p.standardError = FileHandle.nullDevice
+        guard (try? p.run()) != nil else { return [] }
+        let end = Date(timeIntervalSinceNow: 3)
+        while p.isRunning, Date() < end { usleep(50_000) }
+        if p.isRunning { p.terminate(); return [] }
+        let text = String(data: out.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        let home = NSHomeDirectory()
+        return text.split(separator: "\n").map(String.init).filter { !$0.hasPrefix(home + "/.Trash") && !$0.hasPrefix(home + "/Library/") }
     }
 }
