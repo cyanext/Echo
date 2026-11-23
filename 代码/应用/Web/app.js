@@ -492,6 +492,7 @@
       const setHead = (k) => {
         const d = k && k.ts ? new Date(k.ts) : null;
         $("h-title").innerHTML = k ? full(k) : homeTitle;
+        $("h-title").title = $("h-title").textContent;   // 标题栏只占一行，悬停看全文
         $("h-meta").innerHTML = k ? `<span>${esc(m.title)}</span>${d ? `<span>${md0(d)} ${hm(d)}</span>` : ""}` : homeMeta;
         ["h-title", "h-meta"].forEach((x) => { $(x).classList.remove("swap"); void $(x).offsetWidth; $(x).classList.add("swap"); });
         measureHead();

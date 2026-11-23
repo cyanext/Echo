@@ -3,7 +3,7 @@
 # 用法：zsh 代码/应用/build.sh；装到 ~/Applications 并重新打开：zsh 代码/应用/build.sh install；
 # 打发版用的安装包 dist/Echo-<版本>.zip（传到 GitHub 发版，自动更新下载它）：zsh 代码/应用/build.sh release
 set -e
-VERSION=0.13.1; BUILD=23                           # 版本号只改这里
+VERSION=0.13.2; BUILD=24                           # 版本号只改这里
 [[ -n "$ECHO_TEST_VERSION" ]] && VERSION=$ECHO_TEST_VERSION   # 测试自动更新时临时打一个别的版本号
 D="${0:A:h}"; T=$(mktemp -d); APP="$T/回响.app"
 trap 'rm -rf "$T"' EXIT
