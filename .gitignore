@@ -5,3 +5,4 @@
 代码/应用/dist/
 .worktrees/
 .DS_Store
+__pycache__/
