@@ -550,7 +550,7 @@ struct EchoBrowserView: View {
                     } action: { pickMenu = pickMenu == "app" ? nil : "app" }
                 }
                 EchoPickButton(on: !dateFilter.isEmpty, help: EchoDateFilter.title(dateFilter)) {
-                    Image(systemName: "clock").font(.system(size: 13))
+                    Image(systemName: "calendar").font(.system(size: 13))   // 从几组候选里选的（试过时钟、漏斗、三条线、滑杆）
                 } action: { pickMenu = pickMenu == "date" ? nil : "date" }
             }
             .padding(.leading, 80).padding(.trailing, 10)
