@@ -4,44 +4,131 @@
 
 <p align="center">Everything you've talked through with AI, remembered.</p>
 
-<p align="center">Automatically backs up your Claude Code and Codex sessions, so you can browse and search them anytime, and so can your AI.</p>
+<p align="center">Local archiving, search and timeline review for Claude Code and Codex sessions, with <code>ech</code>, a command-line interface built for AI agents.</p>
 
 <p align="center"><a href="README.md">中文</a></p>
 
-<p align="center"><img src="docs/screenshot-light.png" width="800" alt="Echo's browser window: sessions grouped by project folder on the left, the conversation with version keypoints on the right"></p>
+<p align="center"><img src="docs/screenshot-light.png" width="860" alt="Echo's browser window: sessions by project on the left, a version timeline in the middle, your messages on the right"></p>
 
 > The app's interface is currently in Chinese.
 
 ## Why
 
-When you work with Claude Code or Codex (writing proposals, changing code, organizing material), the valuable part lives in the sessions: why a decision was made, what was tried, how it was finally solved. That rarely makes it into docs, and the sessions themselves don't last:
+When you work with Claude Code or Codex (writing proposals, changing code, organizing material), the valuable part is the process inside the sessions: why a decision was made, what was tried, how it was finally solved. That rarely makes it into docs, and the sessions themselves don't last:
 
-- Claude Code deletes sessions after 30 days by default.
-- Sessions are scattered across folders and can only be resumed from the same folder on the same Mac. Rename the folder and `/resume` can't find them.
-- Every new session starts from zero, and you have to explain the background again.
+- Claude Code cleans up sessions after 30 days by default. Sessions live per folder on one Mac; switch machines or folders and they're gone.
+- Most of a session file is screenshots and intermediate data, so keeping them as-is takes a lot of space.
+- Every new session starts from zero, and long sessions lose early details after a few compactions.
 
-Echo backs up your sessions in the background, organizes them by project, and lets you browse and search them. It also ships a command-line tool, `ech`, that lets your AI look up past sessions itself and pick up where you left off.
+Echo archives these sessions in the background and indexes them, so you can find what was actually said by project, by version or by keyword, and it hands the same data to your AI through `ech`.
 
-## Use cases
+## Core capabilities
 
-- **"Why did we do it this way?"** A decision from three weeks ago, and the original session is long gone. Search a keyword in Echo, jump to the conversation around that commit, and read what was actually said.
-- **Continue where you left off.** Start a new session and say "continue the last one". Your AI uses `ech` to find the latest recap and the last few turns, no re-briefing needed.
-- **What did I do this week?** One command lists sessions, released versions and token usage per project, ready for a weekly report or retro.
-- **Two Macs, one history.** Backups live in iCloud Drive, so you can browse and search sessions from your other Mac.
-- **Reorganize folders without losing sessions.** Rename or move a folder in Echo and its sessions move along; Claude Code can resume them in the new location.
+### Session archiving and full-text search
 
-## Features
+**Problem**: you remember discussing something but not which session; the original may already be cleaned up, or on your other Mac.
 
-- **Automatic backup**: runs in the background at login and incrementally backs up Claude Code and Codex sessions on your schedule.
-- **Compact storage**: images and thinking are not backed up, tool call details are replaced with placeholders after 30 days by default, and the conversation text is kept forever. Secrets and tokens are masked. Backups are about a tenth of the original size.
-- **Multiple Macs**: one folder per Mac, gathered together through iCloud Drive.
-- **Browse by project**: sessions are listed by folder; conversations are split by version commits, compactions and recaps, with a keypoint rail to jump around.
-- **Global search**: session titles, your messages, summaries and AI replies, with matches highlighted.
-- **Overview**: daily messages, token usage and cost, commits and versions.
-- **Organize sessions**: rename, delete (to Trash, recoverable), move to another folder; sessions follow renamed folders.
-- **Auto cleanup**: sessions you haven't used for a long time are moved to Trash from Claude Code and Codex once fully backed up.
-- **`ech` command**: a CLI for AI agents to search sessions by keyword or date, read the original conversation, and resume context.
-- **Auto update**: notifies you of new versions and installs them with one click.
+**How it works**:
+
+```mermaid
+flowchart LR
+  A["~/.claude<br>~/.codex"] -->|incremental backup| B["slim + mask secrets"]
+  B --> C[("iCloud Drive<br>one folder per Mac")]
+  C -->|index updated after backup| D[("local full-text index<br>SQLite FTS5")]
+  D --> E["sidebar search"]
+  D --> F["ech find"]
+```
+
+- Incrementally backs up Claude Code and Codex sessions. Images and thinking are not backed up, tool call details become placeholders after 30 days by default, and the conversation text is kept forever. Bearer tokens, `sk-`, `ghp_` and similar secrets are masked before writing.
+- Each Mac writes only its own folder and iCloud gathers them; every file has a single writer, so multiple Macs never conflict.
+- The local full-text index is updated after each backup. Results rank session titles, your messages, summaries and AI replies in that order, grouped by session; click a hit to land on that exact line, highlighted.
+
+**Value**: session storage drops by 80% or more without losing any conversation; millisecond search across all your Macs.
+
+<p align="center"><img src="docs/search.png" width="860" alt="Searching the sidebar for a keyword: hits grouped by session, highlighted in the conversation"></p>
+
+### Version timeline and message navigation
+
+**Problem**: a project's session easily runs thousands of turns with several compactions. To see how a version was decided, you scroll and scroll.
+
+**How it works**:
+
+- Conversations are segmented by version numbers in git commits, manual compactions and Claude's recaps. Click a keypoint on the left rail to jump there; the header shows the version you're in as you scroll.
+- The "my messages" panel on the right lists everything you sent, by day; click one to jump to it, or search within it.
+- Thinking and tool calls collapse into one line until you open them. Messages you typed while the AI was working show up as your messages.
+
+**Value**: read a project version by version from start to finish, and explain every step clearly in a retro or handover.
+
+### A context interface for AI: ech
+
+**Problem**: a new session doesn't know where you left off; weekly reports mean digging through chats and git log; letting the AI read raw session files is slow and burns tokens.
+
+**How it works**:
+
+```mermaid
+flowchart LR
+  U["You: continue the last one"] --> AI["Claude Code / Codex"]
+  AI -->|"ech find / list"| X[("local index<br>overview data")]
+  AI -->|"ech context"| X
+  X -->|plain text| AI
+```
+
+Echo installs the `ech` command and a matching skill. When you ask "where did we leave off?" or "why did we decide this?", the AI looks it up itself. Query commands are read-only:
+
+```text
+$ ech context 968abfee
+天气小程序 1.0 · 演示电脑 · 968abfee · 第 3 段起（最近一次压缩之后）（第 28 行起）
+最近一次回顾（11-23 10:46）：1.0 系列做完：搜索、折线图、下雨提醒、分享卡片，最新是 v1.1.0。还没做的：小组件。
+
+[11-21 09:47] 阶段总结：…
+1. 首页实时天气、逐小时预报已完成（v0.9.0）
+…
+[11-22 07:25] 我：给天气小程序加一个城市搜索，输入拼音也能搜到
+…
+```
+
+```text
+$ ech list --since 7d
+2026-11-17 至 2026-11-23：12 个会话，我的消息 84 条，Token 28.8M，提交 10 次（总览数据）
+11-23 天气小程序 · 天气小程序 1.0 · 9 条 · 3.8M · 提交 4（0.9.0、1.0.0、1.0.1、1.1.0） · 968abfee
+11-21 记账本 · 记账提醒 · 6 条 · 1.6M · 提交 1（1.9.0） · b04e5b6a
+…
+```
+
+(Output is in Chinese for now: latest recap, compaction summary and the turns after it; sessions with message counts, tokens, commits and versions.)
+
+**Value**: no re-briefing in new sessions, and Codex can pick up where Claude left off. Weekly reports and retros get every session, commit and version from one command, across all your Macs and AI tools.
+
+### Session folder management
+
+**Problem**: rename or move a project folder and Claude Code's `/resume` can't find its sessions; Codex groups sessions by the folder recorded in its database, which doesn't follow either; sessions pile up with no cleanup.
+
+**How it works**:
+
+```mermaid
+flowchart LR
+  A["rename / move / drag<br>ech mv"] --> B{"session from"}
+  B -->|Claude Code| C["move session files to the<br>new folder's projects/ dir"]
+  B -->|Codex| D["update cwd in its database<br>after a full backup"]
+  C --> E["/resume works in the new place"]
+  D --> E
+```
+
+- Rename or move folders in the sidebar tree and their sessions move along; drag sessions into other folders.
+- Folders renamed in Finder or on a NAS are marked as missing; "Find new location" matches the most likely new folder by name and reconnects in one step.
+- `ech mv` lets your AI bring sessions along when it reorganizes folders, with `--dry-run` to preview.
+- Rename and delete sessions (to Trash, recoverable); sessions unused for a long time are moved to Trash once fully backed up.
+
+**Value**: reorganize folders freely; sessions are never lost and still resume, and the session folders stop growing forever.
+
+## More
+
+- **Usage overview**: daily messages, token usage and estimated cost, AI working time; git commits and versions attached to their sessions; stats kept for deleted sessions.
+- **Multiple apps**: Claude Code and Codex backed up, browsed and counted together, filterable by app.
+- **Light and dark**: follows the system, or set it manually.
+- **Auto update**: notifies you of new versions and installs them with one click, only if the signature matches the current version.
+
+<p align="center"><img src="docs/overview.png" width="860" alt="Overview: tokens, messages, AI time, git commits, calendar and sessions per day"></p>
 
 ## Install
 
@@ -51,30 +138,28 @@ Run in Terminal:
 curl -fsSL https://raw.githubusercontent.com/cyanext/Echo/main/install.sh | zsh
 ```
 
-This downloads the latest release to `~/Applications` and opens it. You can also download `Echo-<version>.zip` from [Releases](https://github.com/cyanext/Echo/releases) and drag Echo to Applications. If macOS says it can't verify the developer on first launch, go to System Settings > Privacy & Security and click "Open Anyway".
+This installs the latest release to `~/Applications` and opens it. You can also download `Echo-<version>.zip` from [Releases](https://github.com/cyanext/Echo/releases) and drag Echo to Applications; if macOS says it can't verify the developer on first launch, go to System Settings > Privacy & Security and click "Open Anyway".
 
-Requires macOS 14 or later on Apple silicon.
+Requires macOS 14 or later on Apple silicon. On first launch, choose the backup location, the apps to back up and the cleanup rules; click "Allow" when macOS asks for folder access.
 
-## Usage
-
-1. On first launch, choose the backup location, the apps to back up and the cleanup rules, then start the backup. Click "Allow" when macOS asks for folder access.
-2. Click Echo in the Dock to open the browser window. Closing the window keeps backups running in the background.
-3. Ask your AI about past sessions, e.g. "where did we leave off?" or "why did we decide this?"; the installed `ech` skill does the lookup. You can use it yourself too:
+## ech commands
 
 | Command | What it does |
 |---|---|
-| `ech find <keywords>` | Search all sessions, grouped by session |
-| `ech read <session>#<segment>` | Read the original text of a segment |
-| `ech context <session>` | Resume a session: latest recap, summary and the turns after it |
-| `ech list --since 7d` | List sessions, messages, tokens, commits and versions by date |
-| `ech mv <old path> <new path>` | Rename or move a folder, and its sessions move along |
-| `ech backup` | Back up now and update the index |
+| `ech find <keywords>` | Search all sessions, grouped by session, each hit with a reference (`session#segment`); filter with `--app`, `--since`, `--project`; `--tools` also searches tool calls |
+| `ech segs <session>` | A session's segments: time range, versions committed, first line of each |
+| `ech read <session>#<segment>` | Read the original text of a segment; `#L1200-1500` by line, `--tools` includes tool output |
+| `ech context <session>` | Resume a session: latest recap, compaction summary and all turns after it |
+| `ech list --since 7d` | Sessions, your messages, tokens, commits and versions by date; dates like `2026-11-16` or `11-16` also work |
+| `ech mv <old path> <new path>` | Rename or move a folder, and local sessions move along; `--dry-run` to preview |
+| `ech backup` / `ech index` | Back up now and update the index / update only the index and overview data |
+| `ech schema [command]` | Each command's parameters as JSON, for AI agents |
 
-Run `ech help` for all commands; add `--json` for scripts.
+Output is plain text, up to 8,000 characters per page, `--page` to page through, `--json` for scripts. The skill is installed to `~/.claude/skills/ech`, and to `~/.codex/skills/ech` when Codex is present.
 
 ## Privacy
 
-- Echo only reads sessions in `~/.claude` and `~/.codex` and never edits their content. Session files are only changed when you rename, delete or move a session, or when auto cleanup is on; deletions always go to the Trash.
+- Echo only reads sessions in `~/.claude` and `~/.codex` and never edits their content. Session files change only when you rename, delete or move a session, or when auto cleanup is on; deletions always go to the Trash.
 - Backups are written only to the folder you choose and are not uploaded anywhere except iCloud.
 - Only two network requests, neither carrying any local information: a weekly download of a public model price list, and a daily update check (can be turned off in Settings).
 
