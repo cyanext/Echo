@@ -66,6 +66,11 @@ enum EchoPrefs {
     static var lastClean: Date? { get { d.object(forKey: "lastClean") as? Date } set { d.set(newValue, forKey: "lastClean") } }
     /// 多久备份一次（小时）：1、6、24（默认，每天第一次开机或唤醒后）
     static var backupHours: Int { get { int("backupHours", 24) } set { d.set(newValue, forKey: "backupHours") } }
+    /// 主题：system 跟随系统、light 浅色、dark 深色。左栏、设置和网页一起变：网页的深色跟着窗口的外观走
+    static var theme: String { get { d.string(forKey: "theme") ?? "system" } set { d.set(newValue, forKey: "theme"); applyTheme() } }
+    static func applyTheme() {
+        NSApp.appearance = theme == "light" ? NSAppearance(named: .aqua) : theme == "dark" ? NSAppearance(named: .darkAqua) : nil
+    }
     /// 来源卡片上的勾：备不备份 Claude Code 的会话
     static var backupClaude: Bool { get { d.object(forKey: "backupClaude") == nil ? true : d.bool(forKey: "backupClaude") } set { d.set(newValue, forKey: "backupClaude") } }
     /// 备不备份 Codex 的会话（默认开；本机没有 ~/.codex/sessions 时不起作用）
@@ -395,6 +400,7 @@ final class EchoAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        EchoPrefs.applyTheme()
         MainActor.assumeIsolated {
             NSApp.mainMenu = Self.mainMenu()
             // 第一次打开时设成开机自动启动，之后以设置里的开关为准
