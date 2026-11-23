@@ -8,7 +8,7 @@ struct EchoBrowserView: View {
     @EnvironmentObject var state: EchoState
     @AppStorage("filterComputer") private var computer = ""           // 空表示全部电脑
     @AppStorage("filterApp") private var appFilter = ""               // 空表示全部应用（EchoSource 的 rawValue）
-    @State private var dateFilter = ProcessInfo.processInfo.environment["ECHO_SHOT_DATE"] ?? ""                                // 日期筛选：空是全部时间，「d7」最近 7 天，「m2026-11」某个月；不记住，每次打开窗口都是全部（会话少了容易以为丢了）
+    @State private var dateFilter = ProcessInfo.processInfo.environment["ECHO_SHOT_DATE"] ?? EchoDateFilter.initial                                // 日期筛选：空是全部时间，「d7」最近 7 天，「m2026-11」某个月；不记住，每次打开窗口是近 30 天，按钮上写着范围，不会以为会话丢了
     @State private var months: Set<String> = []                       // 有会话的月份「m2026-11」（月份选择器用），数据变了算一次
     @State private var pickMenu: String? = ProcessInfo.processInfo.environment["ECHO_SHOT_MENU"]   // 左栏右上角展开的筛选菜单：computer、app、date（环境变量只给截图用）
     @State private var multiApp = false                               // 有几个应用的会话，才显示应用筛选和会话行图标
@@ -37,11 +37,12 @@ struct EchoBrowserView: View {
     @State private var showOverview = true                             // 打开窗口默认停在总览
     @State private var jumpAt: Double?                                 // 从总览点版本或提交进来：打开后跳到这个时间
     @State private var jumpQuery: String?                              // 从搜索结果进来：跳到 jumpAt 那一处，页面里查找这个词
+    @State private var jumpVer: String?                                // 从总览点版本号进来：先按版本号找要点
     @State private var jumpSeq = 0                                     // 同一处再点一次也要跳回去
     @StateObject private var search = EchoSearchModel()
     @State private var query = ProcessInfo.processInfo.environment["ECHO_SHOT_QUERY"] ?? ""   // 左栏搜索框；有字时目录树换成搜索结果（环境变量只给截图用）
     @FocusState private var searchFocus: Bool
-    @State private var shown: [EchoSession] = []                       // 按电脑、应用、日期筛过的会话，搜索只在这些里找
+    @State private var shown: [EchoSession] = []                       // 按电脑、应用筛过的会话，搜索在这些里找；不管日期（默认只看近 30 天，搜索要找全部）
     @State private var searchPick: String?                             // 搜索结果里点过的那一处「文件编号:行号」
     @State private var searchMore: Set<String> = []                    // 点了「还有 N 处」的会话
     @AppStorage("sidebarWidth") private var sideW: Double = 272        // 左栏宽，拖右边缘改，200 到 420（照 NAS 网站）
@@ -68,13 +69,15 @@ struct EchoBrowserView: View {
         layout
         .overlay(alignment: .bottom) { EchoDropTip(drag: drag) }
         .overlay(alignment: .topLeading) {
-            // 筛选菜单：盖在最上层，左栏右上角按钮下面；点外面任何地方收起
-            if pickMenu != nil {
-                ZStack(alignment: .topLeading) {
+            // 筛选菜单：盖在最上层，左栏右上角按钮下面；点外面任何地方收起。出现、收起淡入淡出 0.15 秒（规范「动效」）
+            ZStack(alignment: .topLeading) {
+                if pickMenu != nil {
                     Color.black.opacity(0.001).onTapGesture { pickMenu = nil }
                     pickMenuView.frame(width: CGFloat(sideW) - 10, alignment: .trailing).padding(.top, 48)
+                        .transition(.opacity.combined(with: .offset(y: -4)))
                 }
             }
+            .animation(EchoMotion.show, value: pickMenu)
         }
         .onChange(of: state.openSessionID) { _, id in
             guard let id else { return }
@@ -83,7 +86,9 @@ struct EchoBrowserView: View {
             collectionID = nil
             sessionID = id
             jumpAt = state.openAt
+            jumpVer = state.openVer
             jumpQuery = nil
+            state.openVer = nil
             state.openAt = nil
             showOverview = false
         }
@@ -116,18 +121,19 @@ struct EchoBrowserView: View {
         HStack(spacing: 0) {            sidebar
                 .frame(width: sideW)
                 .overlay(alignment: .trailing) { EchoResizeHandle(width: $sideW).frame(width: 10) }
-            // 右边白区：靠左栏的两个角收圆角 12，左栏的灰底从圆角外露出来（照伙伴云NAS应用）
+            // 右边白区：靠左栏的两个角收圆角 12，左栏的底色从圆角外露出来（照伙伴云NAS应用）；外面不描边
             ZStack {
-                if showOverview { EchoOverview() }
-                else if let t = target { EchoConversation(target: t, at: jumpAt, q: jumpQuery, seq: jumpSeq) }
+                // 总览和对话之间淡入淡出 0.2 秒（规范「动效」）
+                if showOverview { EchoOverview().transition(.opacity) }
+                else if let t = target { EchoConversation(target: t, at: jumpAt, q: jumpQuery, ver: jumpVer, seq: jumpSeq).transition(.opacity) }
             }
+            .animation(EchoMotion.swap, value: showOverview)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             // 网页顶上一条 10 高的透明拖动带（照伙伴云NAS应用 v0.9.3 的 WindowDragArea）：网页把鼠标吃掉，右边顶上也要能拖窗口、双击放大。
             // 对话标题栏的按钮从 12 开始（上内边距 8 加 4），总览的按钮从 17 开始，10 以内没有可点的东西
             .overlay(alignment: .top) { EchoWindowDrag().frame(height: 10) }
             .background(EchoColor.surface)
             .clipShape(UnevenRoundedRectangle(topLeadingRadius: 12, bottomLeadingRadius: 12))
-            .overlay(UnevenRoundedRectangle(topLeadingRadius: 12, bottomLeadingRadius: 12).strokeBorder(EchoColor.sideLine, lineWidth: 1).padding(.trailing, -1))
         }
         .background(EchoColor.side)
         .foregroundStyle(EchoColor.fg)
@@ -209,7 +215,7 @@ struct EchoBrowserView: View {
         guard !r.done.isEmpty else { return }
         let shown = (dir as NSString).abbreviatingWithTildeInPath
         if r.done.count == 1, let s = r.done.first {
-            moveCmd = "cd '\(dir.replacingOccurrences(of: "'", with: "'\\''"))' && claude --resume \(s.sessionId)"
+            moveCmd = "cd '\(dir.replacingOccurrences(of: "'", with: "'\\''"))' && " + (s.app == .codex ? "codex resume " : "claude --resume ") + s.sessionId
             moveDone = "已移动到 \(shown)，可复制恢复命令继续会话"
         } else {
             moveDone = "\(r.done.count) 个会话已移动到 \(shown)"
@@ -220,27 +226,33 @@ struct EchoBrowserView: View {
     /// 删除只删会话（本机的原会话和备份一起进废纸篓，其他电脑的只删备份），文件夹本身不动
     @ViewBuilder
     private func dirMenu(_ d: EchoDir) -> some View {
-        let gone = missingDirs.contains(d.path)
-        if gone {
+        // 用不了的项不显示，不摆一排灰的（看不懂）：没有能移动的会话（都在别的电脑上）就没有「找到新位置…」「移动到」；
+        // 文件夹已不存在、归出来的组（Codex 后台任务等）没有「改名…」「在访达中显示」
+        let gone = missingDirs.contains(d.path), real = !gone && !EchoPath.isGroup(d.path)
+        let movable = !movableUnder(d).isEmpty
+        if gone, movable {
             Button("找到新位置…") { findNewPlace(d) }
             Divider()
         }
-        let movable = sessionsUnder(d).filter { $0.app == .claude && $0.computer == EchoPrefs.computerName }
-        Button("改名…") { renameDir(d) }
-            .disabled(gone || EchoPath.isGroup(d.path))
-        Menu(movable.isEmpty ? "移动到（无可移动的会话）" : "移动到") {
-            ForEach(recentDirs(except: d.all).filter { !$0.hasPrefix(d.path + "/") && $0 != d.path }, id: \.self) { t in
-                Button((t as NSString).abbreviatingWithTildeInPath) { confirmDirMove(d, to: t) }
+        if real { Button("改名…") { renameDir(d) } }
+        if movable {
+            Menu("移动到") {
+                ForEach(recentDirs(except: d.all).filter { !$0.hasPrefix(d.path + "/") && $0 != d.path }, id: \.self) { t in
+                    Button((t as NSString).abbreviatingWithTildeInPath) { confirmDirMove(d, to: t) }
+                }
+                Divider()
+                Button("选择文件夹…") { pickDirTarget(d) }
             }
-            Divider()
-            Button("选择文件夹…") { pickDirTarget(d) }
         }
-        .disabled(movable.isEmpty)
-        Button("在访达中显示") { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: d.path)]) }
-            .disabled(gone || EchoPath.isGroup(d.path))
+        if real { Button("在访达中显示") { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: d.path)]) } }
         Button("复制路径") { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(d.path, forType: .string) }
         Divider()
         Button("移到废纸篓…") { confirmDelete(d.all, folder: d.name) }
+    }
+
+    /// 能移动的：本机的会话（Claude、Codex）；别的电脑上的不动
+    private func movableUnder(_ d: EchoDir) -> [EchoSession] {
+        sessionsUnder(d).filter { $0.computer == EchoPrefs.computerName }
     }
 
     /// 这个目录和子目录下的全部会话，不管左栏的电脑、应用、日期筛选（改名、移动目录要带上看不到的会话）
@@ -321,12 +333,26 @@ struct EchoBrowserView: View {
     /// 文件夹已不存在：先猜它改成了什么（上一级里名字最像的子文件夹），问一句；猜不到或选「选择其他文件夹…」就打开选择框
     private func findNewPlace(_ d: EchoDir) {
         guard let g = EchoDirMove.guess(d.path) else { pickDirTarget(d); return }
-        let name = (g as NSString).lastPathComponent
-        let p = EchoDirMove.plan(from: d.path, to: g, sessions: state.sessions, moveFolder: false)
+        let p = EchoDirMove.plan(from: d.path, to: g.path, sessions: state.sessions, moveFolder: false)
         let a = NSAlert()
-        a.messageText = "「\(d.name)」已不存在，是否已改名为「\(name)」？"
-        a.informativeText = EchoDirMove.describe(p) + "。移动后在「\(name)」中恢复会话。"
-        a.addButton(withTitle: "移动会话")
+        // 文案照这句写：「已为你匹配到最可能的新目录，新位置：xxx，是否移动至新位置？」；移不了的用大白话单独一句
+        a.messageText = "已为你匹配到最可能的新目录"
+        let other = p.skipped.filter { $0.computer != EchoPrefs.computerName }.count
+        let gone = p.skipped.count - other
+        var cant: [String] = []
+        if other > 0 { cant.append("\(other) 个其他电脑上的会话") }
+        if gone > 0 { cant.append("\(gone) 个仅有备份的会话") }
+        if !p.missing.isEmpty { cant.append("\(p.missing.count) 个新位置没有对应子目录的会话") }
+        let place = "新位置：" + (g.path as NSString).abbreviatingWithTildeInPath
+        guard p.count > 0 else {
+            // 一个都移不了：不问，直接说
+            a.informativeText = place + "\n" + (cant.isEmpty ? "这里没有需要移动的会话。" : "这里的 " + cant.joined(separator: "、") + "无法移动。")
+            a.addButton(withTitle: "好")
+            a.runModal()
+            return
+        }
+        a.informativeText = place + "\n是否将 \(p.count) 个会话移动至新位置？" + (cant.isEmpty ? "" : "另有 " + cant.joined(separator: "、") + "无法移动。")
+        a.addButton(withTitle: "移动")
         a.addButton(withTitle: "选择其他文件夹…")
         a.addButton(withTitle: "取消")
         switch a.runModal() {
@@ -394,7 +420,7 @@ struct EchoBrowserView: View {
         let local = s.computer == EchoPrefs.computerName
         let targets = group.count > 1 ? group : [s]
         if s.app == .codex, group.count < 2 {
-            // Codex 的会话：在 Codex 里改名；按日期存、不按文件夹，不挪
+            // Codex 的会话：在 Codex 里改名；能移动（只改 Codex 记录里的文件夹，EchoCodexMove）
             Button(local ? "复制恢复命令" : "复制恢复命令（在 \(s.computer) 上）") {
                 let cmd = "cd '\(s.meta.cwd.replacingOccurrences(of: "'", with: "'\\''"))' && codex resume \(s.sessionId)"
                 NSPasteboard.general.clearContents(); NSPasteboard.general.setString(cmd, forType: .string)
@@ -402,18 +428,17 @@ struct EchoBrowserView: View {
             .disabled(!local)
         } else {
             Button(local ? "改名…" : "改名…（在 \(s.computer) 上）") { startRename(.session(s)) }
-                .disabled(!local)
-            let movable = targets.allSatisfy { $0.computer == EchoPrefs.computerName && $0.app == .claude }
-            let why = targets.contains { $0.app != .claude } ? "（不支持 Codex 会话）" : "（在 \(s.computer) 上）"
-            Menu(!movable ? "移动到" + why : group.count > 1 ? "将 \(group.count) 个会话移动到" : "移动到") {
-                ForEach(recentDirs(except: targets), id: \.self) { d in
-                    Button((d as NSString).abbreviatingWithTildeInPath) { doMove(targets, d) }
-                }
-                Divider()
-                Button("选择文件夹…") { pickFolder(targets) }
-            }
-            .disabled(!movable)
+                .disabled(!local || targets.contains { $0.app != .claude })
         }
+        let movable = targets.allSatisfy { $0.computer == EchoPrefs.computerName }
+        Menu(!movable ? "移动到（在 \(s.computer) 上）" : group.count > 1 ? "将 \(group.count) 个会话移动到" : "移动到") {
+            ForEach(recentDirs(except: targets), id: \.self) { d in
+                Button((d as NSString).abbreviatingWithTildeInPath) { doMove(targets, d) }
+            }
+            Divider()
+            Button("选择文件夹…") { pickFolder(targets) }
+        }
+        .disabled(!movable)
         // 在访达中选中回响的备份文件：原会话可能已被清理、在别的电脑上，备份一直在
         Button(group.count > 1 ? "在访达中显示 \(group.count) 个备份" : "在访达中显示备份") {
             NSWorkspace.shared.activateFileViewerSelecting(targets.map(\.url))
@@ -444,10 +469,10 @@ struct EchoBrowserView: View {
             ForEach(list) { c in
                 let members = EchoCollections.sessions(c, in: state.sessions, root: EchoPrefs.backupRoot)
                 let on = !showOverview && c.id == collectionID
-                EchoRow(fill: on ? EchoColor.sideOn : nil, shadow: on) {
+                EchoRow(fill: nil) {
                     VStack(alignment: .leading, spacing: 1) {
-                        Text(c.title).font(.system(size: 13, weight: on ? .semibold : .regular)).lineLimit(1)
-                            .foregroundStyle(EchoColor.fg)
+                        Text(c.title).font(.system(size: 13)).lineLimit(1)
+                            .foregroundStyle(on ? EchoColor.accentText : EchoColor.fg)
                             .frame(maxWidth: .infinity, alignment: .leading)
                         HStack(spacing: 6) {
                             Text("\(members.count) 个会话")
@@ -460,7 +485,7 @@ struct EchoBrowserView: View {
                 } action: {
                     collectionID = c.id
                     picked = []
-                    jumpAt = nil; jumpQuery = nil
+                    jumpAt = nil; jumpQuery = nil; jumpVer = nil
                     showOverview = false
                 }
                 .contextMenu {
@@ -473,11 +498,12 @@ struct EchoBrowserView: View {
 
     /// 左栏顶上一行「总览」（设计稿 设计/总览/）
     private var overviewRow: some View {
-        EchoRow(fill: showOverview ? EchoColor.sideOn : nil, shadow: showOverview) {
+        EchoRow(fill: nil) {
             HStack(spacing: 6) {
                 Image(systemName: "house").font(.system(size: 12, weight: .medium)).frame(width: 12)
                     .foregroundStyle(showOverview ? EchoColor.accent : EchoColor.fg2)
-                Text("总览").font(.system(size: 13, weight: showOverview ? .semibold : .regular))
+                Text("总览").font(.system(size: 13))
+                    .foregroundStyle(showOverview ? EchoColor.accentText : EchoColor.fg)
                 Spacer()
             }
             .frame(height: 32)
@@ -490,11 +516,8 @@ struct EchoBrowserView: View {
 
     private func regroup() {
         let range = EchoDateFilter.range(dateFilter)
-        shown = state.sessions.filter {
-            (computer.isEmpty || $0.computer == computer) && (appFilter.isEmpty || $0.app.rawValue == appFilter)
-                && (range == nil || range!.contains($0.endDate ?? .distantPast))
-        }
-        baseTree = EchoLibrary.dirTree(shown)
+        shown = state.sessions.filter { (computer.isEmpty || $0.computer == computer) && (appFilter.isEmpty || $0.app.rawValue == appFilter) }
+        baseTree = EchoLibrary.dirTree(shown.filter { range == nil || range!.contains($0.endDate ?? .distantPast) })
         if !query.trimmed.isEmpty { search.run(query, in: shown) }
         months = Set(state.sessions.compactMap { $0.endDate.map(EchoDateFilter.monthKey) })
         multiApp = Set(state.sessions.map(\.app)).count > 1
@@ -523,10 +546,14 @@ struct EchoBrowserView: View {
         return level == 0 || (collectionID == nil && d.contains(currentID))
     }
 
+    /// 展开收起 0.15 秒（规范「动效」）：openState 在同一次动画里改，不等 onChange
     private func toggle(_ d: EchoDir, level: Int) {
         var st = openState
         st[d.path] = !isOpen(d, level: level)
-        dirStateRaw = st.map { "\($0.key)\t\($0.value ? 1 : 0)" }.sorted().joined(separator: "\n")
+        withAnimation(EchoMotion.show) {
+            openState = st
+            dirStateRaw = st.map { "\($0.key)\t\($0.value ? 1 : 0)" }.sorted().joined(separator: "\n")
+        }
     }
 
     // MARK: 左栏：多级目录和会话
@@ -550,17 +577,18 @@ struct EchoBrowserView: View {
                         }
                     } action: { pickMenu = pickMenu == "app" ? nil : "app" }
                 }
-                EchoPickButton(on: !dateFilter.isEmpty, help: EchoDateFilter.title(dateFilter)) {
-                    Image(systemName: "clock").font(.system(size: 13))
+                // 图标后写当前范围，默认近 30 天；字已经说明在筛，图标不再变主色
+                EchoPickButton(on: false, help: "按最后使用时间筛选", label: EchoDateFilter.short(dateFilter)) {
+                    Image(systemName: "calendar").font(.system(size: 13))   // 从几组候选里选的（试过时钟、漏斗、三条线、滑杆）
                 } action: { pickMenu = pickMenu == "date" ? nil : "date" }
             }
-            .padding(.leading, 80).padding(.trailing, 10)
+            .padding(.leading, 80).padding(.trailing, 16)
             .frame(height: 56)
             .background(EchoWindowDrag())                                     // 红绿灯那一行，按住能拖窗口
 
             if !state.sessions.isEmpty {
                 EchoSearchField(text: $query, focused: $searchFocus) { if let g = search.groups.first { if let h = g.hits.first { openHit(g.session, h) } else { openPlain(g.session) } } }
-                    .padding(.horizontal, 10).padding(.bottom, 8)
+                    .padding(.horizontal, 16).padding(.bottom, 8)
                     .background {   // ⌥⌘F 聚焦搜索框（照「备忘录」在全部备忘录中搜索）
                         Button("") { searchFocus = true }.keyboardShortcut("f", modifiers: [.command, .option]).opacity(0).allowsHitTesting(false)
                     }
@@ -570,9 +598,10 @@ struct EchoBrowserView: View {
                 empty
             } else if !query.trimmed.isEmpty {
                 ScrollView {
-                    searchResults.padding(.horizontal, 10).padding(.bottom, 12)
+                    searchResults.padding(.horizontal, 16).padding(.bottom, 12)
                 }
                 .scrollIndicators(.never)
+                .transition(.opacity)
             } else {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 0) {
@@ -584,12 +613,14 @@ struct EchoBrowserView: View {
                                 .font(.system(size: 12)).foregroundStyle(EchoColor.fg3).padding(.leading, 10).padding(.top, 14)
                         }
                     }
-                    .padding(.horizontal, 10).padding(.bottom, 12)
+                    .padding(.horizontal, 16).padding(.bottom, 12)   // 左右留白 16（多一些）
                 }
                 .scrollIndicators(.never)
+                .transition(.opacity)
             }
             footer
         }
+        .animation(EchoMotion.show, value: query.trimmed.isEmpty)   // 目录和搜索结果之间淡入淡出
     }
 
     // MARK: 左栏：搜索结果
@@ -652,11 +683,11 @@ struct EchoBrowserView: View {
     /// 一处命中：谁说的（灰）加关键词附近的一截，关键词主色；悬停写时间
     private func searchHitRow(_ h: EchoIndex.Hit, _ s: EchoSession, q: String, anchor: String) -> some View {
         let key = "\(h.fid):\(h.line)", on = key == searchPick && !showOverview
-        return EchoRow(fill: on ? EchoColor.sideOn : nil, shadow: on) {
+        return EchoRow(fill: nil) {
             // 谁说的占一列，摘句折行时第二行和第一行对齐
             HStack(alignment: .firstTextBaseline, spacing: 4) {
-                Text(h.role).foregroundStyle(EchoColor.fg3).frame(width: 26, alignment: .leading)
-                Text(EchoSearchModel.marked(EchoSearchModel.cut(h.text, around: anchor), q)).foregroundStyle(EchoColor.fg2).lineLimit(2)
+                Text(h.role).foregroundStyle(on ? EchoColor.accentText : EchoColor.fg3).frame(width: 26, alignment: .leading)
+                Text(EchoSearchModel.marked(EchoSearchModel.cut(h.text, around: anchor), q)).foregroundStyle(on ? EchoColor.fg : EchoColor.fg2).lineLimit(2)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             .font(.system(size: 12))
@@ -670,7 +701,7 @@ struct EchoBrowserView: View {
         picked = []
         collectionID = nil
         sessionID = s.id
-        jumpAt = nil; jumpQuery = nil
+        jumpAt = nil; jumpQuery = nil; jumpVer = nil
         searchPick = nil
         showOverview = false
     }
@@ -682,6 +713,7 @@ struct EchoBrowserView: View {
         sessionID = s.id
         jumpAt = EchoTime.fastEpoch(h.ts).map { $0 * 1000 }
         jumpQuery = EchoIndex.anchor(query.trimmed)
+        jumpVer = nil
         jumpSeq += 1
         searchPick = "\(h.fid):\(h.line)"
         showOverview = false
@@ -691,7 +723,7 @@ struct EchoBrowserView: View {
     private func guides(_ level: Int) -> some View {
         ZStack(alignment: .topLeading) {
             ForEach(0..<max(0, level), id: \.self) { k in
-                Rectangle().fill(EchoColor.line).frame(width: 1).offset(x: 10 + CGFloat(k) * indentStep + 5.5)
+                Rectangle().fill(EchoColor.sideGuide).frame(width: 1).offset(x: 10 + CGFloat(k) * indentStep + 5.5)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -753,7 +785,7 @@ struct EchoBrowserView: View {
             } preview: { dragGhost(d.name) }
             .onDrop(of: [.text], delegate: EchoRowDrop(drag: drag, update: { dirHover(d, group: group, y: $0.y) }, exit: { leave(d.path) }, perform: { dropOnDir(d) }))
             .padding(.top, level == 0 ? 8 : 0)   // 顶层目录之间多空一点，靠留白分组，不加图标
-            .help(missingDirs.contains(d.path) ? "文件夹已不存在：\((d.path as NSString).abbreviatingWithTildeInPath)\n右键「找到新位置…」把会话移到改名后的文件夹" : (d.path as NSString).abbreviatingWithTildeInPath)
+            .help(missingDirs.contains(d.path) ? "文件夹已不存在：\((d.path as NSString).abbreviatingWithTildeInPath)\n" + (movableUnder(d).isEmpty ? "这里的会话在其他电脑上，无法移动" : "右键「找到新位置…」把会话移到新位置") : (d.path as NSString).abbreviatingWithTildeInPath)
             .contextMenu { dirMenu(d) }
 
             if open {
@@ -781,11 +813,12 @@ struct EchoBrowserView: View {
 
     private func sessionRow(_ s: EchoSession, indent: CGFloat) -> some View {
         let on = picked.contains(s.id) || (!showOverview && picked.isEmpty && collectionID == nil && s.id == currentID)
-        return EchoRow(fill: on ? EchoColor.sideOn : nil, shadow: on) {
+        return EchoRow(fill: nil) {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(s.meta.title == s.sessionId ? "未命名会话" : s.meta.title).font(.system(size: 13, weight: on ? .semibold : .regular)).lineLimit(1)
-                        .foregroundStyle(EchoColor.fg)
+                    // 选中不加色块、不加粗，只把标题换成主色字（色块去掉；加粗时字变宽，选中前后会抖）
+                    Text(s.meta.title == s.sessionId ? "未命名会话" : s.meta.title).font(.system(size: 13)).lineLimit(1)
+                        .foregroundStyle(on ? EchoColor.accentText : EchoColor.fg)
                         .frame(maxWidth: .infinity, alignment: .leading)
                     HStack(spacing: 6) {
                         Text(EchoTime.short(s.endDate))
@@ -806,7 +839,7 @@ struct EchoBrowserView: View {
                 picked = []
                 collectionID = nil
                 sessionID = s.id
-                jumpAt = nil; jumpQuery = nil
+                jumpAt = nil; jumpQuery = nil; jumpVer = nil
                 showOverview = false
             }
         }
@@ -850,12 +883,11 @@ struct EchoBrowserView: View {
             : EchoDropHint(key: d.path, mode: .into, ok: false, text: "目录只能在同级之间排序"))
     }
 
-    /// 会话拖到目录上能不能放：只有本机的 Claude 会话能移动，文件夹要在本机，已在这个文件夹里的不算
+    /// 会话拖到目录上能不能放：本机的会话能移动（Claude、Codex），文件夹要在本机，已在这个文件夹里的不算
     private func moveHint(_ list: [EchoSession], to d: EchoDir) -> EchoDropHint {
         let name = "「\(d.name)」"
         func no(_ t: String) -> EchoDropHint { EchoDropHint(key: d.path, mode: .into, ok: false, text: t) }
         if EchoPath.isGroup(d.path) { return no("\(name)是分组，无法移入") }
-        if list.contains(where: { $0.app != .claude }) { return no("不支持移动 Codex 会话") }
         if let s = list.first(where: { $0.computer != EchoPrefs.computerName }) { return no("会话在 \(s.computer) 上，无法移动") }
         if list.allSatisfy({ EchoPath.real($0.projectPath) == d.path }) { return no("会话已在\(name)中") }
         var isDir: ObjCBool = false
@@ -954,7 +986,7 @@ struct EchoBrowserView: View {
             .disabled(state.running)
             .help("立即备份")
         }
-        .padding(.leading, 20).padding(.trailing, 12)
+        .padding(.leading, 26).padding(.trailing, 18)
         .frame(height: 44)
     }
 

@@ -130,8 +130,8 @@
     tools.forEach((b) => (count[b.name] = (count[b.name] || 0) + 1));
     const names = Object.entries(count).sort((a, b) => b[1] - a[1]).map(([n, c]) => (c > 1 ? `${n} ${c}` : n)).join("、");
     const head = [thinking ? "思考过程" : "", tools.length ? `${tools.length} 次工具调用` : ""].filter(Boolean).join("、");
-    const errs = tools.filter((b) => b.isError).length;
-    return `<details class="steps"><summary>${ICON.chev}<span class="sum">${head}${names ? "：" + esc(names) : ""}</span>${errs ? `<span class="err">${errs} 次出错</span>` : ""}</summary>
+    // 出错只在点开后那一步标红，收起的这一行不写（外部不用显示出错）
+    return `<details class="steps"><summary>${ICON.chev}<span class="sum">${head}${names ? "：" + esc(names) : ""}</span></summary>
       <ol class="step-list">${steps.map(renderStep).join("")}</ol></details>`;
   }
 
@@ -353,6 +353,15 @@
       root.style.paddingLeft = lw + "px";
       root.style.paddingRight = rw + "px";
     };
+    // 跳转统一平滑滚动（点我的消息时正文是瞬间跳过去的）。离得超过两屏的先瞬移到目标前一屏再滚，长会话里不会滚很久；
+    // 系统开了「减少动态效果」就直接跳
+    const calm = window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const glide = (el, block) => {
+      if (calm) return el.scrollIntoView({ block });
+      const H = window.innerHeight, d = el.getBoundingClientRect().top - (block === "center" ? H / 2 : 0);
+      if (Math.abs(d) > 2 * H) window.scrollBy(0, d - Math.sign(d) * H);
+      el.scrollIntoView({ block, behavior: "smooth" });
+    };
     // 画到第 part 段，滚到 id 那里（停在标题栏下），闪一下
     const goTo = (part, id) => {
       if (part >= drawn) draw(part - drawn + 1);
@@ -360,8 +369,10 @@
       if (!el) return;
       const g = el.closest("details.steps");
       if (g) g.open = true;
-      el.scrollIntoView({ block: "start" });
-      const fl = el.classList.contains("pa") ? el.nextElementSibling : el;
+      glide(el, "start");
+      // 段的锚点闪它后面那一条；跳过不显示的时间标记 .ts
+      let fl = el.classList.contains("pa") ? el.nextElementSibling : el;
+      while (fl && fl.classList.contains("ts")) fl = fl.nextElementSibling;
       if (fl) { fl.classList.remove("flash"); void fl.offsetWidth; fl.classList.add("flash"); }
     };
 
@@ -373,6 +384,16 @@
       });
       nav.innerHTML = `${o.head}<div class="r-scroll"><div class="r-list">${html}</div></div><div class="tip"></div>`;
       const scroller = nav.querySelector(".r-scroll"), tip = nav.querySelector(".tip");
+      // 在栏里滚动只滚栏，不带着正文滚：栏滚到头就停；栏名、搜索框这些不能滚的地方滚轮不起作用
+      if (!nav.dataset.trap) {
+        nav.dataset.trap = "1";
+        nav.addEventListener("wheel", (e) => {
+          const sc = e.target.closest(".r-scroll");
+          if (!sc) { e.preventDefault(); return; }
+          const up = e.deltaY < 0;
+          if ((up && sc.scrollTop <= 0) || (!up && sc.scrollTop + sc.clientHeight >= sc.scrollHeight - 1)) e.preventDefault();
+        }, { passive: false });
+      }
       const rows = [...nav.querySelectorAll(".k-row")];
       const byId = Object.fromEntries(items.map((it) => [it.id, it]));
       // 悬停浮出全文：要点栏的一行会截断，鼠标移上去在栏右边浮出这一条的全文；我的消息栏的气泡已经写全，不浮
@@ -661,7 +682,7 @@
         if (p.classList && p.classList.contains("long")) p.classList.add("open");
       }
       mk.classList.add("current");
-      mk.scrollIntoView({ block: "center" });
+      glide(mk, "center");
       $("hits").textContent = `${cur + 1}/${marks.length}`;
     }
     let timer;
@@ -673,8 +694,11 @@
     $("search").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); next(); } });
     document.addEventListener("keydown", (e) => { if ((e.metaKey || e.ctrlKey) && e.key === "f") { e.preventDefault(); $("search").focus(); $("search").select(); } });
 
-    // 从总览点版本或提交进来时带 ?at=毫秒：跳到离那个时间最近的提交要点（15 分钟内），没有就跳到那时候正在进行的那一段
-    window.echoJump = (at) => {
+    // 从总览点版本或提交进来时带 ?at=毫秒、&v=版本号：先找这个版本的要点（版本要点标在这一版最后一次提交的位置，
+    // 往往比打版本号那次提交晚，只按时间找会停到别的版本上）；没带版本号或没找到，跳到离那个时间最近的提交要点（15 分钟内），再没有就跳到那时候正在进行的那一段
+    window.echoJump = (at, ver) => {
+      const mine = ver && keys.find((k) => k.kind === "commit" && k.ver && (k.ver === ver || k.ver.endsWith(" " + ver)));
+      if (mine) return goTo(partOf[mine.turn], mine.id);
       const near = keys.filter((k) => k.kind === "commit" && k.ts).map((k) => [Math.abs(new Date(k.ts) - at), k]).sort((a, b) => a[0] - b[0])[0];
       if (near && near[0] < 15 * 60e3) return goTo(partOf[near[1].turn], near[1].id);
       let i = -1;
@@ -703,9 +727,9 @@
     };
 
     const params = new URLSearchParams(location.search);
-    const at0 = +params.get("at"), q0 = params.get("q");
+    const at0 = +params.get("at"), q0 = params.get("q"), v0 = params.get("v");
     if (q0) setTimeout(() => window.echoFind(q0, at0), 0);
-    else if (at0) setTimeout(() => window.echoJump(at0), 0);
+    else if (at0) setTimeout(() => window.echoJump(at0, v0), 0);
   }
 
   // 回归测试（tests/timeline_test.js）在 node 里加载本文件，取时间轴的规则

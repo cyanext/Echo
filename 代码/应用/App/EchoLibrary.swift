@@ -311,10 +311,11 @@ enum EchoLibrary {
             }
             // Codex：codex/sessions/年/月/日/rollout-….jsonl
             for r in EchoLayout.sessionRoots(c) where r.source == .codex {
+                let codexMoved = EchoMoved.load(r.root.deletingLastPathComponent())   // 移动过的 Codex 会话（只改了 Codex 的记录）按新文件夹显示
                 let en = fm.enumerator(at: r.root, includingPropertiesForKeys: Array(keys), options: .skipsHiddenFiles)
                 for case let f as URL in en?.allObjects ?? [] where f.pathExtension == "jsonl" {
                     guard let v = try? f.resourceValues(forKeys: keys) else { continue }
-                    items.append(Item(f: f, c: c, stamp: EchoFileStamp(size: Int64(v.fileSize ?? 0), mtime: v.contentModificationDate?.timeIntervalSince1970 ?? 0), moved: [:], app: .codex))
+                    items.append(Item(f: f, c: c, stamp: EchoFileStamp(size: Int64(v.fileSize ?? 0), mtime: v.contentModificationDate?.timeIntervalSince1970 ?? 0), moved: codexMoved, app: .codex))
                 }
             }
         }

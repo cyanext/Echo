@@ -47,7 +47,7 @@ ech segs ce57ce36
 ech list --since 2026-11-16 --until 2026-11-22
 # 最近 7 天、只看项目路径里有 NAS 的
 ech list --since 7d --project NAS
-# 改文件夹名，本机 Claude Code 的会话随之移动；先 --dry-run 看会移动几个会话、哪些不移动
+# 改文件夹名，本机的会话（Claude Code、Codex）随之移动；先 --dry-run 看会移动几个会话、哪些不移动
 ech mv ~/伙伴云NAS/客户文档/示例客户/项目二期 ~/伙伴云NAS/客户文档/示例客户/"02 二期项目" --dry-run
 ech mv ~/伙伴云NAS/客户文档/示例客户/项目二期 ~/伙伴云NAS/客户文档/示例客户/"02 二期项目"
 # 备份并更新索引和总览数据

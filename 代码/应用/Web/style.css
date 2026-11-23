@@ -9,7 +9,7 @@
   --fg-faint: #8f959e;
   --line: #e3e5ec;
   --line-strong: #d5d8de;
-  --bubble: #f0f1f5;
+  --bubble: #f3f9f6;   /* 你的消息气泡：很淡的绿（原来 #f0f1f5 偏灰蓝，#eef7f3 还嫌绿） */
   --bad: #d4383e;
   --good: #12a150;
   --hit: #ffe58f;
@@ -22,7 +22,7 @@
     --bg: #1d1e23; --bg-subtle: #23252b; --bg-hover: rgba(255, 255, 255, .06);
     --fg: #e6e8ec; --fg-muted: #9aa0ab; --fg-faint: #6f7581;
     --line: #2c2e35; --line-strong: #3e414a;
-    --bubble: #2a2c33; --bad: #f0686d; --good: #3ccf7e; --hit: #6b5512;
+    --bubble: #232b29; --bad: #f0686d; --good: #3ccf7e; --hit: #6b5512;
     --shadow: 0 6px 20px rgba(0, 0, 0, .45), 0 0 0 1px rgba(255, 255, 255, .06);
     color-scheme: dark;
   }
@@ -32,7 +32,7 @@
   --bg: #1d1e23; --bg-subtle: #23252b; --bg-hover: rgba(255, 255, 255, .06);
   --fg: #e6e8ec; --fg-muted: #9aa0ab; --fg-faint: #6f7581;
   --line: #2c2e35; --line-strong: #3e414a;
-  --bubble: #2a2c33; --bad: #f0686d; --good: #3ccf7e; --hit: #6b5512;
+  --bubble: #232b29; --bad: #f0686d; --good: #3ccf7e; --hit: #6b5512;
   --shadow: 0 6px 20px rgba(0, 0, 0, .45), 0 0 0 1px rgba(255, 255, 255, .06);
   color-scheme: dark;
 }
@@ -122,33 +122,37 @@
 .more { margin-top: 4px; border: 0; background: none; color: var(--accent-text); font-size: 13px; cursor: pointer; padding: 0 6px; }
 
 .msg.ai > * + * { margin-top: 12px; }
+/* 工具调用弱化、贴近上下文字（间隔太大）：和上下只隔 4。中间可能夹着不显示的时间标记 .ts */
+.msg.ai > .steps, .msg.ai > .ts + .steps { margin-top: 4px; }
+.msg.ai > .steps + *, .msg.ai > .steps + .ts + * { margin-top: 4px; }
 
 /* 一串思考和工具调用收成一行，点开是竖线时间线 */
 .steps > summary {
   display: inline-flex; align-items: center; gap: 6px; max-width: 100%;
-  padding: 2px 8px 2px 4px; margin-left: -4px; border-radius: 6px;
-  color: var(--fg-muted); font-size: 13px; line-height: 26px; cursor: pointer; list-style: none; user-select: none;
+  padding: 0 8px 0 4px; margin-left: -4px; border-radius: 6px;
+  color: var(--fg-faint); font-size: 12px; line-height: 22px; cursor: pointer; list-style: none; user-select: none;
 }
 .steps > summary::-webkit-details-marker, .step > details > summary::-webkit-details-marker { display: none; }
-.steps > summary:hover { background: var(--bg-hover); color: var(--fg); }
-.steps > summary .chev { transition: transform .15s; width: 14px; height: 14px; }
+.steps > summary:hover { background: var(--bg-hover); color: var(--fg-muted); }
+.steps > summary .chev { transition: transform .15s; width: 12px; height: 12px; }
 .steps[open] > summary .chev { transform: rotate(90deg); }
 .steps > summary .sum { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.steps > summary .err { margin-left: 4px; color: var(--bad); }
 
-.step-list { list-style: none; margin: 6px 0 4px 10px; padding: 0 0 0 18px; border-left: 2px solid var(--line); }
+/* 竖线 2 宽，中心在每步内容左边 19（边框 2 加内边距 18 的中点）；圆点 8 见方，中心对竖线：left = -19 - 4。
+   上下对这一行文字的中线：行高 22 加上内边距 1，中线在 12，top = 12 - 4（原点没对齐，原来偏右 2） */
+.step-list { list-style: none; margin: 2px 0 2px 10px; padding: 0 0 0 18px; border-left: 2px solid var(--line); }
 .step { position: relative; margin: 0; }
 .step::before {
-  content: ""; position: absolute; left: -24px; top: 11px; width: 10px; height: 10px; border-radius: 50%;
+  content: ""; position: absolute; left: -23px; top: 8px; width: 8px; height: 8px; box-sizing: border-box; border-radius: 50%;
   background: var(--bg); border: 2px solid var(--line-strong);
 }
 .step.error::before { border-color: var(--bad); }
 .step > details > summary {
-  display: flex; align-items: baseline; gap: 8px; padding: 3px 8px; margin-left: -8px; border-radius: 6px;
-  font-size: 13px; line-height: 24px; cursor: pointer; list-style: none; color: var(--fg-muted);
+  display: flex; align-items: baseline; gap: 8px; padding: 1px 8px; margin-left: -8px; border-radius: 6px;
+  font-size: 12px; line-height: 22px; cursor: pointer; list-style: none; color: var(--fg-faint);
 }
 .step > details > summary:hover { background: var(--bg-hover); }
-.step .name { flex: none; font-weight: 600; color: var(--fg); }
+.step .name { flex: none; font-weight: 500; color: var(--fg-muted); }
 .step.error .name { color: var(--bad); }
 .step .desc { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .step .io { padding: 2px 0 10px; }
@@ -157,7 +161,7 @@
 /* 备份里清理掉的内容：灰色小标签。思考过程整段清掉时不能展开，只写一行 */
 .cleaned { display: inline-block; padding: 0 6px; border-radius: 4px; background: var(--bg-subtle); color: var(--fg-faint);
   font: 12px/18px -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif; white-space: nowrap; vertical-align: baseline; }
-.step > .static { display: flex; align-items: baseline; gap: 8px; padding: 3px 8px; margin-left: -8px; font-size: 13px; line-height: 24px; color: var(--fg-muted); }
+.step > .static { display: flex; align-items: baseline; gap: 8px; padding: 1px 8px; margin-left: -8px; font-size: 12px; line-height: 22px; color: var(--fg-faint); }
 
 /* 命令、系统消息、日期和压缩点 */
 .event { display: flex; align-items: center; gap: 8px; margin: 18px 0; font-size: 13px; color: var(--fg-faint); }
@@ -208,6 +212,12 @@
 .has-rail .c-rail.left.slim { width: 44px; }
 .has-urail .c-rail.right.open { display: block; position: fixed; right: 0; top: 0; bottom: 0; width: 260px; z-index: 6; background: var(--bg); border-left: 1px solid var(--line); }
 .has-urail .c-rail.right.open.float { border-left: 0; box-shadow: var(--shadow); }
+/* 过渡统一（规范「动效」）：我的消息栏从右边滑进来 0.2 秒，菜单淡入 0.15 秒 */
+@keyframes rail-in { from { opacity: 0; transform: translateX(16px); } to { opacity: 1; transform: none; } }
+@keyframes pop-in { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+.has-urail .c-rail.right.open { animation: rail-in .2s ease-out; }
+.c-menu:not([hidden]) { animation: pop-in .15s ease-out; }
+@media (prefers-reduced-motion: reduce) { .has-urail .c-rail.right.open, .c-menu:not([hidden]), .flash, .flash > summary, .swap { animation: none; } }
 
 /* 我的消息栏顶上：名字、条数、收起；下面搜索框 */
 .r-hd { display: flex; align-items: center; gap: 8px; height: 56px; padding: 0 10px 0 16px; font-size: 13px; line-height: 20px; font-weight: 600; color: var(--fg); }
@@ -220,7 +230,7 @@
 .r-count { flex: none; font-size: 12px; color: var(--fg-faint); }
 .r-count:empty { display: none; }
 
-.r-scroll { position: absolute; left: 0; right: 0; top: 0; bottom: 0; overflow-y: auto; scrollbar-width: none; }
+.r-scroll { position: absolute; left: 0; right: 0; top: 0; bottom: 0; overflow-y: auto; scrollbar-width: none; overscroll-behavior: contain; }
 .r-scroll::-webkit-scrollbar { display: none; }
 .c-rail.left .r-scroll { display: flex; flex-direction: column; padding: 0 10px 24px 0; }
 .c-rail.left .r-list { margin: auto 0; padding: 8px 0; }   /* 条数少时上下居中，多了从顶上开始滚 */

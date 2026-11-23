@@ -43,6 +43,7 @@ final class EchoDB {
     }
 
     var lastID: Int64 { sqlite3_last_insert_rowid(db) }
+    var changes: Int { Int(sqlite3_changes(db)) }   // 上一条 UPDATE、DELETE 改了几行
 }
 
 private let SQLITE_TRANSIENT = unsafeBitCast(-1, to: sqlite3_destructor_type.self)

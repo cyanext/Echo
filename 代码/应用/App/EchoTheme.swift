@@ -13,10 +13,9 @@ enum EchoColor {
         })
     }
     // 颜色令牌：界面里只引用这些名字，不写色值；和网页的 Web/base.css、overview.css 同名同值
-    static let side = dyn(0xf2f5f5, 0x222627)           // 左栏：纯色，浅色从 #edf0f0 提亮、压一点灰（渐变太丑，不要）
-    static let sideOn = dyn(0xffffff, 0x34353b)
+    static let side = dyn(0xf9fcfb, 0x1f2725)           // 左栏：几乎白的淡绿（#f2f5f5 太灰，#f0f8f5、#f5faf8 还嫌绿重；渐变太丑，不要）
+    static let sideGuide = dyn(0xe9f0ed, 0x2b3331)      // 左栏目录树的竖线：比 line 淡，带一点绿（竖线太灰压压）
     static let sideFg = dyn(0x4b5468, 0xb4b9c5)
-    static let sideLine = dyn(0xe1e6e6, 0x2d3233)
     static let surface = dyn(0xffffff, 0x1d1e23)
     static let fg = dyn(0x1f2329, 0xe6e8ec)
     static let fg2 = dyn(0x646a73, 0x9aa0ab)
@@ -26,12 +25,13 @@ enum EchoColor {
     static let accentText = dyn(0x008081, 0x3fc0c0)      // 主色写字：深一档，浅色对白底 4.8:1（主色本身 3.8:1 偏淡），深色也收一点亮度
     static let sel = dyn(0x00898a, 0x4ccaca, 0.10, 0.16)
     static let hover = dyn(0x1f2329, 0xffffff, 0.05, 0.06)
-    static let sideHover = dyn(0xffffff, 0xffffff, 0.6, 0.06)      // 左栏行悬停：灰底上的半透明白，照 NAS 网站 --bg-side-hover
+    static let sideHover = dyn(0x1f2329, 0xffffff, 0.04, 0.06)     // 左栏行悬停、搜索框底：左栏几乎白了，浅色改成 4% 的深色（原来半透明白看不出）
     static let onSideHover = dyn(0x1f2329, 0xffffff, 0.08, 0.08)   // 左栏里小按钮（目录展开箭头）的悬停，照 NAS 网站 --bg-on-side-hover
     static let accentSoft = dyn(0x00898a, 0x4ccaca, 0.08, 0.14)
     static let onAccent = dyn(0xffffff, 0x10292a)                  // 主色实心底上的字：浅色白字，深色深字（和网页 --on-dark、--on-light 一样）
     static let chrome = dyn(0xf6f7f7, 0x232529)
     static let subtle = dyn(0xf2f4f4, 0x292e2f)
+    static let card = dyn(0xf3f9f6, 0x232b29)          // 设置、首次设置的卡片底：和你的消息气泡同一个淡绿
     // 主色由浅到深的色阶（深色模式反过来，q4 最亮），和网页 overview.css 的 --q1…--q4 一致；mute 两档灰
     static let q2 = dyn(0x64c3c3, 0x006d6d)
     static let q3 = dyn(0x009fa0, 0x009a9b)
@@ -83,6 +83,14 @@ struct EchoResizeHandle: NSViewRepresentable {
     func updateNSView(_ v: V, context: Context) { v.width = $width }
 }
 
+/// 动效（规范「动效」，要统一）：悬停 0.12 秒；出现、消失、展开收起 0.15 秒；内容切换 0.2 秒；都是先快后慢。
+/// 系统设置里开了「减少动态效果」时 SwiftUI 自己会减弱
+enum EchoMotion {
+    static let hover = Animation.easeOut(duration: 0.12)
+    static let show = Animation.easeOut(duration: 0.15)
+    static let swap = Animation.easeOut(duration: 0.2)
+}
+
 /// 左栏的行：悬停半透明白圆角底（0.12 秒渐变），选中时由调用方给白底
 struct EchoRow<Content: View>: View {
     var fill: Color?
@@ -98,7 +106,7 @@ struct EchoRow<Content: View>: View {
                 RoundedRectangle(cornerRadius: 8)
                     .fill(fill ?? (hover ? EchoColor.sideHover : .clear))
                     .shadow(color: .black.opacity(shadow ? 0.06 : 0), radius: 1, y: 1)
-                    .animation(.easeOut(duration: 0.12), value: hover)
+                    .animation(EchoMotion.hover, value: hover)
             )
             .contentShape(Rectangle())
             .onHover { hover = $0 }
@@ -140,8 +148,8 @@ struct EchoTwist: View {
         }
         .buttonStyle(.plain)
         .onHover { hover = $0 }
-        .animation(.easeOut(duration: 0.12), value: hover)
-        .animation(.easeOut(duration: 0.12), value: open)
+        .animation(EchoMotion.hover, value: hover)
+        .animation(EchoMotion.show, value: open)
         .padding(.horizontal, -5)
         .help(open ? "收起" : "展开")
     }
@@ -201,6 +209,7 @@ struct EchoIcon: View {
 struct EchoPickButton<Icon: View>: View {
     let on: Bool
     let help: String
+    var label: String? = nil          // 图标后面写的字（日期筛选写当前范围）
     @ViewBuilder let icon: () -> Icon
     let action: () -> Void
     @State private var hover = false
@@ -208,6 +217,7 @@ struct EchoPickButton<Icon: View>: View {
         Button(action: action) {
             HStack(spacing: 3) {
                 icon()
+                if let label { Text(label).font(.system(size: 12)).padding(.leading, 2) }
                 Image(systemName: "chevron.down").font(.system(size: 8, weight: .semibold))
             }
             .foregroundStyle(on ? EchoColor.accent : EchoColor.fg2)

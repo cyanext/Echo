@@ -7,7 +7,11 @@ import SwiftUI
 struct EchoSettingsView: View {
     enum Page: String, CaseIterable { case general = "通用", storage = "存储" }
     @State private var page: Page
+    @State private var contentH: CGFloat = 400
     init(start: Page = .general) { _page = State(initialValue: start) }
+
+    /// 内容区最高 640（屏幕矮时再减），超出的部分在里面滚动（存储页太高）
+    static var maxContent: CGFloat { min(640, (NSScreen.main?.visibleFrame.height ?? 900) - 160) }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -24,20 +28,31 @@ struct EchoSettingsView: View {
             .frame(height: 52)
             .background(EchoSettingsStyle.chrome)
             Rectangle().fill(EchoColor.line).frame(height: 1)
-            // 窗口高度跟着这一页的内容走（NSHostingView 按内容定窗口大小）
-            Group {
-                switch page {
-                case .general: EchoGeneralSettings()
-                case .storage: EchoStorageSettings()
+            // 窗口高度跟着这一页的内容走（NSHostingView 按内容定窗口大小），最高 maxContent，再高就在里面滚动
+            ScrollView {
+                Group {
+                    switch page {
+                    case .general: EchoGeneralSettings()
+                    case .storage: EchoStorageSettings()
+                    }
                 }
+                .padding(EdgeInsets(top: 24, leading: 32, bottom: 32, trailing: 32))
+                .fixedSize(horizontal: false, vertical: true)
+                .background(GeometryReader { g in Color.clear.preference(key: EchoContentHeight.self, value: g.size.height) })
             }
-            .padding(EdgeInsets(top: 24, leading: 32, bottom: 32, trailing: 32))
-            .fixedSize(horizontal: false, vertical: true)
+            .frame(height: min(contentH, Self.maxContent))
+            .onPreferenceChange(EchoContentHeight.self) { contentH = $0 }
         }
         .frame(width: 680)
         .background(EchoColor.surface)
         .ignoresSafeArea()
     }
+}
+
+/// 设置页内容的实际高度，用来定滚动区的高
+struct EchoContentHeight: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
 }
 
 enum EchoSettingsStyle {
@@ -55,7 +70,7 @@ enum EchoSettingsStyle {
         return i
     }
     static let chrome = EchoColor.chrome
-    static let subtle = EchoColor.subtle
+    static let subtle = EchoColor.card   // 卡片底：淡绿，和消息气泡一个色
     static let accentSoft = EchoColor.accentSoft
     /// 占用条和类型行的颜色：保留的几类主色由深到浅，思考、系统记录灰（默认不备份）
     static func color(_ k: EchoStorage.Kind) -> Color {
@@ -488,7 +503,10 @@ struct EchoBackupBlock: View {
             RoundedRectangle(cornerRadius: 2).fill(EchoSettingsStyle.color(k)).frame(width: 8, height: 8)
             EchoSettingRow(title: k.rawValue, note: note(k)) {
                 if k == .message {
-                    Text("永久保留").font(.system(size: 13)).foregroundStyle(EchoColor.fg2).frame(width: 112, alignment: .leading)
+                    // 不能改：和其他几行一样的选择框，灰掉
+                    Picker("", selection: .constant(-1)) { Text("永久保留").tag(-1) }
+                        .labelsHidden().frame(width: 112).disabled(true)
+                        .help("对话消息一直保留，不能改")
                 } else {
                     Picker("", selection: Binding(get: { keep[k] ?? 0 }, set: { set(k, $0) })) {
                         ForEach(keepOptions, id: \.0) { Text($0.1).tag($0.0) }

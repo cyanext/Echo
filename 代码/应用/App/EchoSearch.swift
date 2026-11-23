@@ -118,8 +118,12 @@ struct EchoSearchField: View {
     var body: some View {
         HStack(spacing: 6) {
             Image(systemName: "magnifyingglass").font(.system(size: 12)).foregroundStyle(EchoColor.fg3)
-            TextField("", text: $text, prompt: Text("搜索全部会话").foregroundColor(EchoColor.fg3))
+            // 占位字自己画：macOS 的 TextField 不认 prompt 的颜色
+            TextField("", text: $text)
                 .textFieldStyle(.plain).font(.system(size: 13))
+                .background(alignment: .leading) {
+                    if text.isEmpty { Text("搜索全部会话").font(.system(size: 13)).foregroundStyle(EchoColor.fg3).allowsHitTesting(false) }
+                }
                 .focused(focused)
                 .onSubmit(submit)
                 .onExitCommand { if text.isEmpty { focused.wrappedValue = false } else { text = "" } }
@@ -132,7 +136,7 @@ struct EchoSearchField: View {
         }
         .padding(.horizontal, 9)
         .frame(height: 30)
-        .background(RoundedRectangle(cornerRadius: 8).fill(EchoColor.hover))
+        .background(RoundedRectangle(cornerRadius: 8).fill(EchoColor.sideHover))   // 淡绿左栏上用半透明白底，黑色淡底发灰
         .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(EchoColor.accent, lineWidth: focused.wrappedValue ? 1.5 : 0))
         .help("搜索全部会话（⌥⌘F）")
     }
