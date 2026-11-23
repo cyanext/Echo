@@ -226,7 +226,7 @@
    窗口窄时只剩横线（slim）。我的消息收起时什么都不显示，展开后从顶到底，正文放不下就浮在正文上（float）。
    两栏固定在窗口两边，正文栏用左右留白让开（JS 的 layout 设 #conv 的左右内边距） */
 .c-rail { display: none; }
-.has-rail .c-rail.left { display: block; position: fixed; left: 0; top: var(--head-h, 56px); bottom: 16px; width: 240px; z-index: 4; }
+.has-rail .c-rail.left { display: block; position: fixed; left: 0; top: var(--head-h, 56px); bottom: 16px; width: 240px; z-index: 6; }   /* 比标题栏（5）高一层：悬停浮出的全文不被标题栏压住 */
 .has-rail .c-rail.left.slim { width: 44px; }
 .has-urail .c-rail.right.open { display: block; position: fixed; right: 0; top: 0; bottom: 0; width: 260px; z-index: 6; background: var(--bg); border-left: 1px solid var(--line); }
 .has-urail .c-rail.right.open.float { border-left: 0; box-shadow: var(--shadow); }
