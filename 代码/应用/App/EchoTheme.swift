@@ -82,6 +82,14 @@ struct EchoResizeHandle: NSViewRepresentable {
     func updateNSView(_ v: V, context: Context) { v.width = $width }
 }
 
+/// 动效（规范「动效」，要统一）：悬停 0.12 秒；出现、消失、展开收起 0.15 秒；内容切换 0.2 秒；都是先快后慢。
+/// 系统设置里开了「减少动态效果」时 SwiftUI 自己会减弱
+enum EchoMotion {
+    static let hover = Animation.easeOut(duration: 0.12)
+    static let show = Animation.easeOut(duration: 0.15)
+    static let swap = Animation.easeOut(duration: 0.2)
+}
+
 /// 左栏的行：悬停半透明白圆角底（0.12 秒渐变），选中时由调用方给白底
 struct EchoRow<Content: View>: View {
     var fill: Color?
@@ -97,7 +105,7 @@ struct EchoRow<Content: View>: View {
                 RoundedRectangle(cornerRadius: 8)
                     .fill(fill ?? (hover ? EchoColor.sideHover : .clear))
                     .shadow(color: .black.opacity(shadow ? 0.06 : 0), radius: 1, y: 1)
-                    .animation(.easeOut(duration: 0.12), value: hover)
+                    .animation(EchoMotion.hover, value: hover)
             )
             .contentShape(Rectangle())
             .onHover { hover = $0 }
@@ -139,8 +147,8 @@ struct EchoTwist: View {
         }
         .buttonStyle(.plain)
         .onHover { hover = $0 }
-        .animation(.easeOut(duration: 0.12), value: hover)
-        .animation(.easeOut(duration: 0.12), value: open)
+        .animation(EchoMotion.hover, value: hover)
+        .animation(EchoMotion.show, value: open)
         .padding(.horizontal, -5)
         .help(open ? "收起" : "展开")
     }

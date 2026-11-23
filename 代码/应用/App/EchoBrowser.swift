@@ -69,13 +69,15 @@ struct EchoBrowserView: View {
         layout
         .overlay(alignment: .bottom) { EchoDropTip(drag: drag) }
         .overlay(alignment: .topLeading) {
-            // 筛选菜单：盖在最上层，左栏右上角按钮下面；点外面任何地方收起
-            if pickMenu != nil {
-                ZStack(alignment: .topLeading) {
+            // 筛选菜单：盖在最上层，左栏右上角按钮下面；点外面任何地方收起。出现、收起淡入淡出 0.15 秒（规范「动效」）
+            ZStack(alignment: .topLeading) {
+                if pickMenu != nil {
                     Color.black.opacity(0.001).onTapGesture { pickMenu = nil }
                     pickMenuView.frame(width: CGFloat(sideW) - 10, alignment: .trailing).padding(.top, 48)
+                        .transition(.opacity.combined(with: .offset(y: -4)))
                 }
             }
+            .animation(EchoMotion.show, value: pickMenu)
         }
         .onChange(of: state.openSessionID) { _, id in
             guard let id else { return }
@@ -121,9 +123,11 @@ struct EchoBrowserView: View {
                 .overlay(alignment: .trailing) { EchoResizeHandle(width: $sideW).frame(width: 10) }
             // 右边白区：靠左栏的两个角收圆角 12，左栏的底色从圆角外露出来（照伙伴云NAS应用）；外面不描边
             ZStack {
-                if showOverview { EchoOverview() }
-                else if let t = target { EchoConversation(target: t, at: jumpAt, q: jumpQuery, ver: jumpVer, seq: jumpSeq) }
+                // 总览和对话之间淡入淡出 0.2 秒（规范「动效」）
+                if showOverview { EchoOverview().transition(.opacity) }
+                else if let t = target { EchoConversation(target: t, at: jumpAt, q: jumpQuery, ver: jumpVer, seq: jumpSeq).transition(.opacity) }
             }
+            .animation(EchoMotion.swap, value: showOverview)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             // 网页顶上一条 10 高的透明拖动带（照伙伴云NAS应用 v0.9.3 的 WindowDragArea）：网页把鼠标吃掉，右边顶上也要能拖窗口、双击放大。
             // 对话标题栏的按钮从 12 开始（上内边距 8 加 4），总览的按钮从 17 开始，10 以内没有可点的东西
@@ -542,10 +546,14 @@ struct EchoBrowserView: View {
         return level == 0 || (collectionID == nil && d.contains(currentID))
     }
 
+    /// 展开收起 0.15 秒（规范「动效」）：openState 在同一次动画里改，不等 onChange
     private func toggle(_ d: EchoDir, level: Int) {
         var st = openState
         st[d.path] = !isOpen(d, level: level)
-        dirStateRaw = st.map { "\($0.key)\t\($0.value ? 1 : 0)" }.sorted().joined(separator: "\n")
+        withAnimation(EchoMotion.show) {
+            openState = st
+            dirStateRaw = st.map { "\($0.key)\t\($0.value ? 1 : 0)" }.sorted().joined(separator: "\n")
+        }
     }
 
     // MARK: 左栏：多级目录和会话
@@ -593,6 +601,7 @@ struct EchoBrowserView: View {
                     searchResults.padding(.horizontal, 16).padding(.bottom, 12)
                 }
                 .scrollIndicators(.never)
+                .transition(.opacity)
             } else {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 0) {
@@ -607,9 +616,11 @@ struct EchoBrowserView: View {
                     .padding(.horizontal, 16).padding(.bottom, 12)   // 左右留白 16（多一些）
                 }
                 .scrollIndicators(.never)
+                .transition(.opacity)
             }
             footer
         }
+        .animation(EchoMotion.show, value: query.trimmed.isEmpty)   // 目录和搜索结果之间淡入淡出
     }
 
     // MARK: 左栏：搜索结果

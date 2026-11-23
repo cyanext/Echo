@@ -353,6 +353,15 @@
       root.style.paddingLeft = lw + "px";
       root.style.paddingRight = rw + "px";
     };
+    // 跳转统一平滑滚动（点我的消息时正文是瞬间跳过去的）。离得超过两屏的先瞬移到目标前一屏再滚，长会话里不会滚很久；
+    // 系统开了「减少动态效果」就直接跳
+    const calm = window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const glide = (el, block) => {
+      if (calm) return el.scrollIntoView({ block });
+      const H = window.innerHeight, d = el.getBoundingClientRect().top - (block === "center" ? H / 2 : 0);
+      if (Math.abs(d) > 2 * H) window.scrollBy(0, d - Math.sign(d) * H);
+      el.scrollIntoView({ block, behavior: "smooth" });
+    };
     // 画到第 part 段，滚到 id 那里（停在标题栏下），闪一下
     const goTo = (part, id) => {
       if (part >= drawn) draw(part - drawn + 1);
@@ -360,7 +369,7 @@
       if (!el) return;
       const g = el.closest("details.steps");
       if (g) g.open = true;
-      el.scrollIntoView({ block: "start" });
+      glide(el, "start");
       // 段的锚点闪它后面那一条；跳过不显示的时间标记 .ts
       let fl = el.classList.contains("pa") ? el.nextElementSibling : el;
       while (fl && fl.classList.contains("ts")) fl = fl.nextElementSibling;
@@ -663,7 +672,7 @@
         if (p.classList && p.classList.contains("long")) p.classList.add("open");
       }
       mk.classList.add("current");
-      mk.scrollIntoView({ block: "center" });
+      glide(mk, "center");
       $("hits").textContent = `${cur + 1}/${marks.length}`;
     }
     let timer;

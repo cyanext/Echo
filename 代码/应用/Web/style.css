@@ -212,6 +212,12 @@
 .has-rail .c-rail.left.slim { width: 44px; }
 .has-urail .c-rail.right.open { display: block; position: fixed; right: 0; top: 0; bottom: 0; width: 260px; z-index: 6; background: var(--bg); border-left: 1px solid var(--line); }
 .has-urail .c-rail.right.open.float { border-left: 0; box-shadow: var(--shadow); }
+/* 过渡统一（规范「动效」）：我的消息栏从右边滑进来 0.2 秒，菜单淡入 0.15 秒 */
+@keyframes rail-in { from { opacity: 0; transform: translateX(16px); } to { opacity: 1; transform: none; } }
+@keyframes pop-in { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+.has-urail .c-rail.right.open { animation: rail-in .2s ease-out; }
+.c-menu:not([hidden]) { animation: pop-in .15s ease-out; }
+@media (prefers-reduced-motion: reduce) { .has-urail .c-rail.right.open, .c-menu:not([hidden]), .flash, .flash > summary, .swap { animation: none; } }
 
 /* 我的消息栏顶上：名字、条数、收起；下面搜索框 */
 .r-hd { display: flex; align-items: center; gap: 8px; height: 56px; padding: 0 10px 0 16px; font-size: 13px; line-height: 20px; font-weight: 600; color: var(--fg); }
