@@ -24,7 +24,7 @@
 
 Runs in the background at login and keeps your Claude Code and Codex sessions, safe from cleanup and visible from your other Mac.
 
-- Images and thinking are not backed up, tool call details become placeholders after 30 days, and the conversation text is kept forever; 80% less space or more
+- The conversation text is kept forever. Images and thinking are not backed up by default (you can turn them on in Settings), and tool call details become placeholders after 30 days; 80% less space or more
 - Secrets and tokens are masked before writing
 - Backups live in your own iCloud Drive, one folder per Mac, synced between your Macs through iCloud and managed in one place
 - Sessions unused for a long time are moved to Trash from Claude Code and Codex once fully backed up
