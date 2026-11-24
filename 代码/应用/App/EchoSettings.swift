@@ -406,7 +406,7 @@ struct EchoSourcesBlock: View {
 
     /// 自动清理的开关、期限、会清理几个：Claude、Codex 共用一个样子（「清理」不写「删除」）
     @ViewBuilder private func autoClean(_ on: Binding<Bool>, _ days: Binding<Int>, _ count: (count: Int, bytes: Int64)?) -> some View {
-        EchoSettingRow(title: "自动清理非活跃会话", note: "仅清理已完整备份的会话，移到废纸篓；正在使用的会话不受影响") {
+        EchoSettingRow(title: "自动清理非活跃会话", note: "仅清理已完整备份的会话，移到废纸篓。正在使用的会话不受影响") {
             Toggle("", isOn: on).toggleStyle(.switch).labelsHidden()
         }
         EchoSettingRow(title: "非活跃期限") {
@@ -415,13 +415,11 @@ struct EchoSourcesBlock: View {
                 .onChange(of: days.wrappedValue) { _, _ in model.countAutoDelete() }
         }
         .disabled(!on.wrappedValue)
-        Group {
-            if let a = count {
-                (Text("按当前设置将清理 ") + Text("\(a.count) 个会话").fontWeight(.semibold) + Text("，释放 \(EchoStorage.size(a.bytes))"))
-            } else { Text("正在统计…") }
+        // 只在真会清理到会话时说一句；一个都不清理、关着、还在统计时不占一行
+        if on.wrappedValue, let a = count, a.count > 0 {
+            (Text("按当前设置将清理 ") + Text("\(a.count) 个会话").fontWeight(.semibold) + Text("，释放 \(EchoStorage.size(a.bytes))"))
+                .font(.system(size: 12)).foregroundStyle(EchoColor.fg2).padding(.vertical, 4)
         }
-        .font(.system(size: 12)).foregroundStyle(EchoColor.fg2).padding(.vertical, 4)
-        .opacity(on.wrappedValue ? 1 : 0.4)
     }
 
     /// Codex 自己不删会话，一直攒着：只有回响的自动清理

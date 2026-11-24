@@ -22,7 +22,7 @@ struct EchoBrowserView: View {
     @State private var errorTitle = "操作未完成"
     @State private var moveDone: String?                               // 挪好后的提示和恢复命令
     @State private var moveCmd: String?
-    @State private var doneTitle = "已移动"                                // 移动、恢复到本机完成后提示框的标题
+    @State private var doneTitle = "已移动"                                // 移动、同步到本机完成后提示框的标题
     @AppStorage("sidebarOrder") private var orderRaw = ""              // 拖动排好的顺序（EchoOrder），JSON
     @State private var drag = EchoDragState()                          // 拖动的状态：放在 @State 里不订阅，鼠标移动时左栏的树不重画
     @State private var currentID: String?                              // 当前打开的会话；数据变了算一次，不在每行里找
@@ -394,19 +394,41 @@ struct EchoBrowserView: View {
         return Array(recentLocalDirs.filter { !skip.contains($0) }.prefix(8))
     }
 
-    /// 恢复到本机：先猜本机对应的文件夹，问一句；猜不到或选「选择其他文件夹…」就打开选择框。恢复完立刻备份，左栏出现本机这一份
-    private func startRestore(_ s: EchoSession) {
-        if let u = EchoRestore.existing(s.sessionId) {
-            errorTitle = "无法恢复"
-            editError = "本机已有此会话（\(u.deletingLastPathComponent().lastPathComponent)）。"
+    /// 同步到本机（EchoRestore）：本机没有就新写一份（先猜本机对应的文件夹，问一句；猜不到或选「选择其他文件夹…」打开选择框）；
+    /// 本机有、另一台接着聊了就问一句再替换；已是最新只提示；两边各自聊过（分叉）让用户选，默认保留本机的。做完立刻备份
+    private func startSync(_ s: EchoSession) {
+        let note = "同步的是回响的备份：对话全文都在，思考过程和到期的工具输出不在，接着聊不受影响。"
+        let from = s.computer == EchoPrefs.computerName ? "回响的备份" : s.computer
+        switch EchoRestore.state(s) {
+        case .missing:
+            break
+        case .upToDate:
+            errorTitle = "已是最新"
+            editError = "本机的这个会话已包含\(from)里的全部对话，不用同步。"
+            return
+        case .newer(let local, let added):
+            let a = NSAlert()
+            a.messageText = "用\(from)上的新版本更新本机的会话？"
+            a.informativeText = "\(from)上多了 \(added) 条对话。本机这份会移到废纸篓，能放回。\n" + note
+            a.addButton(withTitle: "更新")
+            a.addButton(withTitle: "取消")
+            if a.runModal() == .alertFirstButtonReturn { doReplace(s, local) }
+            return
+        case .diverged(let local, let mine, let theirs):
+            let a = NSAlert()
+            a.messageText = "两台电脑上各有新内容"
+            a.informativeText = "本机有 \(mine) 条对话\(from)上没有，\(from)上有 \(theirs) 条本机没有，无法自动合并。\n用\(from)的版本替换时，本机这份移到废纸篓，能放回。"
+            a.addButton(withTitle: "保留本机的")
+            a.addButton(withTitle: "用\(from)的替换")
+            a.buttons[1].hasDestructiveAction = true
+            if a.runModal() == .alertSecondButtonReturn { doReplace(s, local) }
             return
         }
-        let note = "恢复的是回响的备份：对话全文都在，思考过程和到期的工具输出不在，接着聊不受影响。"
         if let g = EchoRestore.guessFolder(s.meta.cwd) {
             let a = NSAlert()
-            a.messageText = "将此会话恢复到本机？"
-            a.informativeText = "恢复到：" + (g as NSString).abbreviatingWithTildeInPath + "\n" + note
-            a.addButton(withTitle: "恢复")
+            a.messageText = "将此会话同步到本机？"
+            a.informativeText = "放到：" + (g as NSString).abbreviatingWithTildeInPath + "\n" + note
+            a.addButton(withTitle: "同步")
             a.addButton(withTitle: "选择其他文件夹…")
             a.addButton(withTitle: "取消")
             switch a.runModal() {
@@ -419,7 +441,7 @@ struct EchoBrowserView: View {
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
         panel.canCreateDirectories = true
-        panel.prompt = "恢复到此处"
+        panel.prompt = "同步到此处"
         panel.message = "选择在本机哪个文件夹里接着这个会话。" + note
         guard panel.runModal() == .OK, let u = panel.url else { return }
         doRestore(s, u.path)
@@ -429,15 +451,33 @@ struct EchoBrowserView: View {
         do {
             try EchoRestore.restore(s, to: dir)
         } catch {
-            errorTitle = "恢复失败"
+            errorTitle = "同步失败"
             editError = error.localizedDescription
             return
         }
+        syncDone(s, dir)
+    }
+
+    private func doReplace(_ s: EchoSession, _ local: URL) {
+        // 本机这份记的文件夹（挪过的按移动记录）：替换后位置不变，恢复命令还用它
+        let dir = (try? EchoSessionScan.read(local).cwd).flatMap { $0.isEmpty ? nil : $0 } ?? s.meta.cwd
+        let shown = state.sessions.first { $0.sessionId == s.sessionId && $0.computer == EchoPrefs.computerName }?.meta.cwd ?? dir
+        do {
+            try EchoRestore.replace(s, local: local)
+        } catch {
+            errorTitle = "同步失败"
+            editError = error.localizedDescription
+            return
+        }
+        syncDone(s, shown)
+    }
+
+    private func syncDone(_ s: EchoSession, _ dir: String) {
         state.lastSuccess = nil
         state.backupNow()
-        doneTitle = "已恢复到本机"
+        doneTitle = "已同步到本机"
         moveCmd = EchoResume.command(.claude, cwd: dir, id: s.sessionId)
-        moveDone = "已恢复到 \((dir as NSString).abbreviatingWithTildeInPath)，可复制恢复命令继续会话"
+        moveDone = "已同步到 \((dir as NSString).abbreviatingWithTildeInPath)，可复制恢复命令继续会话"
     }
 
     private func pickFolder(_ list: [EchoSession]) {
@@ -479,12 +519,12 @@ struct EchoBrowserView: View {
         // 菜单在每次画行时就会构造，这里只按是不是本机的会话判断，不查文件；点下去时改名、删除、挪各自再查
         let local = s.computer == EchoPrefs.computerName
         let targets = group.count > 1 ? group : [s]
-        // Claude 的会话在另一台电脑上、或本机原会话已被清理：能「恢复到本机」（EchoRestore），恢复命令这时用不了
+        // Claude 的会话在另一台电脑上、或本机原会话已被清理：「同步到本机」（EchoRestore），本机有同一个会话时比较新旧再决定
         let restorable = group.count < 2 && s.app == .claude && (!local || EchoRename.originalURL(for: s) == nil)
         if group.count < 2 {
             // 到会话所在的文件夹接着聊：Claude 用 claude --resume，Codex 用 codex resume
             if restorable {
-                Button("恢复到本机…") { startRestore(s) }
+                Button("同步到本机…") { startSync(s) }
             } else {
                 Button(local ? "复制恢复命令" : "复制恢复命令（在 \(s.computer) 上）") { EchoResume.copy(s) }
                     .disabled(!local || s.meta.cwd.isEmpty)
@@ -741,7 +781,7 @@ struct EchoBrowserView: View {
                 .padding(.vertical, 6)
             } action: { if let h = g.hits.first { openHit(s, h) } else { openPlain(s) } }
             .help(s.projectPath)
-            .contextMenu { sessionMenu(s) }   // 和左栏会话一样的右键菜单：复制恢复命令、恢复到本机、改名、移动……
+            .contextMenu { sessionMenu(s) }   // 和左栏会话一样的右键菜单：复制恢复命令、同步到本机、改名、移动……
             ForEach(list, id: \.line) { h in searchHitRow(h, s, q: q, anchor: anchor).contextMenu { sessionMenu(s) } }
             if g.hits.count > list.count {
                 Text("还有 \(g.hits.count - list.count) 处").font(.system(size: 12)).foregroundStyle(EchoColor.accentText)
