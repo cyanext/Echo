@@ -65,7 +65,7 @@ Start a new session and say "continue the last one". Your AI checks Echo for whe
 
 When a problem comes up again, your AI first checks what you tried last time and how it went, then advises, so you don't start over.
 
-<p align="center"><img src="docs/how-tried.svg" width="100%" alt="Asked for a lightweight menu bar icon manager, the AI runs ech find, finds the three apps tried on Nov 9 and why each didn't work, then advises"></p>
+<p align="center"><img src="docs/how-tried.svg" width="100%" alt="The build fails with the same signing error again; the AI runs ech find, sees the three fixes tried on Oct 28 and which one worked, and starts there"></p>
 
 Weekly reports work the same way: one sentence, and the AI uses `ech list` to get a week of sessions, commits and versions across your Macs and AI tools, then writes it up by project.
 
