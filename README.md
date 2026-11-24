@@ -65,7 +65,7 @@
 
 <p align="center"><img src="docs/how-ech.svg" width="100%" alt="你说接着上次那个做，AI 用 ech 在回响里查到上次的回顾，接着往下做"></p>
 
-让 AI 推荐工具时，它会先查你以前试过哪些、当时哪里不好用，不会把你卸掉的又推荐一遍。
+遇到以前碰过的问题，AI 会先查你当时试过哪些办法、结果怎么样，再给建议，不用从头再试一遍。
 
 <p align="center"><img src="docs/how-tried.svg" width="100%" alt="问有没有轻量的菜单栏图标管理工具，AI 先用 ech find 查到 11 月 9 日试过的三个应用和各自的问题，再给建议"></p>
 

@@ -63,7 +63,7 @@ Start a new session and say "continue the last one". Your AI checks Echo for whe
 
 <p align="center"><img src="docs/how-ech.svg" width="100%" alt="You say continue the last one; the AI uses ech to find the latest recap in Echo and carries on"></p>
 
-Ask your AI to recommend a tool and it first checks what you've already tried and what went wrong, so it won't suggest the one you uninstalled.
+When a problem comes up again, your AI first checks what you tried last time and how it went, then advises, so you don't start over.
 
 <p align="center"><img src="docs/how-tried.svg" width="100%" alt="Asked for a lightweight menu bar icon manager, the AI runs ech find, finds the three apps tried on Nov 9 and why each didn't work, then advises"></p>
 
