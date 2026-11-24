@@ -22,7 +22,7 @@ enum EchoTests {
             if let r = ProcessInfo.processInfo.environment["ECHO_SHOT_ROOT"] { EchoPrefs.backupRoot = URL(fileURLWithPath: r) }
             exit(EchoCLI.main(Array(a.dropFirst(2))))
         }
-        if a.count == 3, a[1] == "--rules" { rules(); try renameTest(fixture: URL(fileURLWithPath: a[2])); try statsTest(); try commitMatchTest(); timeTest(); try cleanTest(); try layoutTest(); try backupRootTest(); try pathTest(); try echTest(); try codexMoveTest(); try codexBackupTest(); try autoDeleteTest(); try claudeSettingsTest(); try updateTest(); try emptySessionTest(); menuBarTest() }
+        if a.count == 3, a[1] == "--rules" { rules(); try renameTest(fixture: URL(fileURLWithPath: a[2])); try statsTest(); try commitMatchTest(); timeTest(); try cleanTest(); try layoutTest(); try backupRootTest(); try pathTest(); try echTest(); try codexMoveTest(); try codexBackupTest(); try autoDeleteTest(); try claudeSettingsTest(); try updateTest(); try emptySessionTest(); menuBarTest(); resumeTest() }
         else if a.count == 4, a[1] == "--overview" {   // 手动排查：按应用的方式整理总览数据，写到文件，看用了多久
             let t0 = Date()
             let list = EchoLibrary.scan(backupRoot: URL(fileURLWithPath: a[2]))
@@ -120,6 +120,14 @@ enum EchoTests {
         let listed = EchoLibrary.scan(backupRoot: t.appendingPathComponent("备份")).map(\.sessionId)
         check(listed == ["n"], "列表只该有正常会话，实际 \(listed)")
         print("  空会话 5 项")
+    }
+
+    /// 复制恢复命令：到会话的文件夹，路径里的单引号要转义
+    static func resumeTest() {
+        check(EchoResume.command(.claude, cwd: "/Users/a/项目 A", id: "s1") == "cd '/Users/a/项目 A' && claude --resume s1", "恢复命令：Claude 用 claude --resume")
+        check(EchoResume.command(.codex, cwd: "/tmp/x", id: "019d") == "cd '/tmp/x' && codex resume 019d", "恢复命令：Codex 用 codex resume")
+        check(EchoResume.command(.claude, cwd: "/tmp/it's", id: "s2") == #"cd '/tmp/it'\''s' && claude --resume s2"#, "恢复命令：路径里的单引号转义")
+        print("  恢复命令 3 项")
     }
 
     /// 菜单栏：状态行的文字、今天新增几个会话、最近会话

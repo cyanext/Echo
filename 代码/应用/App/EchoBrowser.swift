@@ -217,7 +217,7 @@ struct EchoBrowserView: View {
         guard !r.done.isEmpty else { return }
         let shown = (dir as NSString).abbreviatingWithTildeInPath
         if r.done.count == 1, let s = r.done.first {
-            moveCmd = "cd '\(dir.replacingOccurrences(of: "'", with: "'\\''"))' && " + (s.app == .codex ? "codex resume " : "claude --resume ") + s.sessionId
+            moveCmd = EchoResume.command(s.app, cwd: dir, id: s.sessionId)
             moveDone = "已移动到 \(shown)，可复制恢复命令继续会话"
         } else {
             moveDone = "\(r.done.count) 个会话已移动到 \(shown)"
@@ -431,14 +431,13 @@ struct EchoBrowserView: View {
         // 菜单在每次画行时就会构造，这里只按是不是本机的会话判断，不查文件；点下去时改名、删除、挪各自再查
         let local = s.computer == EchoPrefs.computerName
         let targets = group.count > 1 ? group : [s]
-        if s.app == .codex, group.count < 2 {
-            // Codex 的会话：在 Codex 里改名；能移动（只改 Codex 记录里的文件夹，EchoCodexMove）
-            Button(local ? "复制恢复命令" : "复制恢复命令（在 \(s.computer) 上）") {
-                let cmd = "cd '\(s.meta.cwd.replacingOccurrences(of: "'", with: "'\\''"))' && codex resume \(s.sessionId)"
-                NSPasteboard.general.clearContents(); NSPasteboard.general.setString(cmd, forType: .string)
-            }
-            .disabled(!local)
-        } else {
+        if group.count < 2 {
+            // 到会话所在的文件夹接着聊：Claude 用 claude --resume，Codex 用 codex resume。另一台电脑的会话这里恢复不了
+            Button(local ? "复制恢复命令" : "复制恢复命令（在 \(s.computer) 上）") { EchoResume.copy(s) }
+                .disabled(!local || s.meta.cwd.isEmpty)
+        }
+        // Codex 的会话在 Codex 里改名；能移动（只改 Codex 记录里的文件夹，EchoCodexMove）
+        if s.app != .codex || group.count > 1 {
             Button(local ? "改名…" : "改名…（在 \(s.computer) 上）") { startRename(.session(s)) }
                 .disabled(!local || targets.contains { $0.app != .claude })
         }

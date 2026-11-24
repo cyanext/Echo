@@ -3,7 +3,7 @@
 // 会话目录里有 custom-title.json 时一并改。只能改本机的会话。
 // 删除、移动见文件末尾 EchoDelete、EchoMove。
 // 合集：几个会话按时间连起来看，存在备份目录的 合集.json（iCloud 同步，两台电脑都能看到），原文件不动。
-import Foundation
+import AppKit
 
 enum EchoRename {
     /// 本机会话的原文件（~/.claude 或 ~/.codex 里）；另一台电脑的会话、原文件已被删的返回 nil。
@@ -255,6 +255,19 @@ enum EchoMove {
         }
         r.files = files
         try? r.save(p.record)
+    }
+}
+
+/// 恢复命令：到会话所在的文件夹（挪过的用新文件夹），用 Claude Code 或 Codex 接着这个会话。
+/// 右键菜单、移动完的提示框用；网页标题栏的复制按钮在 Web/app.js 里按同样的格式拼
+enum EchoResume {
+    static func command(_ app: EchoSource, cwd: String, id: String) -> String {
+        "cd '\(cwd.replacingOccurrences(of: "'", with: "'\\''"))' && " + (app == .codex ? "codex resume " : "claude --resume ") + id
+    }
+
+    static func copy(_ s: EchoSession) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(command(s.app, cwd: s.meta.cwd, id: s.sessionId), forType: .string)
     }
 }
 
