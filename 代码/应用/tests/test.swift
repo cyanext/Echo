@@ -475,6 +475,12 @@ enum EchoTests {
         // 设错了位置时，本机的 claude/ 被当成一台叫 claude 的电脑；改对后只认真的电脑
         check(EchoLibrary.scan(backupRoot: mac).map(\.computer) == ["claude"], "备份位置：复现设错时多出的「claude」电脑")
         check(EchoLibrary.scan(backupRoot: root).map(\.computer) == ["本机"], "备份位置：改对后会话应在「本机」下")
+        // ech 的索引：设错时建过的，改对后同一个文件要重新归到「本机」，不能还记着「claude」
+        try EchoIndex.update(backupRoot: mac)
+        let ixc = try EchoIndex.update(backupRoot: root)
+        var labels: [String] = []
+        try EchoIndex.open().rows("SELECT computer FROM files") { labels.append($0.text(0)) }
+        check(ixc.changed == 1 && labels == ["本机"], "备份位置：索引应把会话改归「本机」，实际 \(labels)")
 
         let saved = UserDefaults.standard.string(forKey: "backupRoot")
         defer { if let saved { UserDefaults.standard.set(saved, forKey: "backupRoot") } else { UserDefaults.standard.removeObject(forKey: "backupRoot") } }
@@ -483,7 +489,7 @@ enum EchoTests {
         check(EchoPrefs.backupRoot.path == r, "备份位置：已经设成电脑文件夹的，启动时应改回上一级，实际 \(EchoPrefs.backupRoot.path)")
         EchoPrefs.repairBackupRoot()
         check(EchoPrefs.backupRoot.path == r, "备份位置：改对的再跑不应再动")
-        print("  备份位置 11 项")
+        print("  备份位置 12 项")
     }
 
     static func layoutTest() throws {
