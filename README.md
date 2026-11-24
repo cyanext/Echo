@@ -67,7 +67,7 @@
 
 遇到以前碰过的问题，AI 会先查你当时试过哪些办法、结果怎么样，再给建议，不用从头再试一遍。
 
-<p align="center"><img src="docs/how-tried.svg" width="100%" alt="问有没有轻量的菜单栏图标管理工具，AI 先用 ech find 查到 11 月 9 日试过的三个应用和各自的问题，再给建议"></p>
+<p align="center"><img src="docs/how-tried.svg" width="100%" alt="打包又报签名错误，AI 先用 ech find 查到 10 月 28 日遇到同一个错误时试过的三个办法和结果，再从管用的那个开始"></p>
 
 写周报也是一句话的事。AI 用 `ech list` 拿到一周里所有电脑、所有 AI 的会话、提交和版本，按项目整理出来。
 

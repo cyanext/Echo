@@ -1,43 +1,38 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="-28 -18 936 613" width="936" height="613" role="img" aria-label="在 Claude Code 里问有没有轻量的菜单栏图标管理工具，AI 先用 ech find 查到 11 月 9 日试过的三个应用和各自的问题，再给建议">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-28 -18 936 646" width="936" height="646" role="img" aria-label="打包又报签名错误，AI 先用 ech find 查到 10 月 28 日遇到同一个错误时试过的三个办法和结果，再从管用的那个开始">
 <defs><filter id="sh" x="-10%" y="-10%" width="120%" height="130%"><feDropShadow dx="0" dy="4" stdDeviation="8" flood-color="#000" flood-opacity=".12"/></filter></defs>
-<rect x=".5" y=".5" width="879" height="556" rx="11" fill="#1e1e1e" filter="url(#sh)"/>
+<rect x=".5" y=".5" width="879" height="589" rx="11" fill="#1e1e1e" filter="url(#sh)"/>
 <style>text{font-family:"SF Mono",Menlo,Monaco,"PingFang SC",monospace;font-size:14px;white-space:pre}.ui{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;font-size:13px}</style>
-<rect x=".5" y=".5" width="879" height="556" rx="11" fill="#1e1e1e" stroke="#3a3a3a"/>
+<rect x=".5" y=".5" width="879" height="589" rx="11" fill="#1e1e1e" stroke="#3a3a3a"/>
 <path d="M.5 34 V11.5 a11 11 0 0 1 11 -11 H868.5 a11 11 0 0 1 11 11 V34 z" fill="#2d2d2d"/><line x1="0" y1="34.5" x2="880" y2="34.5" stroke="#111"/>
 <circle cx="20" cy="17" r="6" fill="#ff5f57"/><circle cx="40" cy="17" r="6" fill="#febc2e"/><circle cx="60" cy="17" r="6" fill="#28c840"/>
-<text class="ui" x="440.0" y="22" text-anchor="middle" fill="#a8a8a8">其他 — claude — 100×36</text>
-<text x="22.0" y="65" fill="#9a9a9a">&gt; 有没有轻量的菜单栏图标管理工具？之前用了好几个都不太行</text>
+<text class="ui" x="440.0" y="22" text-anchor="middle" fill="#a8a8a8">记账本 — claude — 100×36</text>
+<text x="22.0" y="65" fill="#9a9a9a">&gt; 记账本打包又报签名错误了</text>
 <text x="22.0" y="107" fill="#e8e8e8">⏺</text>
-<text x="38.8" y="107" fill="#e8e8e8">我先查一下你以前试过哪些，免得再推荐一遍。</text>
+<text x="38.8" y="107" fill="#e8e8e8">这个错误以前遇到过，我先查一下当时是怎么解决的。</text>
 <text x="22.0" y="149" fill="#4eba65">⏺</text>
 <text x="38.8" y="149" fill="#e8e8e8" font-weight="700">Bash</text>
-<text x="72.4" y="149" fill="#e8e8e8">(ech find &quot;菜单栏 刘海&quot;)</text>
+<text x="72.4" y="149" fill="#e8e8e8">(ech find &quot;errSecInternalComponent&quot;)</text>
 <text x="38.8" y="170" fill="#7a7a7a">⎿</text>
-<text x="64.0" y="170" fill="#9a9a9a">找到 9 处</text>
-<text x="64.0" y="191" fill="#9a9a9a">■ 屏幕分辨率显示问题 · MacBook Pro · Claude Code · 11-09</text>
-<text x="64.0" y="212" fill="#9a9a9a">  2a331461#3  11-09 21:14  你：分辨率改成 1470×956 以后，图标被刘海挡住了</text>
-<text x="64.0" y="233" fill="#9a9a9a">  2a331461#5  11-09 22:06  你：Thaw 也不好用，卸载吧</text>
-<text x="64.0" y="254" fill="#6a6a6a">… +31 lines (ctrl+r to expand)</text>
+<text x="64.0" y="170" fill="#9a9a9a">找到 6 处</text>
+<text x="64.0" y="191" fill="#9a9a9a">■ 发版签名失败 · MacBook Pro · Claude Code · 10-28</text>
+<text x="64.0" y="212" fill="#9a9a9a">  7c1e40d2#4  10-28 15:20  你：打包时报 errSecInternalComponent</text>
+<text x="64.0" y="233" fill="#9a9a9a">  7c1e40d2#6  10-28 16:05  AI：解锁钥匙串后，签名通过了</text>
+<text x="64.0" y="254" fill="#6a6a6a">… +27 lines (ctrl+r to expand)</text>
 <text x="22.0" y="296" fill="#e8e8e8">⏺</text>
-<text x="38.8" y="296" fill="#e8e8e8">11 月 9 日你为了刘海挡图标的事，试过这三个：</text>
-<rect x="38.8" y="306" width="588.0000000000001" height="108" fill="none" stroke="#5a5a5a"/>
-<line x1="156.4" y1="306" x2="156.4" y2="414" stroke="#5a5a5a"/>
-<line x1="542.8000000000001" y1="306" x2="542.8000000000001" y2="414" stroke="#5a5a5a"/>
-<line x1="38.8" y1="333" x2="626.8000000000001" y2="333" stroke="#5a5a5a"/>
-<text x="47.2" y="324.5" fill="#e8e8e8" font-weight="700">应用</text>
-<text x="164.8" y="324.5" fill="#e8e8e8" font-weight="700">当时的问题</text>
-<text x="551.2" y="324.5" fill="#e8e8e8" font-weight="700">现在</text>
-<text x="47.2" y="351.5" fill="#e8e8e8">Ice</text>
-<text x="164.8" y="351.5" fill="#e8e8e8">首次启动的弹窗关不掉，开了 Ice Bar 后反复崩溃</text>
-<text x="551.2" y="351.5" fill="#e8e8e8">已卸载</text>
-<text x="47.2" y="378.5" fill="#e8e8e8">Thaw</text>
-<text x="164.8" y="378.5" fill="#e8e8e8">隐藏的图标竖着弹出，按住 ⌘ 也拖不动</text>
-<text x="551.2" y="378.5" fill="#e8e8e8">已卸载</text>
-<text x="47.2" y="405.5" fill="#e8e8e8">Status Trio</text>
-<text x="164.8" y="405.5" fill="#e8e8e8">只合并 Wi-Fi、蓝牙、电池，不收起其他图标</text>
-<text x="551.2" y="405.5" fill="#e8e8e8">还在用</text>
-<text x="38.8" y="455" fill="#e8e8e8">这次先不装新的：系统设置 › 菜单栏 里可以逐个关掉不常用的图标，</text>
-<text x="38.8" y="476" fill="#e8e8e8">比这几个都轻。关完还挤的话，再看要不要换工具。</text>
+<text x="38.8" y="296" fill="#e8e8e8">10 月 28 日遇到过同一个错误，当时试了三个办法：</text>
+<rect x="38.8" y="306" width="470.40000000000003" height="108" fill="none" stroke="#5a5a5a"/>
+<line x1="408.40000000000003" y1="306" x2="408.40000000000003" y2="414" stroke="#5a5a5a"/>
+<line x1="38.8" y1="333" x2="509.20000000000005" y2="333" stroke="#5a5a5a"/>
+<text x="47.2" y="324.5" fill="#e8e8e8" font-weight="700">试过的办法</text>
+<text x="416.8" y="324.5" fill="#e8e8e8" font-weight="700">结果</text>
+<text x="47.2" y="351.5" fill="#e8e8e8">重新导出签名证书</text>
+<text x="416.8" y="351.5" fill="#e8e8e8">没解决</text>
+<text x="47.2" y="378.5" fill="#e8e8e8">删掉钥匙串里重复的证书</text>
+<text x="416.8" y="378.5" fill="#e8e8e8">没解决</text>
+<text x="47.2" y="405.5" fill="#e8e8e8">用 security unlock-keychain 解锁钥匙串</text>
+<text x="416.8" y="405.5" fill="#e8e8e8">解决了</text>
+<text x="38.8" y="455" fill="#e8e8e8">上次的原因是钥匙串被锁住了。我先看一下钥匙串现在是不是锁着，</text>
+<text x="38.8" y="476" fill="#e8e8e8">锁着就解锁后重新打包，前两个办法这次不用再试。</text>
 <rect x="18" y="499" width="844" height="40" rx="7" fill="none" stroke="#5a5a5a"/>
 <text x="32" y="524" fill="#9a9a9a">&gt; </text><rect x="48.8" y="511" width="8.4" height="17" fill="#c8c8c8"/>
 <text x="22" y="561" fill="#6a6a6a" font-size="12.5">? for shortcuts</text>
