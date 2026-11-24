@@ -275,7 +275,7 @@ enum EchoCLI {
 
     // MARK: resume
 
-    /// 恢复命令：和回响右键「复制恢复命令」一样。原会话在另一台电脑上、或本机已被清理时说清楚，提示先在回响里「恢复到本机」
+    /// 恢复命令：和回响右键「复制恢复命令」一样。原会话在另一台电脑上、或本机已被清理时说清楚，提示先在回响里「同步到本机」
     static func resume(_ a: Args) throws -> String {
         guard let key = a.pos.first else { throw Fail(text: "用法：ech resume <会话>") }
         let db = try openIndex()
@@ -285,8 +285,8 @@ enum EchoCLI {
         let cmd = EchoResume.command(app, cwd: cwd, id: f.sid)
         let local = f.computer == EchoPrefs.computerName
         let gone = local && app == .claude && EchoRestore.existing(f.sid) == nil
-        let note = !local ? "这个会话在 \(f.computer) 上：在那台电脑上运行，或在回响左栏右键这个会话「恢复到本机…」"
-            : gone ? "原会话已被清理，本机只剩回响的备份：先在回响左栏右键这个会话「恢复到本机…」" : ""
+        let note = !local ? "这个会话在 \(f.computer) 上：在那台电脑上运行，或在回响左栏右键这个会话「同步到本机…」"
+            : gone ? "原会话已被清理，本机只剩回响的备份：先在回响左栏右键这个会话「同步到本机…」" : ""
         if a.flags.contains("json") { return json(["session": f.sid, "title": f.title, "computer": f.computer, "cwd": cwd, "command": cmd, "ready": note.isEmpty, "note": note]) }
         return ["\(f.title) · \(f.computer) · \(short(f.sid))", cmd, note].filter { !$0.isEmpty }.joined(separator: "\n")
     }

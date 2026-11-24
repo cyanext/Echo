@@ -122,7 +122,8 @@ enum EchoTests {
         print("  空会话 5 项")
     }
 
-    /// 恢复到本机：写回 projects/<文件夹编码>/，同名目录一起；修改时间改成现在；记移动记录；本机已有同一个 ID 不恢复；猜本机对应的文件夹
+    /// 同步到本机：本机没有时写回 projects/<文件夹编码>/，同名目录一起；修改时间改成现在；记移动记录；本机已有同一个 ID 不再新写；猜本机对应的文件夹；
+    /// 本机有时按对话消息的 uuid 比新旧：备份接着聊了就替换（本机这份进废纸篓），本机已包含就不动，分叉了交给用户
     static func restoreTest() throws {
         let fm = FileManager.default
         let t = fm.temporaryDirectory.appendingPathComponent("回响恢复-\(UUID().uuidString)").standardizedFileURL
@@ -137,7 +138,7 @@ enum EchoTests {
         let s = EchoSession(url: backup.appendingPathComponent("s1.jsonl"), sessionId: "s1", computer: "另一台", size: 1, meta: EchoSessionMeta(title: "旧会话", cwd: "/Users/other/p", start: "", end: ""))
         let dir = t.appendingPathComponent("本机项目").path
         try fm.createDirectory(atPath: dir, withIntermediateDirectories: true)
-        let f = try EchoRestore.restore(s, to: dir, source: source, claudeDir: claudeDir)
+        let f = try EchoRestore.restore(s, to: dir, source: source, claudeDir: claudeDir).resolvingSymlinksInPath()
         check(f.path == source.appendingPathComponent(EchoMove.projectDirName(dir) + "/s1.jsonl").path, "恢复：写到新文件夹对应的项目目录，实际 \(f.path)")
         check((try? String(contentsOf: f, encoding: .utf8)) == line, "恢复：会话内容原样写回")
         check(fm.fileExists(atPath: f.deletingPathExtension().appendingPathComponent("subagents/agent-a.jsonl").path), "恢复：同名目录（子代理）一起写回")
@@ -152,7 +153,31 @@ enum EchoTests {
         check(EchoRestore.guessFolder(dir, home: home, spotlight: false) == dir, "恢复：原路径在本机就用它")
         check(EchoRestore.guessFolder("/Users/other/Projects/订单服务", home: home, spotlight: false) == home + "/Projects/订单服务", "恢复：换成本机主目录后找到")
         check(EchoRestore.guessFolder("/Users/other/没有的文件夹", home: home, spotlight: false) == nil, "恢复：找不到时让用户选")
-        print("  恢复到本机 10 项")
+        // 比新旧：本机这份（u1）、备份接着聊了（u1 u2）、本机也接着聊了另一句（u1 u3）
+        func msg(_ id: String, _ text: String) -> String {
+            #"{"type":"user","uuid":"\#(id)","sessionId":"s1","timestamp":"2026-10-01T00:00:00Z","cwd":"/Users/other/p","origin":{"kind":"human"},"message":{"role":"user","content":"\#(text)"}}"# + "\n"
+        }
+        func st() -> EchoRestore.State {
+            switch EchoRestore.state(s, source: source) {   // 临时目录有 /var 和 /private/var 两种写法，比之前统一
+            case .missing: return .missing
+            case .upToDate(let u): return .upToDate(local: u.resolvingSymlinksInPath())
+            case .newer(let u, let n): return .newer(local: u.resolvingSymlinksInPath(), added: n)
+            case .diverged(let u, let a, let b): return .diverged(local: u.resolvingSymlinksInPath(), mine: a, theirs: b)
+            }
+        }
+        check(st() == .upToDate(local: f), "同步：刚写回的和备份一样，已是最新")
+        try (line + msg("u2", "另一台接着聊")).write(to: s.url, atomically: true, encoding: .utf8)
+        check(st() == .newer(local: f, added: 1), "同步：备份多了 1 条，算新版本，实际 \(st())")
+        try fm.setAttributes([.modificationDate: Date(timeIntervalSinceNow: -600)], ofItemAtPath: f.path)   // 2 分钟内写过的不换
+        try EchoRestore.replace(s, local: f, open: { _ in false }, trash: { try fm.removeItem(at: $0) }, now: Date())
+        check((try? String(contentsOf: f, encoding: .utf8))?.contains("另一台接着聊") == true, "同步：用新版本替换本机这份")
+        check(fm.fileExists(atPath: f.deletingPathExtension().appendingPathComponent("subagents/agent-a.jsonl").path), "同步：替换时同名目录也换成备份里的")
+        try (line + msg("u3", "本机也聊了")).write(to: f, atomically: true, encoding: .utf8)
+        try fm.setAttributes([.modificationDate: Date(timeIntervalSinceNow: -600)], ofItemAtPath: f.path)
+        check(st() == .diverged(local: f, mine: 1, theirs: 1), "同步：两边各有新内容算分叉，实际 \(st())")
+        do { try EchoRestore.replace(s, local: f, open: { _ in true }, trash: { try fm.removeItem(at: $0) }); check(false, "同步：会话开着时不该替换") } catch {}
+        check(fm.fileExists(atPath: f.path), "同步：没替换成时本机这份还在")
+        print("  同步到本机 16 项")
     }
 
     /// 复制恢复命令：到会话的文件夹，路径里的单引号要转义

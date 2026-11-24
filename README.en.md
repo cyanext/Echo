@@ -28,7 +28,7 @@ Runs in the background at login and keeps your Claude Code and Codex sessions, s
 - Secrets and tokens are masked before writing
 - Backups live in your own iCloud Drive, one folder per Mac, synced between your Macs through iCloud and managed in one place
 - Sessions unused for a long time are moved to Trash from Claude Code and Codex once fully backed up
-- Sessions from your other Mac, or ones already cleaned up here, can be restored to this Mac with a right-click and continued
+- Sessions from your other Mac, or ones already cleaned up here, can be synced to this Mac with a right-click and continued; hand a session back and forth between Macs
 - A menu bar icon shows backup status; back up now or open a recent session from it
 
 <p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/storage-dark.png"><img src="docs/storage-light.png" width="49%" alt="Storage settings: 1.1 GB of backups split by conversation, tool calls, tool results, thinking and system records, each with its own retention"></picture> <img src="docs/finder.svg" width="49%" alt="Finder showing iCloud Drive › 回响备份 with one folder per Mac"></p>
@@ -121,7 +121,7 @@ Output is plain text, up to 8,000 characters per page, `--page` to page through,
 
 ## Privacy
 
-- Echo only reads sessions in `~/.claude` and `~/.codex` and never edits their content. Session files change only when you rename, delete, move or restore a session, or when auto cleanup is on. Deletions always go to the Trash, and restoring only creates new files, never overwriting a session.
+- Echo only reads sessions in `~/.claude` and `~/.codex` and never edits their content. Session files change only when you rename, delete, move or sync a session, or when auto cleanup is on. Deleted sessions, and older copies replaced by a sync, always go to the Trash.
 - Backups are written only to the folder you choose and are not uploaded anywhere except iCloud.
 - Only two network requests, neither carrying any local information: a weekly download of a public model price list, and a daily update check (can be turned off in Settings).
 
