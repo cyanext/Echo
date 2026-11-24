@@ -38,6 +38,80 @@ enum EchoLayout {
         }
     }
 
+    // MARK: 备份位置选进了电脑文件夹
+
+    /// 一台电脑的备份文件夹：有备份日志，或 claude/、codex/ 里有备份记录，或是 0.7 及以前的老布局（这一级就有 projects 和备份记录）。
+    /// 备份位置那一级只放各台电脑的文件夹和合集.json，这几样都不会有
+    static func isComputerDir(_ u: URL) -> Bool {
+        let fm = FileManager.default
+        func has(_ p: String) -> Bool { fm.fileExists(atPath: u.appendingPathComponent(p).path) }
+        return has("备份日志.jsonl") || EchoSource.allCases.contains { has($0.folder + "/备份记录.json") } || (has("projects") && has("备份记录.json"))
+    }
+
+    /// 选的文件夹是一台电脑的备份，或里面 claude/、codex/ 这一级时，往上找到放各台电脑的那一级。
+    /// 选进电脑这一层的话，备份会再套一层电脑名，原来的 claude/ 还会被当成一台叫 claude 的电脑。往上最多找 4 层（多套过几次的）
+    static func sharedRoot(_ picked: URL) -> URL {
+        var u = picked.standardizedFileURL
+        for _ in 0..<4 {
+            let appDir = EchoSource.allCases.contains { $0.folder == u.lastPathComponent }
+                && FileManager.default.fileExists(atPath: u.appendingPathComponent("备份记录.json").path)
+            guard appDir || isComputerDir(u), u.path != "/" else { break }
+            u = u.deletingLastPathComponent()
+        }
+        return u
+    }
+
+    /// 备份位置改回上一级后，设错那段时间写进多套那层（<电脑名>/<电脑名>/）的备份挪回 <电脑名>/：
+    /// 这边没有的文件直接挪过来（那段时间新建、之后又被自动清理的会话只在那层有）；两边都有的会话文件留新的，旧的移到废纸篓；
+    /// 已删除统计、移动记录合到一起，备份日志接在后面；其余两边都有的（备份记录等）留这边的。会话都挪回来后，那层剩下的移到废纸篓。返回挪了几个文件
+    @discardableResult
+    static func rescueNested(_ computerDir: URL, name: String,
+                             trash: (URL) throws -> Void = { try FileManager.default.trashItem(at: $0, resultingItemURL: nil) }) -> Int {
+        let fm = FileManager.default
+        let nested = computerDir.appendingPathComponent(name)
+        guard isComputerDir(nested), let en = fm.enumerator(at: nested, includingPropertiesForKeys: [.isRegularFileKey, .contentModificationDateKey]) else { return 0 }
+        let base = nested.standardizedFileURL.path + "/"
+        var moved = 0, failed = 0
+        for case let u as URL in en {
+            guard (try? u.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile == true, u.lastPathComponent != ".DS_Store" else { continue }
+            let rel = String(u.standardizedFileURL.path.dropFirst(base.count))
+            let to = computerDir.appendingPathComponent(rel)
+            do {
+                if !fm.fileExists(atPath: to.path) {
+                    try fm.createDirectory(at: to.deletingLastPathComponent(), withIntermediateDirectories: true)
+                    try fm.moveItem(at: u, to: to)
+                    moved += 1
+                } else if rel == "已删除统计.json" {
+                    try EchoDeleted.add(EchoDeleted.load(nested), computerDir)
+                    try fm.removeItem(at: u)
+                } else if u.lastPathComponent == "移动记录.json" {
+                    try EchoMoved.add(EchoMoved.load(u.deletingLastPathComponent()), to.deletingLastPathComponent())
+                    try fm.removeItem(at: u)
+                } else if rel == "备份日志.jsonl" {
+                    let h = try FileHandle(forWritingTo: to)
+                    defer { try? h.close() }
+                    try h.seekToEnd()
+                    try h.write(contentsOf: try Data(contentsOf: u))
+                    try fm.removeItem(at: u)
+                } else if u.pathExtension == "jsonl" || u.lastPathComponent.hasSuffix(".jsonl.zst") {
+                    let t = { (x: URL) in (try? x.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast }
+                    guard t(u) > t(to) else { continue }
+                    try trash(to)
+                    try fm.moveItem(at: u, to: to)
+                    moved += 1
+                }
+            } catch {
+                failed += 1
+                NSLog("回响：多套的那层备份没挪回来：%@：%@", rel, error.localizedDescription)
+            }
+        }
+        // 都挪回来了，那层剩下的是这边已经有的（备份记录、比这边旧的会话）：整个移到废纸篓。有没挪成的就留着，下次启动再试
+        if failed == 0 {
+            do { try trash(nested) } catch { NSLog("回响：多套的那层没移到废纸篓：%@", error.localizedDescription) }
+        }
+        return moved
+    }
+
     /// Claude 那几样（会话目录、备份记录、移动记录）在哪：新位置 claude/ 有就用它，否则（没升级的电脑）是电脑这一级
     static func claudeDirs(_ computerDir: URL) -> [URL] {
         let fm = FileManager.default

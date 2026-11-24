@@ -46,8 +46,24 @@ enum EchoPrefs {
     }
 
     static var backupRoot: URL {
-        get { d.string(forKey: "backupRoot").map { URL(fileURLWithPath: $0) } ?? defaultBackupRoot }
+        get { runRoot ?? d.string(forKey: "backupRoot").map { URL(fileURLWithPath: $0) } ?? defaultBackupRoot }
         set { d.set(newValue.path, forKey: "backupRoot") }
+    }
+    /// 只在这次运行里用的备份位置：ech 发现设置里的位置是一台电脑的备份文件夹时，按上一级读，设置留给应用启动时改
+    static var runRoot: URL?
+
+    /// 0.14.1 及以前，设置里能把备份位置选进某台电脑的备份文件夹，之后的备份多套一层电脑名。
+    /// 应用启动时改回放各台电脑的那一级，设错那段时间写进多套那层的备份挪回来
+    /// trash：测试时换成直接删，不往系统的废纸篓里放
+    static func repairBackupRoot(trash: (URL) throws -> Void = { try FileManager.default.trashItem(at: $0, resultingItemURL: nil) }) {
+        let root = backupRoot.standardizedFileURL, fixed = EchoLayout.sharedRoot(root)
+        if fixed.path != root.path {
+            NSLog("回响：备份位置是一台电脑的备份文件夹，改用上一级：%@ → %@", root.path, fixed.path)
+            backupRoot = fixed
+        }
+        // 每次启动都看一眼：上次没挪完的接着挪（没有多套那层时只查几个文件在不在）
+        let n = EchoLayout.rescueNested(computerDir, name: computerName, trash: trash)
+        if n > 0 { NSLog("回响：多套那层的 %d 个文件挪回了 %@", n, computerDir.path) }
     }
 
     static var computerDir: URL { backupRoot.appendingPathComponent(computerName) }
@@ -137,6 +153,7 @@ final class EchoState: ObservableObject {
 
     func start() {
         EchoPrefs.pinBackupRoot()
+        EchoPrefs.repairBackupRoot()
         do { try EchoLayout.migrate(EchoPrefs.computerDir) } catch { NSLog("回响：Claude 的备份没挪进 claude/：%@", error.localizedDescription) }
         overview = EchoStats.loadLast()   // 先显示上次整理好的总览，后台再刷新
         EchoPrices.refreshIfDue()
