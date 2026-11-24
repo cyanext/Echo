@@ -5,8 +5,9 @@ import Foundation
 enum EchoBackupRule {
     enum Action: Equatable { case slim, copy, skip }
 
-    /// 图片和 PDF 不备份（tool-results/pdf-*/ 里的页面截图等）
+    /// 图片和 PDF（tool-results/pdf-*/ 里的页面截图等）：设置里「图片和文件」是不备份（默认）时跳过，否则照原样复制，到期由清理移到废纸篓
     static let skipExtensions: Set<String> = ["jpg", "jpeg", "png", "gif", "webp", "heic", "pdf"]
+    static func isMedia(_ name: String) -> Bool { skipExtensions.contains((name as NSString).pathExtension.lowercased()) }
 
     /// rel 是相对 projects 的路径
     static func action(for rel: String) -> Action {
@@ -14,7 +15,7 @@ enum EchoBackupRule {
         if name.hasPrefix(".") { return .skip }
         let ext = (name as NSString).pathExtension.lowercased()
         if ext == "jsonl" { return .slim }
-        if skipExtensions.contains(ext) { return .skip }
+        if skipExtensions.contains(ext) { return EchoPrefs.keepMedia == 0 ? .skip : .copy }
         return .copy
     }
 }

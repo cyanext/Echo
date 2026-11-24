@@ -7,7 +7,7 @@
 规则（需求文档/版本需求/v0.7.0-会话备份和自动清理.html）：
 - 只换内容，不删行（请求记录除外）；不用改的行原样写出，字节不变。
 - 占位统一写成「[已清理：类别，原 大小]」。
-- 图片、文档的 base64 一律不进备份；任意位置名为 base64 的长字符串清空。
+- 图片、文档的 base64 按「图片和文件」的期限（默认 0，不进备份）；到期的换成占位，任意位置名为 base64 的长字符串清空。
 - 思考过程、附件类系统记录、工具调用参数、工具结果按保留期限：0 天是不备份，-1 是永久，其余按这一行的时间算过没过期。
   Bash 里的 git 提交、合并命令和它的结果一直留着（要点栏的版本点从这里取）。
 - 请求记录（api-request 三类）整行去掉。
@@ -18,7 +18,7 @@ Codex 的行（需求文档/版本需求/v0.8.0-多应用支持.html，每行是
   工具结果（*_output）按期限；git 提交、合并命令和它的结果一直留着。
 - 系统记录：developer 消息、系统说明、工具清单、权限沙箱设置、world_state、压缩时存的整段历史副本、
   item_completed 事件（和正式记录重复）、thread_settings_applied，只换下面列的字段，别的字段（cwd、model、用量）留着。
-- 图片：data:…;base64, 开头的长字符串、生成图片的 result 一律换成占位。
+- 图片：data:…;base64, 开头的长字符串、生成图片的 result 按「图片和文件」的期限换成占位（默认一律换）。
 - 自动审批的子会话（session_meta 的 source 是 subagent.other = guardian）：Codex 塞给它的「用户消息」是整段待审对话，
   也算系统记录（分派干活的子代理 thread_spawn 照常）。
 """
@@ -31,7 +31,7 @@ from datetime import datetime, timedelta, timezone
 # 请求记录：请求参数、哈希和对话的重复副本，浏览和恢复都用不到
 DROP_TYPES = {"api-request", "api-request-blob", "api-request-shape"}
 # 保留期限（天），和应用的默认值一致
-DEFAULT_POLICY = {"tool_use": 30, "tool_result": 30, "thinking": 0, "system": 0}
+DEFAULT_POLICY = {"tool_use": 30, "tool_result": 30, "thinking": 0, "system": 0, "media": 0}
 CLEANED_KEY = "已清理"
 
 
@@ -282,10 +282,17 @@ def apply_codex(obj, policy, now, git_ids):
             changed = True
     elif pt == "image_generation_call":
         r = p.get("result")
-        if isinstance(r, str) and len(r) > 1000:
+        if isinstance(r, str) and len(r) > 1000 and expired(policy.get("media", 0), ts, now):
             p["result"] = placeholder("图片", len(r) * 3 // 4)
             changed = True
     return changed
+
+
+def media(obj, strip, policy, now):
+    """图片和文件按这一行的时间看到没到期：到期（默认 0 天，一律）换成占位，没到期原样留着。返回 (新节点, 改没改)"""
+    if not expired(policy.get("media", 0), parse_ts(obj.get("timestamp")), now):
+        return obj, False
+    return strip(obj)
 
 
 def slim_line(line, policy, now, git_ids):
@@ -302,8 +309,8 @@ def slim_line(line, policy, now, git_ids):
         except json.JSONDecodeError:
             obj = None
         if isinstance(obj, dict) and is_codex(obj):
-            obj, c0 = strip_data_urls(obj)
-            obj, c1 = strip_base64(obj)
+            obj, c0 = media(obj, strip_data_urls, policy, now)
+            obj, c1 = media(obj, strip_base64, policy, now)
             c2 = apply_codex(obj, policy, now, git_ids)
             if c0 or c1 or c2:
                 line = json.dumps(obj, ensure_ascii=False, separators=(",", ":")) + "\n"
@@ -314,7 +321,7 @@ def slim_line(line, policy, now, git_ids):
         except json.JSONDecodeError:
             obj = None   # 写到一半的最后一行等坏行原样保留
         if isinstance(obj, dict):
-            obj, c1 = strip_base64(obj)
+            obj, c1 = media(obj, strip_base64, policy, now)
             c2 = apply_policy(obj, policy, now, git_ids)
             if c1 or c2:
                 line = json.dumps(obj, ensure_ascii=False, separators=(",", ":")) + "\n"

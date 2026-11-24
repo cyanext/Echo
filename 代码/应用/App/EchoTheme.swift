@@ -38,6 +38,7 @@ enum EchoColor {
     static let q4 = dyn(0x007677, 0x5ecbcb)
     static let mute = dyn(0xd3dbdb, 0x364042)
     static let mute2 = dyn(0xe6ebeb, 0x2c3536)
+    static let media = dyn(0xa9dcdc, 0x21494a)          // 存储里「图片和文件」：主色最浅一档，和保留的几类一家、又和灰色的「不备份」两类分开
     static let good = dyn(0x12a150, 0x3ccf7e)
     static let warn = dyn(0xe08a00, 0xf0a63a)
 }
