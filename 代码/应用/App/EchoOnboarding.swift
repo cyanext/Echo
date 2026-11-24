@@ -1,6 +1,7 @@
 // 首次设置：第一次打开回响（没完成过引导、本机也还没有备份记录）时出现，四步：欢迎、备份位置、备份内容、自动清理。
 // 设计稿 设计/首次设置/。第 2～4 步直接用设置窗口的各块（EchoSettings），改的就是设置。点「完成，开始备份」后才开始备份。
 import AppKit
+import ServiceManagement
 import SwiftUI
 
 enum EchoOnboarding {
@@ -41,6 +42,20 @@ enum EchoOnboarding {
         window = w
         NSApp.activate(ignoringOtherApps: true)
         w.makeKeyAndOrderFront(nil)
+    }
+
+    /// 点「完成」：执行首次设置里勾着的两项（默认都勾着）。开机自动启动要用户在系统设置里批准时，直接打开登录项那一页
+    static func finish() {
+        let d = UserDefaults.standard
+        d.set(true, forKey: "loginItemAsked")
+        d.set(true, forKey: "cliAsked")
+        if d.object(forKey: "wantLogin") as? Bool ?? true {
+            do { try SMAppService.mainApp.register() } catch { NSLog("回响：设置开机自动启动失败：%@", error.localizedDescription) }
+            if SMAppService.mainApp.status == .requiresApproval { SMAppService.openSystemSettingsLoginItems() }
+        }
+        if d.object(forKey: "wantCLI") as? Bool ?? true {
+            do { try EchoCLIInstall.install() } catch { NSLog("回响：安装命令行工具失败：%@", error.localizedDescription) }
+        }
     }
 
     /// 第 2 步点「继续」：先读一次 ~/.claude、~/.codex，写一次备份文件夹，让系统的授权弹窗在这一步弹完
