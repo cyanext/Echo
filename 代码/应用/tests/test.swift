@@ -22,7 +22,7 @@ enum EchoTests {
             if let r = ProcessInfo.processInfo.environment["ECHO_SHOT_ROOT"] { EchoPrefs.backupRoot = URL(fileURLWithPath: r) }
             exit(EchoCLI.main(Array(a.dropFirst(2))))
         }
-        if a.count == 3, a[1] == "--rules" { rules(); try renameTest(fixture: URL(fileURLWithPath: a[2])); try statsTest(); try commitMatchTest(); timeTest(); try cleanTest(); try layoutTest(); try backupRootTest(); try pathTest(); try echTest(); try codexMoveTest(); try codexBackupTest(); try autoDeleteTest(); try claudeSettingsTest(); try updateTest(); try emptySessionTest(); menuBarTest(); resumeTest(); try restoreTest(); try mediaTest() }
+        if a.count == 3, a[1] == "--rules" { rules(); try renameTest(fixture: URL(fileURLWithPath: a[2])); try statsTest(); try commitMatchTest(); timeTest(); try cleanTest(); try layoutTest(); try backupRootTest(); try pathTest(); try echTest(); try codexMoveTest(); try codexBackupTest(); try autoDeleteTest(); try claudeSettingsTest(); try updateTest(); try emptySessionTest(); menuBarTest(); resumeTest(); try restoreTest(); try mediaTest(); try cloudTest() }
         else if a.count == 4, a[1] == "--overview" {   // 手动排查：按应用的方式整理总览数据，写到文件，看用了多久
             let t0 = Date()
             let list = EchoLibrary.scan(backupRoot: URL(fileURLWithPath: a[2]))
@@ -120,6 +120,50 @@ enum EchoTests {
         let listed = EchoLibrary.scan(backupRoot: t.appendingPathComponent("备份")).map(\.sessionId)
         check(listed == ["n"], "列表只该有正常会话，实际 \(listed)")
         print("  空会话 5 项")
+    }
+
+    /// 另一台电脑的备份只在 iCloud 云端时：列表、索引、总览都先跳过不读、记进等下载；改过的先照上次的显示，下完再读新的
+    static func cloudTest() throws {
+        let fm = FileManager.default, t = fm.temporaryDirectory.appendingPathComponent("回响云端-" + UUID().uuidString)
+        defer { try? fm.removeItem(at: t); EchoCloud.fake = [] }
+        let root = t.appendingPathComponent("备份"), dir = root.appendingPathComponent("另一台/claude/projects/-tmp-p")
+        try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        func ask(_ text: String) -> String { #"{"type":"user","uuid":"\#(UUID().uuidString)","timestamp":"2026-11-20T02:59:00Z","cwd":"/tmp/p","origin":{"kind":"human"},"message":{"role":"user","content":"\#(text)"}}"# }
+        func reply(_ rid: String) -> String { #"{"type":"assistant","timestamp":"2026-11-20T03:00:00Z","requestId":"\#(rid)","message":{"model":"claude-opus-5-5","usage":{"input_tokens":1,"output_tokens":10}}}"# }
+        let a = dir.appendingPathComponent("a.jsonl"), b = dir.appendingPathComponent("b.jsonl"), c = dir.appendingPathComponent("c.jsonl")
+        try [ask("第一句"), reply("a1")].joined(separator: "\n").write(to: a, atomically: true, encoding: .utf8)
+        try [ask("别的"), reply("b1")].joined(separator: "\n").write(to: b, atomically: true, encoding: .utf8)
+        func tokens(_ d: Data) -> [String: Double] {
+            let o = try! JSONSerialization.jsonObject(with: d) as! [String: Any]
+            return Dictionary(uniqueKeysWithValues: (o["sessions"] as! [[String: Any]]).map { x in
+                (x["id"] as! String, ((x["days"] as! [String: Any]).values.first as! [String: Any])["k"].flatMap { ($0 as! [String: [Double]])["claude-opus-5-5"]?[1] } ?? 0)
+            })
+        }
+        var s = EchoLibrary.scan(backupRoot: root, skipCloud: true)
+        check(s.sessions.count == 2 && s.waiting.isEmpty, "云端：都下载了时照常列出")
+        _ = try EchoIndex.update(s)
+        _ = EchoStats.build(s.sessions, skipCloud: true)
+        // 另一台电脑接着聊了 a，又新开了 c，两个都还没下载
+        try [ask("第一句"), reply("a1"), ask("第二句"), reply("a2")].joined(separator: "\n").write(to: a, atomically: true, encoding: .utf8)
+        try [ask("新的"), reply("c1")].joined(separator: "\n").write(to: c, atomically: true, encoding: .utf8)
+        let real = s.sessions[0].url.deletingLastPathComponent()   // 扫出来的是 /private/var/… 这样的真实路径
+        let pa = real.appendingPathComponent("a.jsonl").path, pc = real.appendingPathComponent("c.jsonl").path
+        EchoCloud.fake = [pa, pc]
+        s = EchoLibrary.scan(backupRoot: root, skipCloud: true)
+        check(Set(s.sessions.map(\.sessionId)) == ["a", "b"], "云端：改过的先照上次的列出，新的等下完，实际 \(s.sessions.map(\.sessionId))")
+        check(Set(s.waiting) == [pa, pc], "云端：没下载的记进等下载")
+        check(try EchoIndex.update(s).waiting == [pa], "云端：索引先不做改过的")
+        var (data, wait) = EchoStats.build(s.sessions, skipCloud: true)
+        let ida = s.sessions.first { $0.sessionId == "a" }!.id
+        check(wait == [pa] && tokens(data)[ida] == 10, "云端：总览先算上次的，实际 \(wait) \(tokens(data))")
+        // 下完了
+        EchoCloud.fake = []
+        s = EchoLibrary.scan(backupRoot: root, skipCloud: true)
+        check(s.sessions.count == 3 && s.waiting.isEmpty, "云端：下完补进列表")
+        check(try EchoIndex.update(s).changed == 2, "云端：下完补进索引")
+        (data, wait) = EchoStats.build(s.sessions, skipCloud: true)
+        check(wait.isEmpty && tokens(data)[ida] == 20, "云端：下完总览算新的，实际 \(tokens(data))")
+        print("  iCloud 云端 7 项")
     }
 
     /// 同步到本机：本机没有时写回 projects/<文件夹编码>/，同名目录一起；修改时间改成现在；记移动记录；本机已有同一个 ID 不再新写；猜本机对应的文件夹；
@@ -234,9 +278,14 @@ enum EchoTests {
 
     /// 菜单栏：状态行的文字、今天新增几个会话、最近会话
     static func menuBarTest() {
-        func st(running: Bool = false, done: Int = 0, total: Int = 0, error: String? = nil, failures: Int = 0, stale: Int? = nil, cleanup: Int? = nil, last: Date? = nil) -> String {
-            EchoMenuBar.statusText(running: running, done: done, total: total, error: error, failures: failures, staleDays: stale, cleanupDays: cleanup, last: last)
+        func st(running: Bool = false, done: Int = 0, total: Int = 0, error: String? = nil, failures: Int = 0, stale: Int? = nil, cleanup: Int? = nil, last: Date? = nil,
+                indexing: Bool = false, cloud: Int = 0) -> String {
+            EchoMenuBar.statusText(running: running, done: done, total: total, error: error, failures: failures, staleDays: stale, cleanupDays: cleanup, last: last,
+                                   indexing: indexing, cloud: cloud)
         }
+        check(st(running: true, done: 48, total: 48, indexing: true) == "正在更新索引…", "备份拷完在更新索引时说更新索引")
+        check(st(stale: 5, cloud: 12) == "正在从 iCloud 下载 12 个文件", "等 iCloud 下载时说下载几个文件")
+        check(st(failures: 3, cloud: 12) == "3 个文件备份失败", "备份失败排在等 iCloud 下载前面")
         check(st(running: true, done: 12, total: 48, error: "x") == "正在备份 12/48", "正在备份时先说进度")
         check(st(running: true) == "正在备份…", "还没数出总数时只说正在备份")
         check(st(error: "备份文件夹无法写入", failures: 3) == "备份失败：备份文件夹无法写入", "备份失败写原因，排在文件失败前面")
@@ -255,7 +304,7 @@ enum EchoTests {
         check(EchoMenuBar.todayCount(list, now: EchoTime.parse("2026-11-23T12:00:00.000Z")!) == 2, "今天新增按开始时间算")
         check(EchoMenuBar.recent(list, limit: 2).map(\.sessionId) == ["c", "a"], "最近会话按最后使用时间排")
         check(EchoMenuBar.title(list[2]) == "未命名会话", "没有标题的写未命名会话")
-        print("  菜单栏 11 项")
+        print("  菜单栏 14 项")
     }
 
     /// 检查更新的版本号比较，默认备份位置

@@ -254,26 +254,37 @@ enum EchoIndex {
         return db
     }
 
-    struct UpdateResult { var changed = 0; var removed = 0; var total = 0; var seconds = 0.0 }
+    /// waiting：只在 iCloud 云端、这次没做的文件
+    struct UpdateResult { var changed = 0; var removed = 0; var total = 0; var seconds = 0.0; var waiting: [String] = [] }
 
     /// 增量更新：大小、修改时间或所在电脑变了的备份文件整个重做（备份位置改到上一级后，同一个文件归到的电脑会变），备份里没有了的删掉。
     /// 整理会话多个文件同时做，写库在一个事务里
     @discardableResult
     static func update(backupRoot: URL, sessions given: [EchoSession]? = nil) throws -> UpdateResult {
+        try update(given ?? EchoLibrary.scan(backupRoot: backupRoot), skipCloud: false)
+    }
+
+    /// 应用里用：只在 iCloud 云端的文件先不做，索引里原有的留着，下载完再做（见 EchoCloud）
+    @discardableResult
+    static func update(_ scan: EchoScanResult) throws -> UpdateResult {
+        try update(scan.sessions, keep: scan.waiting, skipCloud: true)
+    }
+
+    private static func update(_ sessions: [EchoSession], keep keepPaths: [String] = [], skipCloud: Bool) throws -> UpdateResult {
         let t0 = Date()
-        let sessions = given ?? EchoLibrary.scan(backupRoot: backupRoot)
         let db = try open()
         var old: [String: (id: Int, size: Int, mtime: Double, computer: String)] = [:]
         try db.rows("SELECT id, path, size, mtime, computer FROM files") { old[$0.text(1)] = ($0.int(0), $0.int(2), $0.double(3), $0.text(4)) }
         let fm = FileManager.default
         var todo: [(EchoSession, Int, Double)] = []
-        var keep = Set<String>()
+        var keep = Set(keepPaths), waiting: [String] = []
         for s in sessions {
             let a = try? fm.attributesOfItem(atPath: s.url.path)
             let size = (a?[.size] as? NSNumber)?.intValue ?? 0
             let mtime = (a?[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0
             keep.insert(s.url.path)
             if let o = old[s.url.path], o.size == size, o.mtime == mtime, o.computer == s.computer { continue }
+            if skipCloud, EchoCloud.isPlaceholder(s.url.path) { waiting.append(s.url.path); continue }
             todo.append((s, size, mtime))
         }
         let built: [(EchoSession, Int, Double, [Row], [Seg])?] = EchoParallel.map(todo) { s, size, mtime in
@@ -281,7 +292,8 @@ enum EchoIndex {
                   let turns = d["turns"] as? [[String: Any]] else { return nil }
             return (s, size, mtime, rows(turns), segments(turns))
         }
-        var r = UpdateResult(total: sessions.count)
+        EchoCloud.download(waiting)
+        var r = UpdateResult(total: sessions.count, waiting: waiting)
         try db.exec("BEGIN")
         do {
             let delLines = try db.prepare("DELETE FROM lines WHERE fid=?"), delSegs = try db.prepare("DELETE FROM segs WHERE fid=?")

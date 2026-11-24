@@ -444,6 +444,11 @@ enum EchoStats {
 
     /// 整理成 overview.js 要的 JSON。同步执行，放在后台线程调用
     static func build(_ sessions: [EchoSession], deleted: [EchoDeletedSession] = []) -> Data {
+        build(sessions, deleted: deleted, skipCloud: false).data
+    }
+
+    /// skipCloud：会话文件或它的子代理记录只在 iCloud 云端、缓存里又没有的，这次不算，记进 waiting 并叫 iCloud 下载（应用里用，见 EchoCloud）
+    static func build(_ sessions: [EchoSession], deleted: [EchoDeletedSession] = [], skipCloud: Bool) -> (data: Data, waiting: [String]) {
         let cacheURL = EchoLibrary.supportDir.appendingPathComponent("总览缓存5.json")   // 2：加了每天的起止时间；3：加了提交号；4：插话算进我的消息；5：算子代理的 Token、记请求 ID
         for v in 2...4 { try? FileManager.default.removeItem(at: EchoLibrary.supportDir.appendingPathComponent("总览缓存\(v).json")) }   // 旧版的缓存用不上了
         let cache = (try? Data(contentsOf: cacheURL)).flatMap { try? JSONDecoder().decode(EchoStatsCache.self, from: $0) } ?? EchoStatsCache()
@@ -452,7 +457,17 @@ enum EchoStats {
         // 缓存里没有、或文件变了的，并发读（第一次打开时一百多个文件，一个个读要十几秒）
         let stamps = sessions.map { stamp($0.url) }
         var read = [(days: [String: EchoDayStat], g: Set<String>, ids: Set<String>)?](repeating: nil, count: sessions.count)
-        let todo = sessions.indices.filter { i in stamps[i] != nil && cache.entries[sessions[i].url.path]?.stamp != stamps[i] }
+        var todo = sessions.indices.filter { i in stamps[i] != nil && cache.entries[sessions[i].url.path]?.stamp != stamps[i] }
+        var waiting: [String] = [], held = Set<Int>()   // held：在等 iCloud 下载的会话
+        if skipCloud {
+            todo = todo.filter { i in
+                let cloud = ([sessions[i].url] + subagentFiles(sessions[i].url)).map(\.path).filter(EchoCloud.isPlaceholder)
+                waiting += cloud
+                if !cloud.isEmpty { held.insert(i) }
+                return cloud.isEmpty
+            }
+            EchoCloud.download(waiting)
+        }
         read.withUnsafeMutableBufferPointer { buf in
             DispatchQueue.concurrentPerform(iterations: todo.count) { n in buf[todo[n]] = try? self.readAll(sessions[todo[n]].url) }
         }
@@ -461,6 +476,7 @@ enum EchoStats {
             guard let stamp = stamps[i] else { continue }
             if let e = cache.entries[s.url.path], e.stamp == stamp { entries[i] = e }
             else if let d = read[i] { entries[i] = .init(stamp: stamp, days: d.days, g: d.g.isEmpty ? nil : d.g.sorted(), r: d.ids.isEmpty ? nil : d.ids.sorted()) }
+            else if held.contains(i), let e = cache.entries[s.url.path] { entries[i] = e }   // 等 iCloud 下载的：先算上次的，记录不换，下完再读
             if let e = entries[i] { fresh.entries[s.url.path] = e }
         }
         // 同一次请求出现在几个会话里（复制、分叉出来的会话带着原会话的记录）：算给最早开始的那个，其余的去掉这几次重读
@@ -470,7 +486,8 @@ enum EchoStats {
             guard let e = entries[i] else { continue }
             let ids = Set(e.r ?? [])
             let dup = ids.intersection(counted)
-            days[i] = dup.isEmpty ? e.days : (try? readAll(sessions[i].url, skip: dup).days) ?? e.days
+            let cloud = skipCloud && !dup.isEmpty && ([sessions[i].url] + subagentFiles(sessions[i].url)).contains { EchoCloud.isPlaceholder($0.path) }
+            days[i] = dup.isEmpty || cloud ? e.days : (try? readAll(sessions[i].url, skip: dup).days) ?? e.days
             counted.formUnion(ids)
         }
         for (i, s) in sessions.enumerated() {
@@ -512,7 +529,7 @@ enum EchoStats {
         let out: [String: Any] = ["today": EchoTime.formatted(Date(), "yyyy-MM-dd"), "sessions": list, "commits": gitList, "backup": backupSummary(sessions)]
         let data = (try? JSONSerialization.data(withJSONObject: out)) ?? Data("{}".utf8)
         try? data.write(to: lastURL, options: .atomic)
-        return data
+        return (data, waiting)
     }
 
     /// 提交归到哪个会话（总览和 ech 用同一个结果）：先看哪个会话里做了这次提交（会话的 g：git commit 输出里的提交号前 7 位，

@@ -101,7 +101,8 @@ final class EchoMenuBar: NSObject, NSMenuDelegate {
     private func updateStatus() {
         let s = EchoState.shared
         status.title = Self.statusText(running: s.running, done: s.done, total: s.total, error: s.error,
-                                       failures: s.failures.count, staleDays: s.staleDays, cleanupDays: s.cleanupDays, last: s.lastSuccess)
+                                       failures: s.failures.count, staleDays: s.staleDays, cleanupDays: s.cleanupDays, last: s.lastSuccess,
+                                       indexing: s.indexing, cloud: s.cloudWaiting.count)
         fix = s.running ? nil : s.error != nil ? .general : s.cleanupDays != nil && s.failures.isEmpty && s.staleDays == nil ? .storage : nil
         status.isEnabled = fix != nil
         status.toolTip = s.error ?? (s.failures.isEmpty ? nil : s.failures.joined(separator: "\n"))
@@ -141,11 +142,14 @@ final class EchoMenuBar: NSObject, NSMenuDelegate {
     // MARK: 文字、挑会话（测试也用）
 
     /// 状态行：和浏览窗口左下角说的是同一件事，备份失败时写出原因
+    /// indexing：备份拷完了在更新索引；cloud：在等 iCloud 下载的文件数（见 EchoCloud）
     nonisolated static func statusText(running: Bool, done: Int, total: Int, error: String?, failures: Int,
-                                       staleDays: Int?, cleanupDays: Int?, last: Date?) -> String {
+                                       staleDays: Int?, cleanupDays: Int?, last: Date?, indexing: Bool = false, cloud: Int = 0) -> String {
+        if running, indexing { return "正在更新索引…" }
         if running { return total > 0 ? "正在备份 \(done)/\(total)" : "正在备份…" }
         if let error { return "备份失败：" + (error.count > 40 ? String(error.prefix(40)) + "…" : error) }
         if failures > 0 { return "\(failures) 个文件备份失败" }
+        if cloud > 0 { return "正在从 iCloud 下载 \(cloud) 个文件" }
         if let n = staleDays { return "已 \(n) 天未备份" }
         if let n = cleanupDays { return "Claude Code 会删除 \(n) 天前的会话" }
         if let last { return "上次备份：" + EchoTime.short(last) }
