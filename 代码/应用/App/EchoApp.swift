@@ -439,8 +439,9 @@ final class EchoAppDelegate: NSObject, NSApplicationDelegate {
             NSApp.mainMenu = Self.mainMenu()
             EchoMenuBar.shared.apply()
             EchoUpdate.shared.start()
-            // 第一次打开时设成开机自动启动，之后以设置里的开关为准
-            if !UserDefaults.standard.bool(forKey: "loginItemAsked") {
+            DispatchQueue.global(qos: .utility).async { _ = EchoCLIInstall.inPath }   // 先在后台问好终端的 PATH，打开设置时不卡
+            // 升级上来、走过首次设置的：第一次打开新版时设成开机自动启动，之后以设置里的开关为准。新装的在首次设置里选
+            if !EchoOnboarding.needed, !UserDefaults.standard.bool(forKey: "loginItemAsked") {
                 UserDefaults.standard.set(true, forKey: "loginItemAsked")
                 try? SMAppService.mainApp.register()
             }
@@ -448,10 +449,10 @@ final class EchoAppDelegate: NSObject, NSApplicationDelegate {
             badge = EchoState.shared.objectWillChange.sink { _ in
                 DispatchQueue.main.async { NSApp.dockTile.badgeLabel = EchoState.shared.needsAttention ? "!" : nil }
             }
-            // 第一次打开：先走首次设置，点「完成」才开始备份，顺带装好命令行工具 ech
+            // 第一次打开：先走首次设置，点「完成」才开始备份；首次设置里勾着的开机自动启动、命令行工具 ech 这时执行
             if EchoOnboarding.needed {
                 EchoOnboarding.show {
-                    do { try EchoCLIInstall.install() } catch { NSLog("回响：安装命令行工具失败：%@", error.localizedDescription) }
+                    EchoOnboarding.finish()
                     EchoState.shared.start(); EchoWindows.showBrowser()
                 }
                 return

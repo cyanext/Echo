@@ -133,15 +133,24 @@ struct EchoGeneralSettings: View {
     @State private var autoUpdate = EchoPrefs.autoUpdate
     @State private var place = EchoPrefs.iconPlace
     @ObservedObject private var state = EchoState.shared
-    /// 首次设置里：开机自动启动写上「推荐」
+    /// 首次设置里：开机自动启动、命令行工具是两个默认打开的开关，点「完成」时才执行（EchoOnboarding.finish）
     private let onboarding: Bool
+    @AppStorage("wantLogin") private var wantLogin = true
+    @AppStorage("wantCLI") private var wantCLI = true
     init(onboarding: Bool = false) { self.onboarding = onboarding }
 
-    /// ech 装在哪、AI 怎么用；~/.local/bin 不在 PATH 里时提示
+    /// ech 装在哪、AI 怎么用；~/.local/bin 不在终端的 PATH 里时提示（AI 会改用完整路径，skill 里写了）
     private var cliNote: String {
         if let cliError { return cliError }
         guard cliInstalled else { return "AI 可通过 ech 查询以往会话、按时间列出会话和提交" }
-        return EchoCLIInstall.inPath ? "已安装 ech 和配套的 skill" : "已安装到 ~/.local/bin/ech，该目录不在 PATH 中，需写完整路径"
+        return EchoCLIInstall.inPath ? "已安装 ech 和配套的 skill" : "已安装到 ~/.local/bin/ech。该目录不在终端的 PATH 中，AI 会用完整路径调用"
+    }
+
+    /// 开机自动启动：要用户在系统设置里批准时说清楚
+    private var loginNote: String {
+        if let loginError { return loginError }
+        if SMAppService.mainApp.status == .requiresApproval { return "需要在「系统设置 › 通用 › 登录项」中允许回响" }
+        return "在后台备份，不弹窗口"
     }
 
     var body: some View {
@@ -165,8 +174,17 @@ struct EchoGeneralSettings: View {
                     .labelsHidden().frame(width: 112)
                     .onChange(of: theme) { _, t in EchoPrefs.theme = t }
             }
-            EchoSettingRow(title: onboarding ? "开机自动启动（推荐）" : "开机自动启动", note: loginError ?? "在后台备份，不弹窗口") {
-                Toggle("", isOn: $login).toggleStyle(.switch).labelsHidden().onChange(of: login) { _, on in setLogin(on) }
+            if onboarding {
+                EchoSettingRow(title: "开机自动启动（推荐）", note: "完成设置时打开，在后台备份，不弹窗口") {
+                    Toggle("", isOn: $wantLogin).toggleStyle(.switch).labelsHidden()
+                }
+            } else {
+                EchoSettingRow(title: "开机自动启动", note: loginNote) {
+                    HStack(spacing: 12) {
+                        if SMAppService.mainApp.status == .requiresApproval { Button("打开系统设置") { SMAppService.openSystemSettingsLoginItems() } }
+                        Toggle("", isOn: $login).toggleStyle(.switch).labelsHidden().onChange(of: login) { _, on in setLogin(on) }
+                    }
+                }
             }
             EchoSettingRow(title: "显示图标", note: place == "menubar" ? "程序坞和 ⌘Tab 中不显示回响，从菜单栏打开窗口" : "菜单栏图标可查看备份状态、立即备份") {
                 Picker("", selection: $place) { Text("程序坞和菜单栏").tag("both"); Text("仅菜单栏").tag("menubar"); Text("仅程序坞").tag("dock") }
@@ -184,10 +202,16 @@ struct EchoGeneralSettings: View {
                     Toggle("", isOn: $autoUpdate).toggleStyle(.switch).labelsHidden().onChange(of: autoUpdate) { _, on in EchoPrefs.autoUpdate = on }
                 }
             }
-            EchoSettingRow(title: "命令行工具", note: cliNote) {
-                Button(cliInstalled ? "重新安装" : "安装") {
-                    do { try EchoCLIInstall.install(); cliError = nil } catch { cliError = error.localizedDescription }
-                    cliInstalled = EchoCLIInstall.installed
+            if onboarding {
+                EchoSettingRow(title: "安装命令行工具 ech（推荐）", note: "完成设置时安装，AI 能用它查以往的会话") {
+                    Toggle("", isOn: $wantCLI).toggleStyle(.switch).labelsHidden()
+                }
+            } else {
+                EchoSettingRow(title: "命令行工具", note: cliNote) {
+                    Button(cliInstalled ? "重新安装" : "安装") {
+                        do { try EchoCLIInstall.install(); cliError = nil } catch { cliError = error.localizedDescription }
+                        cliInstalled = EchoCLIInstall.installed
+                    }
                 }
             }
         }

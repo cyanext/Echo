@@ -601,10 +601,21 @@ enum EchoCLIInstall {
     /// 已经装过：~/.local/bin/ech 是个替身（指向哪都算，启动时会修正）
     static var installed: Bool { (try? FileManager.default.destinationOfSymbolicLink(atPath: link.path)) != nil }
 
-    /// ~/.local/bin 在不在终端的 PATH 里（Claude Code 的终端也是从登录 shell 继承的）
-    static var inPath: Bool {
-        (ProcessInfo.processInfo.environment["PATH"] ?? "").split(separator: ":").contains { $0 == link.deletingLastPathComponent().path }
-    }
+    /// ~/.local/bin 在不在终端的 PATH 里（Claude Code 的终端也是从登录 shell 继承的）。
+    /// 从访达打开的回响自己的 PATH 很短，不准：问一次登录 shell（读 .zprofile、.zshrc），3 秒没回就按不在算
+    static let inPath: Bool = {
+        let p = Process(), out = Pipe()
+        p.executableURL = URL(fileURLWithPath: ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh")
+        p.arguments = ["-ilc", "echo \"$PATH\""]
+        p.standardOutput = out; p.standardError = FileHandle.nullDevice; p.standardInput = FileHandle.nullDevice
+        guard (try? p.run()) != nil else { return false }
+        let deadline = Date().addingTimeInterval(3)
+        while p.isRunning, Date() < deadline { usleep(20_000) }
+        if p.isRunning { p.terminate(); return false }
+        let path = String(decoding: out.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        let dir = link.deletingLastPathComponent().path
+        return path.split(whereSeparator: { $0 == ":" || $0 == "\n" }).contains { $0 == dir || $0 == "$HOME/.local/bin" }
+    }()
 
     static func install() throws {
         guard let target else { throw EchoCLI.Fail(text: "找不到回响的程序") }
