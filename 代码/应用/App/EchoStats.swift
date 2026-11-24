@@ -65,7 +65,7 @@ enum EchoDeleted {
 
     /// 从备份读出这个会话按天的数
     static func make(_ s: EchoSession, at date: Date = Date()) throws -> EchoDeletedSession {
-        let (days, g) = try EchoStats.readAll(s.url)
+        let (days, g, _) = try EchoStats.readAll(s.url)
         return EchoDeletedSession(sid: s.sessionId, t: s.meta.title == s.sessionId ? "未命名会话" : s.meta.title, cwd: s.projectPath,
                                   c: s.computer, deleted: ISO8601DateFormatter().string(from: date), days: days, g: g.isEmpty ? nil : g.sorted())
     }
@@ -75,7 +75,8 @@ enum EchoDeleted {
 struct GitLogCache: Codable { var key: String; var log: String }
 
 private struct EchoStatsCache: Codable {
-    struct Entry: Codable { var stamp: EchoFileStamp; var days: [String: EchoDayStat]; var g: [String]? }
+    /// r：会话里每次请求的 ID（Claude 的 requestId、Codex 的 response_id），总览按它去掉几个会话里重复的请求
+    struct Entry: Codable { var stamp: EchoFileStamp; var days: [String: EchoDayStat]; var g: [String]?; var r: [String]? }
     var entries: [String: Entry] = [:]
 }
 
@@ -122,6 +123,29 @@ enum EchoStats {
     private static let kCacheCreation = RawJSON.quoted("cache_creation")
 
     static func read(_ url: URL) throws -> [String: EchoDayStat] { try readAll(url).days }
+
+    /// Claude 会话的子代理记录：<会话 ID>/subagents/agent-*.jsonl（Agent 工具派出去的，Token 记在这里，主会话文件里没有）
+    static func subagentFiles(_ url: URL) -> [URL] {
+        let dir = url.deletingPathExtension().appendingPathComponent("subagents")
+        let list = (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil, options: .skipsHiddenFiles)) ?? []
+        return list.filter { $0.pathExtension == "jsonl" }.sorted { $0.path < $1.path }
+    }
+
+    /// 总览缓存认的文件状态：会话文件加上子代理记录（子代理写完时主会话不一定变）
+    static func stamp(_ url: URL) -> EchoFileStamp? {
+        let keys: Set<URLResourceKey> = [.fileSizeKey, .contentModificationDateKey]
+        func one(_ u: URL) -> EchoFileStamp? {
+            guard let v = try? u.resourceValues(forKeys: keys) else { return nil }
+            return EchoFileStamp(size: Int64(v.fileSize ?? 0), mtime: v.contentModificationDate?.timeIntervalSince1970 ?? 0)
+        }
+        guard var s = one(url) else { return nil }
+        for f in subagentFiles(url) {
+            guard let x = one(f) else { continue }
+            s.size += x.size
+            s.mtime = max(s.mtime, x.mtime)
+        }
+        return s
+    }
 
     private static let needleChanged = [" file changed", " files changed"].map { Array($0.utf8) }
     /// git commit 的输出第一行「[分支 提交号] 说明」
@@ -175,14 +199,33 @@ enum EchoStats {
     }
 
     /// 读一个会话文件，按天汇总；顺带收 git commit 跑出的提交号。同一次回复拆成几行记录，按 requestId 去重。
+    /// 子代理的 Token 算进这个会话（按子代理记录里的时间归到哪天）；我的消息、AI 干活时长只看主会话。
+    /// skip：这几次请求已经算在别的会话里了（复制、分叉出来的会话带着原会话的记录），不再算。ids 是读到的全部请求 ID。
     /// 只取要用的几个字段：用保留原文的解析器（RawJSON，不建字典），只有不带工具结果的用户消息才完整解析，判断是不是人打的字
-    static func readAll(_ url: URL) throws -> (days: [String: EchoDayStat], g: Set<String>) {
-        if try EchoExport.isCodexFile(url) { return try readCodex(url) }
+    static func readAll(_ url: URL, skip: Set<String> = []) throws -> (days: [String: EchoDayStat], g: Set<String>, ids: Set<String>) {
+        if try EchoExport.isCodexFile(url) { return try readCodex(url, skip: skip) }
         var days: [String: EchoDayStat] = [:], seen = Set<String>(), offsets: [Int: Int] = [:], g = Set<String>()
         func str(_ v: RawJSON?) -> String? { v?.stringRaw.flatMap { EchoSlim.decode($0) } }
         func num(_ v: RawJSON?) -> Double {
             guard case .scalar(let b)? = v else { return 0 }
             return Double(String(decoding: b, as: UTF8.self)) ?? 0
+        }
+        /// 一次回复的 Token：同一个 requestId 只算一次，skip 里的不算
+        func usage(_ j: RawJSON, _ day: String) {
+            guard let msg = j[kMessage], let u = msg[kUsage], case .object = u else { return }
+            let rid = str(j[kRequestId]) ?? str(msg[kId]) ?? UUID().uuidString
+            guard seen.insert(rid).inserted, !skip.contains(rid) else { return }
+            let model = str(msg[kModel]) ?? "?"
+            guard model != "<synthetic>" else { return }
+            func n(_ k: String) -> Double { num(u[RawJSON.quoted(k)]) }
+            let cc = u[kCacheCreation]
+            var w5 = num(cc?[RawJSON.quoted("ephemeral_5m_input_tokens")])
+            let w1 = num(cc?[RawJSON.quoted("ephemeral_1h_input_tokens")])
+            w5 += max(0, n("cache_creation_input_tokens") - w5 - w1)
+            let add = [n("input_tokens"), n("output_tokens"), n("cache_read_input_tokens"), w5, w1]
+            var s = days[day, default: .init()]
+            s.k[model] = zip(s.k[model] ?? [0, 0, 0, 0, 0], add).map { $0 + $1 }
+            days[day] = s
         }
         try EchoLines.each(url) { line in
             let b = EchoLines.trim(line)
@@ -210,20 +253,8 @@ enum EchoStats {
                 guard let d = try? JSONSerialization.jsonObject(with: Data(buffer: b)) as? [String: Any], EchoExport.queuedPrompt(d) != nil else { return }
                 days[day, default: .init()].m += 1
             } else if isUsage {
-                guard type == "assistant", let msg = j[kMessage], let u = msg[kUsage], case .object = u else { return }
-                let rid = str(j[kRequestId]) ?? str(msg[kId]) ?? UUID().uuidString
-                guard seen.insert(rid).inserted else { return }
-                let model = str(msg[kModel]) ?? "?"
-                guard model != "<synthetic>" else { return }
-                func n(_ k: String) -> Double { num(u[RawJSON.quoted(k)]) }
-                let cc = u[kCacheCreation]
-                var w5 = num(cc?[RawJSON.quoted("ephemeral_5m_input_tokens")])
-                let w1 = num(cc?[RawJSON.quoted("ephemeral_1h_input_tokens")])
-                w5 += max(0, n("cache_creation_input_tokens") - w5 - w1)
-                let add = [n("input_tokens"), n("output_tokens"), n("cache_read_input_tokens"), w5, w1]
-                var s = days[day, default: .init()]
-                s.k[model] = zip(s.k[model] ?? [0, 0, 0, 0, 0], add).map { $0 + $1 }
-                days[day] = s
+                guard type == "assistant" else { return }
+                usage(j, day)
             } else {
                 guard str(j[kSubtype]) == "turn_duration" else { return }
                 let ms = num(j[kDuration])
@@ -233,13 +264,21 @@ enum EchoStats {
                 days[day] = s
             }
         }
-        return (days, g)
+        for f in subagentFiles(url) {
+            try EchoLines.each(f) { line in
+                let b = EchoLines.trim(line)
+                guard !EchoLines.has(b, needleUser), EchoLines.has(b, needleAsst), EchoLines.has(b, needleUsage), let j = RawJSON.parse(b),
+                      str(j[kType]) == "assistant", let ts = str(j[kTs]), let t = epoch(ts) else { return }
+                usage(j, localDay(t, &offsets))
+            }
+        }
+        return (days, g, seen)
     }
 
     /// Codex 的会话按天汇总：我的消息数人打的字（EchoExport.codexUserParts）；Token 取 token_usage_record（按 response_id 去重，
     /// 模型取最近一条 turn_context）：缓存读取含在输入里，思考含在输出里，所以 [输入 − 读缓存, 输出, 读缓存, 0, 0]；
     /// AI 干活取 task_complete 的 duration_ms；提交取 git commit 命令里的说明和输出里的提交号
-    static func readCodex(_ url: URL) throws -> (days: [String: EchoDayStat], g: Set<String>) {
+    static func readCodex(_ url: URL, skip: Set<String> = []) throws -> (days: [String: EchoDayStat], g: Set<String>, ids: Set<String>) {
         var days: [String: EchoDayStat] = [:], seen = Set<String>(), offsets: [Int: Int] = [:], g = Set<String>(), model = "?"
         let wanted = ["\"type\":\"turn_context\"", "\"type\":\"token_usage_record\"", "\"task_complete\"", "\"role\":\"user\"", "commit"].map { Array($0.utf8) }
         func touch(_ ts: String?) -> String? {
@@ -262,7 +301,7 @@ enum EchoStats {
             case ("token_usage_record", _):
                 guard let u = p["usage"] as? [String: Any] else { return }
                 let rid = p["response_id"] as? String ?? UUID().uuidString
-                guard seen.insert(rid).inserted, let day = touch(ts) else { return }
+                guard seen.insert(rid).inserted, !skip.contains(rid), let day = touch(ts) else { return }
                 func n(_ k: String) -> Double { (u[k] as? NSNumber)?.doubleValue ?? 0 }
                 let cached = n("cached_input_tokens")
                 let add = [max(0, n("input_tokens") - cached), n("output_tokens"), cached, 0, 0]
@@ -284,7 +323,7 @@ enum EchoStats {
             default: break
             }
         }
-        return (days, g)
+        return (days, g, seen)
     }
 
     /// 会话归到哪个项目：和左栏目录树同一套路径，取大目录下面那一级（~/Desktop/项目代码/NAS/伙伴云NAS应用 → NAS）；
@@ -405,30 +444,38 @@ enum EchoStats {
 
     /// 整理成 overview.js 要的 JSON。同步执行，放在后台线程调用
     static func build(_ sessions: [EchoSession], deleted: [EchoDeletedSession] = []) -> Data {
-        let cacheURL = EchoLibrary.supportDir.appendingPathComponent("总览缓存4.json")   // 2：加了每天的起止时间；3：加了提交号；4：插话算进我的消息
-        try? FileManager.default.removeItem(at: EchoLibrary.supportDir.appendingPathComponent("总览缓存3.json"))   // 旧版的缓存用不上了
+        let cacheURL = EchoLibrary.supportDir.appendingPathComponent("总览缓存5.json")   // 2：加了每天的起止时间；3：加了提交号；4：插话算进我的消息；5：算子代理的 Token、记请求 ID
+        for v in 2...4 { try? FileManager.default.removeItem(at: EchoLibrary.supportDir.appendingPathComponent("总览缓存\(v).json")) }   // 旧版的缓存用不上了
         let cache = (try? Data(contentsOf: cacheURL)).flatMap { try? JSONDecoder().decode(EchoStatsCache.self, from: $0) } ?? EchoStatsCache()
         var fresh = EchoStatsCache()
         var list: [[String: Any]] = []
-        let keys: Set<URLResourceKey> = [.fileSizeKey, .contentModificationDateKey]
         // 缓存里没有、或文件变了的，并发读（第一次打开时一百多个文件，一个个读要十几秒）
-        let stamps = sessions.map { s -> EchoFileStamp? in
-            guard let v = try? s.url.resourceValues(forKeys: keys) else { return nil }
-            return EchoFileStamp(size: Int64(v.fileSize ?? 0), mtime: v.contentModificationDate?.timeIntervalSince1970 ?? 0)
-        }
-        var read = [(days: [String: EchoDayStat], g: Set<String>)?](repeating: nil, count: sessions.count)
+        let stamps = sessions.map { stamp($0.url) }
+        var read = [(days: [String: EchoDayStat], g: Set<String>, ids: Set<String>)?](repeating: nil, count: sessions.count)
         let todo = sessions.indices.filter { i in stamps[i] != nil && cache.entries[sessions[i].url.path]?.stamp != stamps[i] }
         read.withUnsafeMutableBufferPointer { buf in
             DispatchQueue.concurrentPerform(iterations: todo.count) { n in buf[todo[n]] = try? self.readAll(sessions[todo[n]].url) }
         }
+        var entries = [EchoStatsCache.Entry?](repeating: nil, count: sessions.count)
         for (i, s) in sessions.enumerated() {
             guard let stamp = stamps[i] else { continue }
-            let days: [String: EchoDayStat], g: [String]
-            if let e = cache.entries[s.url.path], e.stamp == stamp { days = e.days; g = e.g ?? [] }
-            else if let d = read[i] { days = d.days; g = d.g.sorted() }
-            else { continue }
-            fresh.entries[s.url.path] = .init(stamp: stamp, days: days, g: g.isEmpty ? nil : g)
-            guard !days.isEmpty else { continue }
+            if let e = cache.entries[s.url.path], e.stamp == stamp { entries[i] = e }
+            else if let d = read[i] { entries[i] = .init(stamp: stamp, days: d.days, g: d.g.isEmpty ? nil : d.g.sorted(), r: d.ids.isEmpty ? nil : d.ids.sorted()) }
+            if let e = entries[i] { fresh.entries[s.url.path] = e }
+        }
+        // 同一次请求出现在几个会话里（复制、分叉出来的会话带着原会话的记录）：算给最早开始的那个，其余的去掉这几次重读
+        var counted = Set<String>()
+        var days = [[String: EchoDayStat]?](repeating: nil, count: sessions.count)
+        for i in sessions.indices.sorted(by: { (sessions[$0].meta.start, sessions[$0].url.path) < (sessions[$1].meta.start, sessions[$1].url.path) }) {
+            guard let e = entries[i] else { continue }
+            let ids = Set(e.r ?? [])
+            let dup = ids.intersection(counted)
+            days[i] = dup.isEmpty ? e.days : (try? readAll(sessions[i].url, skip: dup).days) ?? e.days
+            counted.formUnion(ids)
+        }
+        for (i, s) in sessions.enumerated() {
+            guard let e = entries[i], let days = days[i], !days.isEmpty else { continue }
+            let g = e.g ?? []
             let dict = days.mapValues { d -> [String: Any] in ["m": d.m, "ms": d.ms, "lg": d.lg, "k": d.k, "a": d.a, "b": d.b] }
             var one: [String: Any] = ["id": s.id, "t": s.meta.title == s.sessionId ? "未命名会话" : s.meta.title,
                                       "p": project(s.projectPath), "d": projectPath(s.projectPath), "c": s.computer, "days": dict]

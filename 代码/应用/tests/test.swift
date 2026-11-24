@@ -204,6 +204,29 @@ enum EchoTests {
         }
         check(sessCount([]) == (1, 1), "已删除统计：删了以后总览应照算，实际 \(sessCount([]))")
         check(sessCount([sess]) == (1, 0), "已删除统计：放回来以后不应算两遍，实际 \(sessCount([sess]))")
+        // 子代理的 Token 算进主会话；同一次请求在几个会话里只算一次，算给最早开始的
+        let tdir = FileManager.default.temporaryDirectory.appendingPathComponent("回响跨会话统计-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: tdir) }
+        try FileManager.default.createDirectory(at: tdir.appendingPathComponent("a/subagents"), withIntermediateDirectories: true)
+        func reply(_ rid: String, _ out: Int, _ ts: String = "2026-11-20T03:00:00Z") -> String {
+            #"{"type":"assistant","timestamp":"\#(ts)","requestId":"\#(rid)","message":{"model":"claude-opus-5-5","usage":{"input_tokens":1,"output_tokens":\#(out)}}}"#
+        }
+        let ask = #"{"type":"user","timestamp":"2026-11-20T02:59:00Z","message":{"role":"user","content":"开始"},"origin":{"kind":"human"}}"#
+        try [ask, reply("r1", 100)].joined(separator: "\n").write(to: tdir.appendingPathComponent("a.jsonl"), atomically: true, encoding: .utf8)
+        try reply("r9", 7).write(to: tdir.appendingPathComponent("a/subagents/agent-1.jsonl"), atomically: true, encoding: .utf8)
+        try reply("r9", 7).write(to: tdir.appendingPathComponent("a/subagents/agent-2.jsonl"), atomically: true, encoding: .utf8)
+        try [ask, reply("r1", 100), reply("r3", 20, "2026-11-20T04:00:00Z")].joined(separator: "\n").write(to: tdir.appendingPathComponent("b.jsonl"), atomically: true, encoding: .utf8)
+        check(try EchoStats.read(tdir.appendingPathComponent("a.jsonl"))[day]?.k["claude-opus-5-5"] == [2, 107, 0, 0, 0], "统计：子代理的 Token 算进主会话，两个子代理记录里同一次请求只算一次")
+        let sa = EchoSession(url: tdir.appendingPathComponent("a.jsonl"), sessionId: "a", computer: "机", size: 0, meta: EchoSessionMeta(title: "原会话", cwd: "/x/y", start: "2026-11-20T02:59:00Z", end: ""))
+        let sb = EchoSession(url: tdir.appendingPathComponent("b.jsonl"), sessionId: "b", computer: "机", size: 0, meta: EchoSessionMeta(title: "分叉出来的", cwd: "/x/y", start: "2026-11-20T03:30:00Z", end: ""))
+        for _ in 0..<2 {   // 第二遍走缓存，结果要一样
+            let o = try JSONSerialization.jsonObject(with: EchoStats.build([sb, sa])) as! [String: Any]
+            let out = Dictionary(uniqueKeysWithValues: (o["sessions"] as! [[String: Any]]).map { x -> (String, [Double]) in
+                let k = ((x["days"] as! [String: Any])[day] as! [String: Any])["k"] as! [String: [Double]]
+                return (x["t"] as! String, k["claude-opus-5-5"]!)
+            })
+            check(out["原会话"] == [2, 107, 0, 0, 0] && out["分叉出来的"] == [1, 20, 0, 0, 0], "统计：分叉出来的会话不再算原会话的请求，实际 \(out)")
+        }
         // Git：上级目录往下找两层里的仓库，.开头的不进；删掉的分支工作区换成主目录
         let fm = FileManager.default
         let top = fm.temporaryDirectory.appendingPathComponent("回响仓库测试-\(UUID().uuidString)").path
@@ -582,6 +605,7 @@ enum EchoTests {
         case "browser":   // 浏览窗口：读 ECHO_SHOT_ROOT 这个备份目录；ECHO_SHOT_MENU=computer、app 时展开那个筛选菜单
             UserDefaults.standard.set(ProcessInfo.processInfo.environment["ECHO_SHOT_APP"] ?? "", forKey: "filterApp")   // 先选好的应用筛选
             EchoState.shared.sessions = EchoLibrary.scan(backupRoot: URL(fileURLWithPath: ProcessInfo.processInfo.environment["ECHO_SHOT_ROOT"] ?? "/tmp"))
+            EchoState.shared.collections = EchoCollections.load(URL(fileURLWithPath: ProcessInfo.processInfo.environment["ECHO_SHOT_ROOT"] ?? "/tmp"))
             EchoState.shared.lastSuccess = Date(timeIntervalSinceNow: -600)   // 底部写「10 分钟前备份」
             if let id = ProcessInfo.processInfo.environment["ECHO_SHOT_OPEN"] {   // 打开这个会话（左栏显示选中）
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1) { EchoState.shared.openSessionID = id }
