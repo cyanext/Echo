@@ -30,6 +30,7 @@
 - 密钥和令牌在写入前打码
 - 备份放在你自己的 iCloud 云盘里，每台电脑一个文件夹，多台电脑之间用 iCloud 同步，在一个界面里统一管理
 - 很久没用的会话，确认备份完整后移到废纸篓，原来的文件夹不会越攒越大
+- 另一台电脑上的会话，或本机已经清理掉的会话，右键「恢复到本机」就能接着聊
 - 菜单栏图标显示备份状态，点开可以立即备份、打开最近的会话
 
 <p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/storage-dark.png"><img src="docs/storage-light.png" width="49%" alt="设置里的存储页：备份共 1.1 GB，按对话消息、工具调用、工具结果、思考过程、系统记录分开统计，各自设保留期限"></picture> <img src="docs/finder.svg" width="49%" alt="访达里的 iCloud 云盘 › 回响备份：每台电脑一个文件夹，里面按应用分 claude、codex"></p>
@@ -113,6 +114,7 @@ curl -fsSL https://raw.githubusercontent.com/cyanext/Echo/main/install.sh | zsh
 | `ech read <会话>#<段号>` | 读一段对话原文。`#L1200-1500` 按行读，加 `--tools` 带上工具输出 |
 | `ech context <会话>` | 接上一个会话：给出最近的回顾、阶段总结和之后的全部对话 |
 | `ech list --since 7d` | 按时间列出会话、我的消息、Token、提交和版本。日期也能写成 `2026-11-16`、`11-16` |
+| `ech resume <会话>` | 给出会话的恢复命令，贴到终端或 MintPop 里打开原会话接着聊 |
 | `ech mv <旧路径> <新路径>` | 给文件夹改名或移动，本机的会话跟着过去。加 `--dry-run` 先预览 |
 | `ech backup` / `ech index` | 立即备份并更新索引 / 只更新索引和总览数据 |
 | `ech schema [命令]` | 列出各命令的参数（JSON），给 AI 看 |
@@ -121,7 +123,7 @@ curl -fsSL https://raw.githubusercontent.com/cyanext/Echo/main/install.sh | zsh
 
 ## 数据安全
 
-- 回响只读取 `~/.claude`、`~/.codex` 里的会话，不改动内容。只有你改名、删除、移动会话，或开启了自动清理时，才会动会话文件，删除一律进废纸篓。
+- 回响只读取 `~/.claude`、`~/.codex` 里的会话，不改动内容。只有你改名、删除、移动、恢复会话，或开启了自动清理时，才会动会话文件。删除一律进废纸篓，恢复只新建文件，不覆盖已有的会话。
 - 备份只写到你选的文件夹。除了 iCloud，不会传到任何地方。
 - 只有两处联网，都只发一个请求，不带任何本机信息：每周下载一次公开的模型价格表，每天检查一次新版本。检查新版本可以在设置里关掉。
 
