@@ -22,7 +22,7 @@ enum EchoTests {
             if let r = ProcessInfo.processInfo.environment["ECHO_SHOT_ROOT"] { EchoPrefs.backupRoot = URL(fileURLWithPath: r) }
             exit(EchoCLI.main(Array(a.dropFirst(2))))
         }
-        if a.count == 3, a[1] == "--rules" { rules(); try renameTest(fixture: URL(fileURLWithPath: a[2])); try statsTest(); try commitMatchTest(); timeTest(); try cleanTest(); try layoutTest(); try backupRootTest(); try pathTest(); try echTest(); try codexMoveTest(); try codexBackupTest(); try autoDeleteTest(); try claudeSettingsTest(); try updateTest(); try emptySessionTest(); menuBarTest(); resumeTest() }
+        if a.count == 3, a[1] == "--rules" { rules(); try renameTest(fixture: URL(fileURLWithPath: a[2])); try statsTest(); try commitMatchTest(); timeTest(); try cleanTest(); try layoutTest(); try backupRootTest(); try pathTest(); try echTest(); try codexMoveTest(); try codexBackupTest(); try autoDeleteTest(); try claudeSettingsTest(); try updateTest(); try emptySessionTest(); menuBarTest(); resumeTest(); try restoreTest() }
         else if a.count == 4, a[1] == "--overview" {   // 手动排查：按应用的方式整理总览数据，写到文件，看用了多久
             let t0 = Date()
             let list = EchoLibrary.scan(backupRoot: URL(fileURLWithPath: a[2]))
@@ -120,6 +120,39 @@ enum EchoTests {
         let listed = EchoLibrary.scan(backupRoot: t.appendingPathComponent("备份")).map(\.sessionId)
         check(listed == ["n"], "列表只该有正常会话，实际 \(listed)")
         print("  空会话 5 项")
+    }
+
+    /// 恢复到本机：写回 projects/<文件夹编码>/，同名目录一起；修改时间改成现在；记移动记录；本机已有同一个 ID 不恢复；猜本机对应的文件夹
+    static func restoreTest() throws {
+        let fm = FileManager.default
+        let t = fm.temporaryDirectory.appendingPathComponent("回响恢复-\(UUID().uuidString)").standardizedFileURL
+        defer { try? fm.removeItem(at: t) }
+        let backup = t.appendingPathComponent("备份/另一台/claude/projects/-Users-other-p"), source = t.appendingPathComponent("projects"), claudeDir = t.appendingPathComponent("备份/本机/claude")
+        try fm.createDirectory(at: backup.appendingPathComponent("s1/subagents"), withIntermediateDirectories: true)
+        try fm.createDirectory(at: source, withIntermediateDirectories: true)
+        let line = #"{"type":"user","uuid":"u1","sessionId":"s1","timestamp":"2026-10-01T00:00:00Z","cwd":"/Users/other/p","origin":{"kind":"human"},"message":{"role":"user","content":"旧会话"}}"# + "\n"
+        try line.write(to: backup.appendingPathComponent("s1.jsonl"), atomically: true, encoding: .utf8)
+        try line.write(to: backup.appendingPathComponent("s1/subagents/agent-a.jsonl"), atomically: true, encoding: .utf8)
+        try fm.setAttributes([.modificationDate: Date(timeIntervalSinceNow: -86400 * 60)], ofItemAtPath: backup.appendingPathComponent("s1.jsonl").path)
+        let s = EchoSession(url: backup.appendingPathComponent("s1.jsonl"), sessionId: "s1", computer: "另一台", size: 1, meta: EchoSessionMeta(title: "旧会话", cwd: "/Users/other/p", start: "", end: ""))
+        let dir = t.appendingPathComponent("本机项目").path
+        try fm.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        let f = try EchoRestore.restore(s, to: dir, source: source, claudeDir: claudeDir)
+        check(f.path == source.appendingPathComponent(EchoMove.projectDirName(dir) + "/s1.jsonl").path, "恢复：写到新文件夹对应的项目目录，实际 \(f.path)")
+        check((try? String(contentsOf: f, encoding: .utf8)) == line, "恢复：会话内容原样写回")
+        check(fm.fileExists(atPath: f.deletingPathExtension().appendingPathComponent("subagents/agent-a.jsonl").path), "恢复：同名目录（子代理）一起写回")
+        let mtime = (try? fm.attributesOfItem(atPath: f.path)[.modificationDate] as? Date) ?? .distantPast
+        check(Date().timeIntervalSince(mtime) < 60, "恢复：修改时间改成现在，免得马上被自动清理")
+        check(EchoMoved.load(claudeDir)["s1"] == dir, "恢复：记移动记录，按本机文件夹显示")
+        check(EchoRestore.existing("s1", source: source) != nil, "恢复：恢复后本机能找到这个会话")
+        do { try EchoRestore.restore(s, to: t.path, source: source, claudeDir: claudeDir); check(false, "恢复：本机已有同一个会话时应拒绝") } catch {}
+        // 猜文件夹：原路径在本机就用它；另一台电脑的主目录换成本机的
+        let home = t.appendingPathComponent("home").path
+        try fm.createDirectory(atPath: home + "/Projects/订单服务", withIntermediateDirectories: true)
+        check(EchoRestore.guessFolder(dir, home: home, spotlight: false) == dir, "恢复：原路径在本机就用它")
+        check(EchoRestore.guessFolder("/Users/other/Projects/订单服务", home: home, spotlight: false) == home + "/Projects/订单服务", "恢复：换成本机主目录后找到")
+        check(EchoRestore.guessFolder("/Users/other/没有的文件夹", home: home, spotlight: false) == nil, "恢复：找不到时让用户选")
+        print("  恢复到本机 10 项")
     }
 
     /// 复制恢复命令：到会话的文件夹，路径里的单引号要转义

@@ -22,6 +22,7 @@ struct EchoBrowserView: View {
     @State private var errorTitle = "操作未完成"
     @State private var moveDone: String?                               // 挪好后的提示和恢复命令
     @State private var moveCmd: String?
+    @State private var doneTitle = "已移动"                                // 移动、恢复到本机完成后提示框的标题
     @AppStorage("sidebarOrder") private var orderRaw = ""              // 拖动排好的顺序（EchoOrder），JSON
     @State private var drag = EchoDragState()                          // 拖动的状态：放在 @State 里不订阅，鼠标移动时左栏的树不重画
     @State private var currentID: String?                              // 当前打开的会话；数据变了算一次，不在每行里找
@@ -103,7 +104,7 @@ struct EchoBrowserView: View {
                 Text("会话仍在进行，Claude Code 可能改回原名，建议在会话中用 /rename")
             }
         }
-        .alert("已移动", isPresented: Binding(get: { moveDone != nil }, set: { if !$0 { moveDone = nil; moveCmd = nil } })) {
+        .alert(doneTitle, isPresented: Binding(get: { moveDone != nil }, set: { if !$0 { moveDone = nil; moveCmd = nil } })) {
             if let c = moveCmd {
                 Button("复制恢复命令") { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(c, forType: .string) }
             }
@@ -216,6 +217,7 @@ struct EchoBrowserView: View {
         }
         guard !r.done.isEmpty else { return }
         let shown = (dir as NSString).abbreviatingWithTildeInPath
+        doneTitle = "已移动"
         if r.done.count == 1, let s = r.done.first {
             moveCmd = EchoResume.command(s.app, cwd: dir, id: s.sessionId)
             moveDone = "已移动到 \(shown)，可复制恢复命令继续会话"
@@ -392,6 +394,52 @@ struct EchoBrowserView: View {
         return Array(recentLocalDirs.filter { !skip.contains($0) }.prefix(8))
     }
 
+    /// 恢复到本机：先猜本机对应的文件夹，问一句；猜不到或选「选择其他文件夹…」就打开选择框。恢复完立刻备份，左栏出现本机这一份
+    private func startRestore(_ s: EchoSession) {
+        if let u = EchoRestore.existing(s.sessionId) {
+            errorTitle = "无法恢复"
+            editError = "本机已有此会话（\(u.deletingLastPathComponent().lastPathComponent)）。"
+            return
+        }
+        let note = "恢复的是回响的备份：对话全文都在，思考过程和到期的工具输出不在，接着聊不受影响。"
+        if let g = EchoRestore.guessFolder(s.meta.cwd) {
+            let a = NSAlert()
+            a.messageText = "将此会话恢复到本机？"
+            a.informativeText = "恢复到：" + (g as NSString).abbreviatingWithTildeInPath + "\n" + note
+            a.addButton(withTitle: "恢复")
+            a.addButton(withTitle: "选择其他文件夹…")
+            a.addButton(withTitle: "取消")
+            switch a.runModal() {
+            case .alertFirstButtonReturn: doRestore(s, g); return
+            case .alertSecondButtonReturn: break
+            default: return
+            }
+        }
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.canCreateDirectories = true
+        panel.prompt = "恢复到此处"
+        panel.message = "选择在本机哪个文件夹里接着这个会话。" + note
+        guard panel.runModal() == .OK, let u = panel.url else { return }
+        doRestore(s, u.path)
+    }
+
+    private func doRestore(_ s: EchoSession, _ dir: String) {
+        do {
+            try EchoRestore.restore(s, to: dir)
+        } catch {
+            errorTitle = "恢复失败"
+            editError = error.localizedDescription
+            return
+        }
+        state.lastSuccess = nil
+        state.backupNow()
+        doneTitle = "已恢复到本机"
+        moveCmd = EchoResume.command(.claude, cwd: dir, id: s.sessionId)
+        moveDone = "已恢复到 \((dir as NSString).abbreviatingWithTildeInPath)，可复制恢复命令继续会话"
+    }
+
     private func pickFolder(_ list: [EchoSession]) {
         let panel = NSOpenPanel()
         panel.canChooseDirectories = true
@@ -431,10 +479,16 @@ struct EchoBrowserView: View {
         // 菜单在每次画行时就会构造，这里只按是不是本机的会话判断，不查文件；点下去时改名、删除、挪各自再查
         let local = s.computer == EchoPrefs.computerName
         let targets = group.count > 1 ? group : [s]
+        // Claude 的会话在另一台电脑上、或本机原会话已被清理：能「恢复到本机」（EchoRestore），恢复命令这时用不了
+        let restorable = group.count < 2 && s.app == .claude && (!local || EchoRename.originalURL(for: s) == nil)
         if group.count < 2 {
-            // 到会话所在的文件夹接着聊：Claude 用 claude --resume，Codex 用 codex resume。另一台电脑的会话这里恢复不了
-            Button(local ? "复制恢复命令" : "复制恢复命令（在 \(s.computer) 上）") { EchoResume.copy(s) }
-                .disabled(!local || s.meta.cwd.isEmpty)
+            // 到会话所在的文件夹接着聊：Claude 用 claude --resume，Codex 用 codex resume
+            if restorable {
+                Button("恢复到本机…") { startRestore(s) }
+            } else {
+                Button(local ? "复制恢复命令" : "复制恢复命令（在 \(s.computer) 上）") { EchoResume.copy(s) }
+                    .disabled(!local || s.meta.cwd.isEmpty)
+            }
         }
         // Codex 的会话在 Codex 里改名；能移动（只改 Codex 记录里的文件夹，EchoCodexMove）
         if s.app != .codex || group.count > 1 {
@@ -687,7 +741,8 @@ struct EchoBrowserView: View {
                 .padding(.vertical, 6)
             } action: { if let h = g.hits.first { openHit(s, h) } else { openPlain(s) } }
             .help(s.projectPath)
-            ForEach(list, id: \.line) { h in searchHitRow(h, s, q: q, anchor: anchor) }
+            .contextMenu { sessionMenu(s) }   // 和左栏会话一样的右键菜单：复制恢复命令、恢复到本机、改名、移动……
+            ForEach(list, id: \.line) { h in searchHitRow(h, s, q: q, anchor: anchor).contextMenu { sessionMenu(s) } }
             if g.hits.count > list.count {
                 Text("还有 \(g.hits.count - list.count) 处").font(.system(size: 12)).foregroundStyle(EchoColor.accentText)
                     .padding(.leading, 22).padding(.vertical, 5)
