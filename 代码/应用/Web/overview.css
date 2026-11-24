@@ -119,7 +119,7 @@ h2.sec { margin: var(--space-4) var(--space-1) 0; }
 .wkbox { position: absolute; top: -3px; bottom: -3px; left: calc(32px + var(--a) * var(--pitch) - 3px); width: calc(var(--n) * var(--pitch) - var(--gap) + 6px); border: 1.5px solid var(--accent); border-radius: 6px; pointer-events: none; }
 
 /* 本周：一天一张卡。卡头日期（点了展开收起）、今天、当天的量 */
-.day { container-type: inline-size; padding: 20px var(--space-6) var(--space-3); }
+.day { container-type: inline-size; padding: 20px var(--space-6) var(--space-3); scroll-margin-top: var(--space-8); }   /* 日历点某天滚过来时，卡片上面留一段空，不贴着窗口顶 */
 .day.flash { background: var(--accent-soft); transition: background .3s; }
 .day-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 var(--space-3); padding-bottom: var(--space-2); }
 .day-head .date { font-size: var(--text-md); line-height: var(--lh-md); font-weight: 600; cursor: pointer; }
