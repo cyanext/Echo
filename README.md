@@ -53,7 +53,7 @@
 - 结果按会话分组，点一条就停在那句话上，关键词会标亮
 - 索引存在本机，备份完自动更新，几千个会话也是几毫秒出结果
 
-<p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/search-dark.png"><img src="docs/search-light.png" width="100%" alt="左栏搜索「备份」，按会话列出命中处，正文里标亮"></picture></p>
+<p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/search-dark.png"><img src="docs/search-light.png" width="100%" alt="左栏搜索「重复入账」，订单服务和数据看板的 4 个会话按会话列出命中处，正文里标亮"></picture></p>
 
 ## ech：给 AI 用的回响
 
@@ -67,7 +67,7 @@
 
 遇到以前碰过的问题，AI 会先查你当时试过哪些办法、结果怎么样，再给建议，不用从头再试一遍。
 
-<p align="center"><img src="docs/how-tried.svg" width="100%" alt="打包又报签名错误，AI 先用 ech find 查到 10 月 28 日遇到同一个错误时试过的三个办法和结果，再从管用的那个开始"></p>
+<p align="center"><img src="docs/how-tried.svg" width="100%" alt="订单服务又出现重复入账，AI 用 ech find 查到两次排查的会话，对照 git 记录发现当时说好的唯一索引一直没加，接着补上"></p>
 
 写周报也是一句话的事。AI 用 `ech list` 拿到一周里所有电脑、所有 AI 的会话、提交和版本，按项目整理出来。
 

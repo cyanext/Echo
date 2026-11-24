@@ -1,39 +1,50 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="-28 -18 936 646" width="936" height="646" role="img" aria-label="打包又报签名错误，AI 先用 ech find 查到 10 月 28 日遇到同一个错误时试过的三个办法和结果，再从管用的那个开始">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-28 -18 936 820" width="936" height="820" role="img" aria-label="订单服务又出现重复入账，AI 用 ech find 查到两次排查的会话，再对照 git 记录，发现当时说好的唯一索引一直没加，接着补上">
 <defs><filter id="sh" x="-10%" y="-10%" width="120%" height="130%"><feDropShadow dx="0" dy="4" stdDeviation="8" flood-color="#000" flood-opacity=".12"/></filter></defs>
-<rect x=".5" y=".5" width="879" height="589" rx="11" fill="#1e1e1e" filter="url(#sh)"/>
+<rect x=".5" y=".5" width="879" height="763" rx="11" fill="#1e1e1e" filter="url(#sh)"/>
 <style>text{font-family:"SF Mono",Menlo,Monaco,"PingFang SC",monospace;font-size:14px;white-space:pre}.ui{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;font-size:13px}</style>
-<rect x=".5" y=".5" width="879" height="589" rx="11" fill="#1e1e1e" stroke="#3a3a3a"/>
+<rect x=".5" y=".5" width="879" height="763" rx="11" fill="#1e1e1e" stroke="#3a3a3a"/>
 <path d="M.5 34 V11.5 a11 11 0 0 1 11 -11 H868.5 a11 11 0 0 1 11 11 V34 z" fill="#2d2d2d"/><line x1="0" y1="34.5" x2="880" y2="34.5" stroke="#111"/>
 <circle cx="20" cy="17" r="6" fill="#ff5f57"/><circle cx="40" cy="17" r="6" fill="#febc2e"/><circle cx="60" cy="17" r="6" fill="#28c840"/>
-<text class="ui" x="440.0" y="22" text-anchor="middle" fill="#a8a8a8">记账本 — claude — 100×36</text>
-<text x="22.0" y="65" fill="#9a9a9a">&gt; 记账本打包又报签名错误了</text>
+<text class="ui" x="440.0" y="22" text-anchor="middle" fill="#a8a8a8">订单服务 — claude — 100×40</text>
+<text x="22.0" y="65" fill="#9a9a9a">&gt; 订单服务又出现重复入账了，用户 8931 的一笔支付记了两次</text>
 <text x="22.0" y="107" fill="#e8e8e8">⏺</text>
-<text x="38.8" y="107" fill="#e8e8e8">这个错误以前遇到过，我先查一下当时是怎么解决的。</text>
+<text x="38.8" y="107" fill="#e8e8e8">这个问题以前查过，我先看一下当时查到哪一步。</text>
 <text x="22.0" y="149" fill="#4eba65">⏺</text>
 <text x="38.8" y="149" fill="#e8e8e8" font-weight="700">Bash</text>
-<text x="72.4" y="149" fill="#e8e8e8">(ech find &quot;errSecInternalComponent&quot;)</text>
+<text x="72.4" y="149" fill="#e8e8e8">(ech find &quot;重复入账&quot;)</text>
 <text x="38.8" y="170" fill="#7a7a7a">⎿</text>
-<text x="64.0" y="170" fill="#9a9a9a">找到 6 处</text>
-<text x="64.0" y="191" fill="#9a9a9a">■ 发版签名失败 · MacBook Pro · Claude Code · 10-28</text>
-<text x="64.0" y="212" fill="#9a9a9a">  7c1e40d2#4  10-28 15:20  你：打包时报 errSecInternalComponent</text>
-<text x="64.0" y="233" fill="#9a9a9a">  7c1e40d2#6  10-28 16:05  AI：解锁钥匙串后，签名通过了</text>
-<text x="64.0" y="254" fill="#6a6a6a">… +27 lines (ctrl+r to expand)</text>
-<text x="22.0" y="296" fill="#e8e8e8">⏺</text>
-<text x="38.8" y="296" fill="#e8e8e8">10 月 28 日遇到过同一个错误，当时试了三个办法：</text>
-<rect x="38.8" y="306" width="470.40000000000003" height="108" fill="none" stroke="#5a5a5a"/>
-<line x1="408.40000000000003" y1="306" x2="408.40000000000003" y2="414" stroke="#5a5a5a"/>
-<line x1="38.8" y1="333" x2="509.20000000000005" y2="333" stroke="#5a5a5a"/>
-<text x="47.2" y="324.5" fill="#e8e8e8" font-weight="700">试过的办法</text>
-<text x="416.8" y="324.5" fill="#e8e8e8" font-weight="700">结果</text>
-<text x="47.2" y="351.5" fill="#e8e8e8">重新导出签名证书</text>
-<text x="416.8" y="351.5" fill="#e8e8e8">没解决</text>
-<text x="47.2" y="378.5" fill="#e8e8e8">删掉钥匙串里重复的证书</text>
-<text x="416.8" y="378.5" fill="#e8e8e8">没解决</text>
-<text x="47.2" y="405.5" fill="#e8e8e8">用 security unlock-keychain 解锁钥匙串</text>
-<text x="416.8" y="405.5" fill="#e8e8e8">解决了</text>
-<text x="38.8" y="455" fill="#e8e8e8">上次的原因是钥匙串被锁住了。我先看一下钥匙串现在是不是锁着，</text>
-<text x="38.8" y="476" fill="#e8e8e8">锁着就解锁后重新打包，前两个办法这次不用再试。</text>
-<rect x="18" y="499" width="844" height="40" rx="7" fill="none" stroke="#5a5a5a"/>
-<text x="32" y="524" fill="#9a9a9a">&gt; </text><rect x="48.8" y="511" width="8.4" height="17" fill="#c8c8c8"/>
-<text x="22" y="561" fill="#6a6a6a" font-size="12.5">? for shortcuts</text>
+<text x="64.0" y="170" fill="#9a9a9a">找到 4 个会话，9 处</text>
+<text x="64.0" y="191" fill="#9a9a9a">■ 支付回调幂等 · 订单服务 · 家里的 iMac · Codex · 11-14</text>
+<text x="64.0" y="212" fill="#9a9a9a">  9be2c07a#3  11-14 21:12  AI：支付平台 5 秒内回调了两次，两次请求并发进来</text>
+<text x="64.0" y="233" fill="#9a9a9a">  9be2c07a#6  11-14 21:24  AI：记在 TODO.md 里了：给 payment_no 加唯一索引</text>
+<text x="64.0" y="254" fill="#9a9a9a">■ 支付回调重复入账排查 · 订单服务 · MacBook Pro · 11-12</text>
+<text x="64.0" y="275" fill="#9a9a9a">  a41f3e90#3  11-12 14:31  AI：网关日志里这笔只有一次请求，排除网关重试</text>
+<text x="64.0" y="296" fill="#6a6a6a">… +14 lines (ctrl+r to expand)</text>
+<text x="22.0" y="338" fill="#4eba65">⏺</text>
+<text x="38.8" y="338" fill="#e8e8e8" font-weight="700">Bash</text>
+<text x="72.4" y="338" fill="#e8e8e8">(git log --oneline -- internal/payment migrations | head -3)</text>
+<text x="38.8" y="359" fill="#7a7a7a">⎿</text>
+<text x="64.0" y="359" fill="#9a9a9a">a1c9e02 v2.7.1 支付回调加幂等检查</text>
+<text x="64.0" y="380" fill="#9a9a9a">5d07b31 v2.6.0 退款接口</text>
+<text x="22.0" y="422" fill="#e8e8e8">⏺</text>
+<text x="38.8" y="422" fill="#e8e8e8">11 月 12 日和 14 日查过两次，结论是：</text>
+<rect x="38.8" y="432" width="520.8000000000001" height="135" fill="none" stroke="#5a5a5a"/>
+<line x1="240.40000000000003" y1="432" x2="240.40000000000003" y2="567" stroke="#5a5a5a"/>
+<line x1="38.8" y1="459" x2="559.6" y2="459" stroke="#5a5a5a"/>
+<text x="47.2" y="450.5" fill="#e8e8e8" font-weight="700">查过的方向</text>
+<text x="248.8" y="450.5" fill="#e8e8e8" font-weight="700">结论</text>
+<text x="47.2" y="477.5" fill="#e8e8e8">前端重复提交</text>
+<text x="248.8" y="477.5" fill="#e8e8e8">排除：这笔订单只下了一次</text>
+<text x="47.2" y="504.5" fill="#e8e8e8">网关超时重试</text>
+<text x="248.8" y="504.5" fill="#e8e8e8">排除：网关日志里只有一次请求</text>
+<text x="47.2" y="531.5" fill="#e8e8e8">支付平台重复回调</text>
+<text x="248.8" y="531.5" fill="#e8e8e8">确认：5 秒内回调两次，并发进来</text>
+<text x="47.2" y="558.5" fill="#e8e8e8">先查再写的幂等检查</text>
+<text x="248.8" y="558.5" fill="#e8e8e8">只挡住了先后到的，并发时会漏</text>
+<text x="38.8" y="608" fill="#e8e8e8">当时说好第二天给 payment_no 加唯一索引兜底，git 记录里一直没加。</text>
+<text x="38.8" y="629" fill="#e8e8e8">8931 这笔就是两次回调同时进来漏掉的。我现在补上唯一索引，冲突时</text>
+<text x="38.8" y="650" fill="#e8e8e8">按已处理返回，再用 14 日写的并发测试跑 50 次验证。</text>
+<rect x="18" y="673" width="844" height="40" rx="7" fill="none" stroke="#5a5a5a"/>
+<text x="32" y="698" fill="#9a9a9a">&gt; </text><rect x="48.8" y="685" width="8.4" height="17" fill="#c8c8c8"/>
+<text x="22" y="735" fill="#6a6a6a" font-size="12.5">? for shortcuts</text>
 </svg>
