@@ -100,7 +100,7 @@
 curl -fsSL https://raw.githubusercontent.com/cyanext/Echo/main/install.sh | zsh
 ```
 
-它会下载最新版，装到 `~/Applications` 并打开。也可以到 [Releases](https://github.com/cyanext/Echo/releases) 下载 `Echo-<版本>.zip`，解压后把「回响」拖进「应用程序」。用浏览器下载的，第一次打开会提示「无法验证开发者」，到「系统设置 › 隐私与安全性」底部点「仍要打开」就行。
+它会下载最新版，装到 `~/Applications` 并打开。也可以到 [Releases](https://github.com/cyanext/Echo/releases) 下载 `Echo-<版本>.dmg`，打开后把「回响」拖进「应用程序」。用浏览器下载的，第一次打开会提示「无法验证开发者」，到「系统设置 › 隐私与安全性」底部点「仍要打开」就行。
 
 需要 Apple 芯片的 Mac、macOS 14 或更新版本，目前支持 Claude Code 和 Codex 的会话。第一次打开时，按引导选好备份位置、要备份的应用和清理规则；macOS 问能不能访问文件夹时，点「允许」。
 

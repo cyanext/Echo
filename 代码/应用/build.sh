@@ -1,7 +1,7 @@
 #!/bin/zsh
 # 编译 回响.app（Apple 芯片，macOS 14+），输出 dist/回响.app。
 # 用法：zsh 代码/应用/build.sh；装到 ~/Applications 并重新打开：zsh 代码/应用/build.sh install；
-# 打发版用的安装包 dist/Echo-<版本>.zip（传到 GitHub 发版，自动更新下载它）：zsh 代码/应用/build.sh release
+# 打发版用的安装包 dist/Echo-<版本>.zip（自动更新和 install.sh 下载它）、dist/Echo-<版本>.dmg（给浏览器下载的人拖进应用程序）：zsh 代码/应用/build.sh release
 set -e
 VERSION=0.14.3; BUILD=31                           # 版本号只改这里
 [[ -n "$ECHO_TEST_VERSION" ]] && VERSION=$ECHO_TEST_VERSION   # 测试自动更新时临时打一个别的版本号
@@ -56,6 +56,11 @@ if [[ "$1" == release ]]; then
   [[ "${SIGN[2]}" == "Echo Local Signing" ]] || { echo "发版要用「Echo Local Signing」签名，本机没有这张证书" >&2; exit 1; }
   ditto -c -k --keepParent "$D/dist/回响.app" "$D/dist/Echo-$VERSION.zip"
   echo "已打包 $D/dist/Echo-$VERSION.zip"
+  # DMG：打开后左边回响、右边「应用程序」的替身，拖过去就装好
+  DMG="$T/dmg"; mkdir -p "$DMG"; ditto "$D/dist/回响.app" "$DMG/回响.app"; ln -s /Applications "$DMG/应用程序"
+  hdiutil create -quiet -volname "回响" -srcfolder "$DMG" -format UDZO -ov "$D/dist/Echo-$VERSION.dmg"
+  codesign -f "${SIGN[@]}" "$D/dist/Echo-$VERSION.dmg"
+  echo "已打包 $D/dist/Echo-$VERSION.dmg"
 fi
 if [[ "$1" == install ]]; then
   osascript -e 'quit app id "com.cyanext.echo"' 2>/dev/null || true
