@@ -49,6 +49,7 @@ enum EchoCLI {
             case "segs": out = try segs(a)
             case "read": out = try read(a)
             case "context": out = try context(a)
+            case "resume": out = try resume(a)
             case "mv": out = try mv(a)
             case "backup": out = try backup(a)
             case "index": out = try index()
@@ -76,6 +77,7 @@ enum EchoCLI {
       ech segs <会话>                                列一个会话的分段（每段一个引用，如 ce57ce36#3）
       ech read <引用> [--tools]                       把一段读成对话文字：ce57ce36#3 第 3 段，ce57ce36#L1200-1500 这几行，只写会话读最后一段
       ech context <会话> [--tools]                    续上一个会话：最近一次压缩的阶段总结和之后的对话
+      ech resume <会话>                              恢复命令：在终端或 MintPop 主页里打开原会话接着聊
       ech mv <旧路径> <新路径> [--dry-run]              改名或移动文件夹，本机的会话（Claude Code、Codex）随之移动
       ech backup                                     备份并更新索引（和回响的「立即备份」一样）
       ech index                                      只更新索引和总览数据，不备份
@@ -269,6 +271,24 @@ enum EchoCLI {
         }
         out.append("\n读某一段：ech read \(short(f.sid))#<段号>")
         return paged(out.joined(separator: "\n"), a, shell(["ech", "segs", key]))
+    }
+
+    // MARK: resume
+
+    /// 恢复命令：和回响右键「复制恢复命令」一样。原会话在另一台电脑上、或本机已被清理时说清楚，提示先在回响里「恢复到本机」
+    static func resume(_ a: Args) throws -> String {
+        guard let key = a.pos.first else { throw Fail(text: "用法：ech resume <会话>") }
+        let db = try openIndex()
+        let f = try resolve(db, key)
+        var app = EchoSource.claude, cwd = ""
+        try db.rows("SELECT app, cwd FROM files WHERE id=?", [f.fid]) { app = EchoSource(rawValue: $0.text(0)) ?? .claude; cwd = $0.text(1) }
+        let cmd = EchoResume.command(app, cwd: cwd, id: f.sid)
+        let local = f.computer == EchoPrefs.computerName
+        let gone = local && app == .claude && EchoRestore.existing(f.sid) == nil
+        let note = !local ? "这个会话在 \(f.computer) 上：在那台电脑上运行，或在回响左栏右键这个会话「恢复到本机…」"
+            : gone ? "原会话已被清理，本机只剩回响的备份：先在回响左栏右键这个会话「恢复到本机…」" : ""
+        if a.flags.contains("json") { return json(["session": f.sid, "title": f.title, "computer": f.computer, "cwd": cwd, "command": cmd, "ready": note.isEmpty, "note": note]) }
+        return ["\(f.title) · \(f.computer) · \(short(f.sid))", cmd, note].filter { !$0.isEmpty }.joined(separator: "\n")
     }
 
     // MARK: read
@@ -533,6 +553,8 @@ enum EchoCLI {
          "options": [["name": "--tools", "desc": "带上工具输出，每条前 2000 字"], ["name": "--page"], ["name": "--json"]]],
         ["command": "context", "summary": "续上一个会话：最近一次压缩的阶段总结和之后的全部对话，新会话开头读它就能接着做（只读）",
          "args": [["name": "会话", "required": true]], "options": [["name": "--tools"], ["name": "--page"], ["name": "--json"]]],
+        ["command": "resume", "summary": "会话的恢复命令（cd <文件夹> && claude --resume <ID>，Codex 是 codex resume），贴到终端或 MintPop 主页接着聊原会话；挪过文件夹的用新文件夹（只读）",
+         "args": [["name": "会话", "required": true]], "options": [["name": "--json"]]],
         ["command": "mv", "summary": "改名或移动文件夹，本机的会话随之移动（会写：访达里的文件夹、~/.claude 的会话位置、~/.codex/state_5.sqlite 的会话文件夹、备份）；旧路径已不存在时只移动会话",
          "args": [["name": "旧路径", "required": true], ["name": "新路径", "required": true, "desc": "是已有的文件夹时移入其中，和 mv 一样"]],
          "options": [["name": "--dry-run", "desc": "只说会做什么，不动文件"], ["name": "--json"]]],
