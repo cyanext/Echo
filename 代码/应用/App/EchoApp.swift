@@ -50,6 +50,15 @@ enum EchoPrefs {
         set { d.set(newValue.path, forKey: "backupRoot") }
     }
 
+    /// 备份位置设成了某台电脑的备份文件夹（0.14.1 及以前在设置里能选进去）：改回放各台电脑的那一级。
+    /// 不挪文件：那一级下面这台电脑的文件夹接着用；里面多套的那层电脑名文件夹不删，留给人看
+    static func repairBackupRoot() {
+        let root = backupRoot, fixed = EchoLayout.sharedRoot(root)
+        guard fixed.path != root.standardizedFileURL.path else { return }
+        NSLog("回响：备份位置是一台电脑的备份文件夹，改用上一级：%@ → %@", root.path, fixed.path)
+        backupRoot = fixed
+    }
+
     static var computerDir: URL { backupRoot.appendingPathComponent(computerName) }
     /// 这台电脑 Claude 的备份：projects/、备份记录.json、移动记录.json（0.8 起分应用放，见 EchoLayout）
     static var claudeDir: URL { EchoLayout.dir(computerDir, .claude) }
@@ -137,6 +146,7 @@ final class EchoState: ObservableObject {
 
     func start() {
         EchoPrefs.pinBackupRoot()
+        EchoPrefs.repairBackupRoot()
         do { try EchoLayout.migrate(EchoPrefs.computerDir) } catch { NSLog("回响：Claude 的备份没挪进 claude/：%@", error.localizedDescription) }
         overview = EchoStats.loadLast()   // 先显示上次整理好的总览，后台再刷新
         EchoPrices.refreshIfDue()

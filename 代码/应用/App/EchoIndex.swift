@@ -256,14 +256,14 @@ enum EchoIndex {
 
     struct UpdateResult { var changed = 0; var removed = 0; var total = 0; var seconds = 0.0 }
 
-    /// 增量更新：大小或修改时间变了的备份文件整个重做，备份里没有了的删掉。整理会话多个文件同时做，写库在一个事务里
+    /// 增量更新：大小、修改时间或所在电脑变了的备份文件整个重做（备份位置改到上一级后，同一个文件归到的电脑会变），备份里没有了的删掉。整理会话多个文件同时做，写库在一个事务里
     @discardableResult
     static func update(backupRoot: URL, sessions given: [EchoSession]? = nil) throws -> UpdateResult {
         let t0 = Date()
         let sessions = given ?? EchoLibrary.scan(backupRoot: backupRoot)
         let db = try open()
-        var old: [String: (id: Int, size: Int, mtime: Double)] = [:]
-        try db.rows("SELECT id, path, size, mtime FROM files") { old[$0.text(1)] = ($0.int(0), $0.int(2), $0.double(3)) }
+        var old: [String: (id: Int, size: Int, mtime: Double, computer: String)] = [:]
+        try db.rows("SELECT id, path, size, mtime, computer FROM files") { old[$0.text(1)] = ($0.int(0), $0.int(2), $0.double(3), $0.text(4)) }
         let fm = FileManager.default
         var todo: [(EchoSession, Int, Double)] = []
         var keep = Set<String>()
@@ -272,7 +272,7 @@ enum EchoIndex {
             let size = (a?[.size] as? NSNumber)?.intValue ?? 0
             let mtime = (a?[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0
             keep.insert(s.url.path)
-            if let o = old[s.url.path], o.size == size, o.mtime == mtime { continue }
+            if let o = old[s.url.path], o.size == size, o.mtime == mtime, o.computer == s.computer { continue }
             todo.append((s, size, mtime))
         }
         let built: [(EchoSession, Int, Double, [Row], [Seg])?] = EchoParallel.map(todo) { s, size, mtime in
