@@ -136,6 +136,15 @@ final class EchoState: ObservableObject {
     @Published var cleanupDays: Int?
     @Published var sessions: [EchoSession] = []
     @Published var scanning = false
+    /// 备份拷完了，正在更新索引
+    @Published var indexing = false
+    /// 只在 iCloud 云端、列表、索引、总览这次没读的文件（见 EchoCloud），下载完补进来
+    @Published var waitList: [String] = []
+    @Published var waitIndex: [String] = []
+    @Published var waitStats: [String] = []
+    var cloudWaiting: Set<String> { Set(waitList + waitIndex + waitStats) }
+    private var cloudTimer: Timer?
+    private var refreshing = false
     @Published var collections: [EchoCollection] = []
     /// 总览的数据（EchoStats 整理好的 JSON），会话列表变了重新整理
     @Published var overview: Data?
@@ -199,11 +208,16 @@ final class EchoState: ObservableObject {
                 Task { @MainActor in EchoState.shared.done = done; EchoState.shared.total = total }
             }
             let r = job.result
-            // 备份完更新 ech 的索引（只处理变了的备份文件）
-            if case .success = r { do { try EchoIndex.update(backupRoot: EchoPrefs.backupRoot) } catch { NSLog("回响：更新索引失败：%@", error.localizedDescription) } }
+            // 备份完更新 ech 的索引（只处理变了的备份文件），扫出的列表直接给左栏用，不再扫一遍
+            var fresh: (EchoScanResult, [String], [EchoCollection])?
+            if case .success = r {
+                await MainActor.run { EchoState.shared.indexing = true }
+                fresh = EchoState.scanAndIndex(EchoPrefs.backupRoot)
+            }
             await MainActor.run {
                 let s = EchoState.shared
                 s.running = false
+                s.indexing = false
                 switch r {
                 case .success(let res):
                     s.failures = res.failures.map(\.path)
@@ -213,7 +227,48 @@ final class EchoState: ObservableObject {
                 case .failure(let e):
                     s.error = e.localizedDescription
                 }
-                s.reloadSessions()
+                if let fresh { s.apply(fresh.0, waitIndex: fresh.1, collections: fresh.2) } else { s.reloadSessions() }
+            }
+        }
+    }
+
+    /// 扫列表、更新索引，在后台线程调用。只在 iCloud 云端的文件先跳过
+    nonisolated static func scanAndIndex(_ root: URL) -> (EchoScanResult, [String], [EchoCollection]) {
+        let scan = EchoLibrary.scan(backupRoot: root, skipCloud: true)
+        var waitIndex: [String] = []
+        do { waitIndex = try EchoIndex.update(scan).waiting } catch { NSLog("回响：更新索引失败：%@", error.localizedDescription) }
+        return (scan, waitIndex, EchoCollections.load(root))
+    }
+
+    /// 用扫好的列表刷新左栏，再整理总览
+    private func apply(_ scan: EchoScanResult, waitIndex: [String]? = nil, collections cols: [EchoCollection]) {
+        sessions = scan.sessions
+        collections = cols
+        waitList = scan.waiting
+        if let waitIndex { self.waitIndex = waitIndex }
+        watchCloud()
+        rebuildOverview()
+    }
+
+    /// 有文件在等 iCloud 下载时，每 15 秒看一眼；有下完的就重扫列表、更新索引和总览（读过的有缓存，只读新到的）
+    private func watchCloud() {
+        if cloudWaiting.isEmpty { cloudTimer?.invalidate(); cloudTimer = nil; return }
+        guard cloudTimer == nil else { return }
+        cloudTimer = Timer.scheduledTimer(withTimeInterval: 15, repeats: true) { _ in
+            Task { @MainActor in EchoState.shared.checkCloud() }
+        }
+    }
+
+    private func checkCloud() {
+        guard !running, !refreshing, !scanning else { return }
+        let paths = cloudWaiting, root = EchoPrefs.backupRoot
+        refreshing = true
+        Task.detached(priority: .utility) {
+            let fresh = paths.contains { !EchoCloud.isPlaceholder($0) } ? EchoState.scanAndIndex(root) : nil
+            await MainActor.run {
+                let s = EchoState.shared
+                s.refreshing = false
+                if let fresh { s.apply(fresh.0, waitIndex: fresh.1, collections: fresh.2) }
             }
         }
     }
@@ -267,13 +322,11 @@ final class EchoState: ObservableObject {
         scanning = true
         let root = EchoPrefs.backupRoot
         Task.detached(priority: .userInitiated) {
-            let list = EchoLibrary.scan(backupRoot: root)
+            let scan = EchoLibrary.scan(backupRoot: root, skipCloud: true)
             let cols = EchoCollections.load(root)
             await MainActor.run {
-                EchoState.shared.sessions = list
-                EchoState.shared.collections = cols
                 EchoState.shared.scanning = false
-                EchoState.shared.rebuildOverview()
+                EchoState.shared.apply(scan, collections: cols)
             }
         }
     }
@@ -284,10 +337,12 @@ final class EchoState: ObservableObject {
         buildingOverview = true
         let list = sessions, root = EchoPrefs.backupRoot
         Task.detached(priority: .utility) {
-            let data = EchoStats.build(list, deleted: EchoDeleted.loadAll(root))
+            let (data, waiting) = EchoStats.build(list, deleted: EchoDeleted.loadAll(root), skipCloud: true)
             await MainActor.run {
                 let s = EchoState.shared
                 s.overview = data
+                s.waitStats = waiting
+                s.watchCloud()
                 s.buildingOverview = false
                 if s.overviewAgain { s.overviewAgain = false; s.rebuildOverview() }
             }

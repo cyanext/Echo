@@ -1054,8 +1054,11 @@ struct EchoBrowserView: View {
 
     private var empty: some View {
         VStack(spacing: 10) {
-            if state.scanning || state.running {
+            if state.scanning || state.running || !state.cloudWaiting.isEmpty {
                 ProgressView().controlSize(.small)
+                if !state.cloudWaiting.isEmpty, !state.scanning, !state.running {
+                    Text("正在从 iCloud 下载备份").font(.system(size: 13)).foregroundStyle(EchoColor.fg2)
+                }
             } else {
                 Text("还没有备份").font(.system(size: 13)).foregroundStyle(EchoColor.fg2)
                 Button("立即备份") { state.backupNow() }
@@ -1085,6 +1088,8 @@ struct EchoBrowserView: View {
         HStack(spacing: 8) {
             if state.running {
                 ProgressView().controlSize(.mini).frame(width: 6, height: 6)
+            } else if !state.cloudWaiting.isEmpty, state.error == nil, state.failures.isEmpty {
+                Image(systemName: "icloud.and.arrow.down").font(.system(size: 13)).foregroundStyle(EchoColor.fg3)
             } else {
                 Image(systemName: state.needsAttention ? "exclamationmark.icloud" : "checkmark.icloud")
                     .font(.system(size: 13)).foregroundStyle(state.needsAttention ? EchoColor.warn : EchoColor.good)
@@ -1104,9 +1109,11 @@ struct EchoBrowserView: View {
     }
 
     private var statusText: String {
+        if state.running, state.indexing { return "正在更新索引" }
         if state.running { return state.total > 0 ? "正在备份 \(state.done)/\(state.total)" : "正在备份" }
         if state.error != nil { return "备份失败，点右边重试" }
         if !state.failures.isEmpty { return "\(state.failures.count) 个文件备份失败" }
+        if !state.cloudWaiting.isEmpty { return "正在从 iCloud 下载 \(state.cloudWaiting.count) 个文件" }
         if let n = state.staleDays { return "已 \(n) 天未备份" }
         if let n = state.cleanupDays { return "Claude Code 会删除 \(n) 天前的会话" }
         if let d = state.lastSuccess { return "上次备份：\(EchoTime.short(d))" }

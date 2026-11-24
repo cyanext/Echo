@@ -268,6 +268,36 @@ enum EchoSessionScan {
     }
 }
 
+/// iCloud 里只在云端的文件：另一台电脑的备份到这台电脑上常常只是占位，读它要等 iCloud 现下，一个个排着下。
+/// 首次打开时几百个这样的文件，列表和总览要等几分钟（11-24 实测）。应用里先跳过，一次全部叫 iCloud 下载，下完再补进来
+enum EchoCloud {
+    #if TEST
+    nonisolated(unsafe) static var fake = Set<String>()   // 测试里当作只在云端的文件
+    #endif
+
+    static func isPlaceholder(_ path: String) -> Bool {
+        #if TEST
+        if fake.contains(path) { return true }
+        #endif
+        var st = stat()
+        return stat(path, &st) == 0 && st.st_flags & UInt32(SF_DATALESS) != 0
+    }
+
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var asked = Set<String>()
+    /// 叫 iCloud 下载，同一个文件只叫一次
+    static func download(_ paths: [String]) {
+        lock.lock(); let new = paths.filter { asked.insert($0).inserted }; lock.unlock()
+        for p in new { try? FileManager.default.startDownloadingUbiquitousItem(at: URL(fileURLWithPath: p)) }
+    }
+}
+
+/// 扫描结果：会话，和只在 iCloud 云端、这次没读的文件
+struct EchoScanResult {
+    var sessions: [EchoSession] = []
+    var waiting: [String] = []
+}
+
 /// 列表缓存：路径 → 大小、修改时间、整理出的信息
 private struct EchoScanCache: Codable {
     struct Entry: Codable { var stamp: EchoFileStamp; var meta: EchoSessionMeta }
@@ -287,7 +317,14 @@ enum EchoLibrary {
     }
 
     /// 备份目录下每台电脑的主会话（子代理的会话第一版不显示）。同步执行，放在后台线程调用
-    static func scan(backupRoot: URL) -> [EchoSession] {
+    static func scan(backupRoot: URL) -> [EchoSession] { scan(backupRoot: backupRoot, skipCloud: false).sessions }
+
+    private static let scanLock = NSLock()
+
+    /// skipCloud：只在 iCloud 云端、缓存里又没有的先不读，记进 waiting 并叫 iCloud 下载（应用里用；ech 等下完，结果完整）。
+    /// 同一时间只扫一遍：打开窗口读列表和备份完更新索引会同时扫，后一个等前一个写好缓存再扫，不重复读
+    static func scan(backupRoot: URL, skipCloud: Bool) -> EchoScanResult {
+        scanLock.lock(); defer { scanLock.unlock() }
         let fm = FileManager.default
         let cacheURL = supportDir.appendingPathComponent("会话列表缓存2.json")   // 2：加了空会话标记，旧缓存里没有，换个文件重扫一遍
         try? fm.removeItem(at: supportDir.appendingPathComponent("会话列表缓存.json"))
@@ -326,13 +363,21 @@ enum EchoLibrary {
         }
         var titles: [String: [String: String]] = [:]   // 电脑 → Codex 的会话名
         for it in items where it.app == .codex && titles[it.c.path] == nil { titles[it.c.path] = EchoSessionScan.codexTitles(EchoLayout.dir(it.c, .codex)) }
+        var waiting: [String] = []
         let metas = EchoParallel.map(items) { it -> EchoSessionMeta? in
             if let e = cache.entries[it.f.path], e.stamp == it.stamp { return e.meta }
+            if skipCloud, EchoCloud.isPlaceholder(it.f.path) { return nil }
             return try? (it.app == .codex ? EchoSessionScan.readCodex(it.f) : EchoSessionScan.read(it.f))
         }
+        if skipCloud {
+            waiting = zip(items, metas).filter { $1 == nil && EchoCloud.isPlaceholder($0.f.path) }.map(\.0.f.path)
+            EchoCloud.download(waiting)
+        }
         for (it, m) in zip(items, metas) {
-            guard var meta = m else { continue }
-            fresh.entries[it.f.path] = .init(stamp: it.stamp, meta: meta)
+            // 在另一台电脑上改过、新的还没下载的：先照缓存里上次的显示，缓存记录不换，下完再读
+            let stale = m == nil && skipCloud ? cache.entries[it.f.path] : nil
+            guard var meta = m ?? stale?.meta else { continue }
+            fresh.entries[it.f.path] = stale ?? .init(stamp: it.stamp, meta: meta)
             if meta.start.isEmpty || meta.sub == true || meta.empty == true { continue }   // 空会话（没有你的消息也没有 AI 回复）、Codex 的子代理会话不列
             let sid = meta.sid ?? String(it.f.lastPathComponent.dropLast(6))
             if let cwd = it.moved[sid] { meta.cwd = cwd }
@@ -341,7 +386,7 @@ enum EchoLibrary {
         }
         cache = fresh
         if let d = try? JSONEncoder().encode(cache) { try? d.write(to: cacheURL, options: .atomic) }
-        return out
+        return EchoScanResult(sessions: out, waiting: waiting)
     }
 
     /// 多级目录（规范「组件」目录树）：第一级是大目录（~/Desktop/项目代码、~/伙伴云NAS/客户文档 这一级，跳过 Desktop 这类外层），
