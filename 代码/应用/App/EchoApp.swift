@@ -78,7 +78,9 @@ enum EchoPrefs {
     static var keepToolResult: Int { get { int("keepToolResult", 30) } set { d.set(newValue, forKey: "keepToolResult") } }
     static var keepThinking: Int { get { int("keepThinking", 0) } set { d.set(newValue, forKey: "keepThinking") } }
     static var keepSystem: Int { get { int("keepSystem", 0) } set { d.set(newValue, forKey: "keepSystem") } }
-    static var policy: EchoPolicy { EchoPolicy(toolUse: keepToolUse, toolResult: keepToolResult, thinking: keepThinking, system: keepSystem) }
+    /// 图片和文件：默认 0 不备份
+    static var keepMedia: Int { get { int("keepMedia", 0) } set { d.set(newValue, forKey: "keepMedia") } }
+    static var policy: EchoPolicy { EchoPolicy(toolUse: keepToolUse, toolResult: keepToolResult, thinking: keepThinking, system: keepSystem, media: keepMedia) }
 
     /// 上次清理备份的时间；cleanRules 记清理规则的版本，升级后第一次把已有备份全部过一遍（连密钥打码）
     static var lastClean: Date? { get { d.object(forKey: "lastClean") as? Date } set { d.set(newValue, forKey: "lastClean") } }

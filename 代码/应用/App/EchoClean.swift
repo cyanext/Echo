@@ -138,6 +138,21 @@ enum EchoClean {
             return o
         }
         var result = Result(), entries: [String: EchoCleanRecord.Entry] = [:]
+        // 图片和文件（会话目录里的图片、PDF，设置里打开了才会备份）：按文件修改时间到期（不备份时一律）就移到废纸篓
+        let media = EchoLayout.sessionRoots(computerDir).flatMap { r -> [URL] in
+            (fm.enumerator(at: r.root, includingPropertiesForKeys: [.fileSizeKey, .contentModificationDateKey], options: [.skipsHiddenFiles])?.allObjects ?? [])
+                .compactMap { $0 as? URL }.filter { EchoBackupRule.isMedia($0.lastPathComponent) }
+        }
+        for u in media {
+            guard let v = try? u.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey]),
+                  policy.expired(policy.media, v.contentModificationDate) else { continue }
+            let size = Int64(v.fileSize ?? 0)
+            result.files += 1
+            result.bytesBefore += size
+            if dryRun { continue }
+            do { _ = try remove(u); result.rewritten += 1 }
+            catch { result.bytesAfter += size; result.failures.append((String(u.path.dropFirst(root.path.count + 1)), error.localizedDescription)) }
+        }
         for (url, o) in zip(files, parts) {
             result.files += 1
             result.bytesBefore += o.before

@@ -5,7 +5,7 @@ import Foundation
 enum EchoStorage {
     /// 备份里的内容类别，顺序就是占用条和类型行的顺序
     enum Kind: String, CaseIterable, Identifiable {
-        case message = "对话消息", toolUse = "工具调用", toolResult = "工具结果", thinking = "思考过程", system = "系统记录"
+        case message = "对话消息", toolUse = "工具调用", toolResult = "工具结果", thinking = "思考过程", system = "系统记录", media = "图片和文件"
         var id: String { rawValue }
     }
 
@@ -17,6 +17,7 @@ enum EchoStorage {
     }
 
     private static let nAssistant = Array("\"type\":\"assistant\"".utf8), nUser = Array("\"type\":\"user\"".utf8)
+    private static let nBase64 = Array(";base64,".utf8), nBase64Key = Array("\"base64\"".utf8)
     private static let nToolUse = Array("\"type\":\"tool_use\"".utf8), nToolResult = Array("\"tool_result\"".utf8)
     private static let nThinking = Array("\"type\":\"thinking\"".utf8), nThinkingCleaned = Array("[已清理：思考过程".utf8)
     private static let nRedacted = Array("\"type\":\"redacted_thinking\"".utf8), nText = Array("\"type\":\"text\"".utf8)
@@ -58,13 +59,19 @@ enum EchoStorage {
         let fm = FileManager.default
         let files = EchoLayout.sessionRoots(computerDir).flatMap { r -> [(EchoSource, URL)] in
             (fm.enumerator(at: r.root, includingPropertiesForKeys: nil, options: .skipsHiddenFiles)?.allObjects ?? []).compactMap { $0 as? URL }
-                .filter { $0.pathExtension == "jsonl" }.map { (r.source, $0) }
+                .filter { $0.pathExtension == "jsonl" || EchoBackupRule.isMedia($0.lastPathComponent) }.map { (r.source, $0) }
         }
         let parts = EchoParallel.map(files) { (src, u) -> Backup in
             var r = Backup()
+            if u.pathExtension != "jsonl" {   // 备份下来的图片、PDF 文件
+                r.bytes[.media] = Int64((try? u.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
+                return r
+            }
             try? EchoLines.each(u) { line in
                 let b = EchoLines.trim(line)
-                let (k, m) = src == .codex ? codexKind(b) : kind(b)
+                // 留着图片（base64）的行算「图片和文件」：不备份图片时这类内容已换成占位，不会有
+                let (k0, m) = src == .codex ? codexKind(b) : kind(b)
+                let k = (EchoLines.has(b, nBase64) || EchoLines.has(b, nBase64Key)) && !m ? Kind.media : k0
                 r.bytes[k, default: 0] += Int64(line.count)
                 if m { r.messages += 1; r.messagesBy[src, default: 0] += 1 }
             }

@@ -80,6 +80,7 @@ enum EchoSettingsStyle {
         case .toolResult: return EchoColor.q2
         case .thinking: return EchoColor.mute
         case .system: return EchoColor.mute2
+        case .media: return EchoColor.media
         }
     }
 }
@@ -496,7 +497,7 @@ struct EchoSourceCard<Content: View>: View {
 struct EchoBackupBlock: View {
     @ObservedObject var model: EchoStorageModel
     @State private var keep: [EchoStorage.Kind: Int] = [.toolUse: EchoPrefs.keepToolUse, .toolResult: EchoPrefs.keepToolResult,
-                                                        .thinking: EchoPrefs.keepThinking, .system: EchoPrefs.keepSystem]
+                                                        .thinking: EchoPrefs.keepThinking, .system: EchoPrefs.keepSystem, .media: EchoPrefs.keepMedia]
     var onboarding = false
     /// 期限改了以后（首次设置里重新估算首次备份多大）
     var onChange: (() -> Void)? = nil
@@ -535,7 +536,8 @@ struct EchoBackupBlock: View {
 
     private var legend: some View {
         HStack(spacing: 12) {
-            ForEach(EchoStorage.Kind.allCases) { k in
+            // 「图片和文件」默认不备份，没有时不占图例的位置
+            ForEach(EchoStorage.Kind.allCases.filter { $0 != .media || (model.backup?.bytes[.media] ?? 0) > 0 }) { k in
                 HStack(spacing: 4) {
                     RoundedRectangle(cornerRadius: 2).fill(EchoSettingsStyle.color(k)).frame(width: 8, height: 8)
                     Text(k.rawValue).foregroundStyle(EchoColor.fg)
@@ -553,6 +555,7 @@ struct EchoBackupBlock: View {
         case .toolUse: return "始终保留 Git 提交与合并命令"
         case .thinking: return "浏览时读取原会话"
         case .system: return "保留标题、重命名、压缩摘要与用量"
+        case .media: return "会话里的截图、PDF 和生成的图片"
         case .toolResult: return nil
         }
     }
@@ -583,6 +586,7 @@ struct EchoBackupBlock: View {
         case .toolResult: EchoPrefs.keepToolResult = v
         case .thinking: EchoPrefs.keepThinking = v
         case .system: EchoPrefs.keepSystem = v
+        case .media: EchoPrefs.keepMedia = v
         case .message: break
         }
         model.estimate()

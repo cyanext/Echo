@@ -22,7 +22,7 @@ enum EchoTests {
             if let r = ProcessInfo.processInfo.environment["ECHO_SHOT_ROOT"] { EchoPrefs.backupRoot = URL(fileURLWithPath: r) }
             exit(EchoCLI.main(Array(a.dropFirst(2))))
         }
-        if a.count == 3, a[1] == "--rules" { rules(); try renameTest(fixture: URL(fileURLWithPath: a[2])); try statsTest(); try commitMatchTest(); timeTest(); try cleanTest(); try layoutTest(); try backupRootTest(); try pathTest(); try echTest(); try codexMoveTest(); try codexBackupTest(); try autoDeleteTest(); try claudeSettingsTest(); try updateTest(); try emptySessionTest(); menuBarTest(); resumeTest(); try restoreTest() }
+        if a.count == 3, a[1] == "--rules" { rules(); try renameTest(fixture: URL(fileURLWithPath: a[2])); try statsTest(); try commitMatchTest(); timeTest(); try cleanTest(); try layoutTest(); try backupRootTest(); try pathTest(); try echTest(); try codexMoveTest(); try codexBackupTest(); try autoDeleteTest(); try claudeSettingsTest(); try updateTest(); try emptySessionTest(); menuBarTest(); resumeTest(); try restoreTest(); try mediaTest() }
         else if a.count == 4, a[1] == "--overview" {   // 手动排查：按应用的方式整理总览数据，写到文件，看用了多久
             let t0 = Date()
             let list = EchoLibrary.scan(backupRoot: URL(fileURLWithPath: a[2]))
@@ -178,6 +178,50 @@ enum EchoTests {
         do { try EchoRestore.replace(s, local: f, open: { _ in true }, trash: { try fm.removeItem(at: $0) }); check(false, "同步：会话开着时不该替换") } catch {}
         check(fm.fileExists(atPath: f.path), "同步：没替换成时本机这份还在")
         print("  同步到本机 16 项")
+    }
+
+    /// 图片和文件：默认不备份（换成占位、图片文件跳过）；设了期限时没到期的原样留着，到期的换成占位，备份下来的图片文件到期移走
+    static func mediaTest() throws {
+        let fm = FileManager.default
+        let t = fm.temporaryDirectory.appendingPathComponent("回响图片-\(UUID().uuidString)")
+        defer { try? fm.removeItem(at: t) }
+        try fm.createDirectory(at: t, withIntermediateDirectories: true)
+        let img = String(repeating: "QUJD", count: 600)
+        func line(_ ts: String) -> String {
+            #"{"type":"user","uuid":"u","timestamp":"\#(ts)","message":{"role":"user","content":[{"type":"image","source":{"type":"base64","media_type":"image/png","data":"\#(img)"}},{"type":"text","text":"看这张图"}]}}"# + "\n"
+        }
+        let now = EchoTime.parse("2026-11-24T00:00:00Z")!
+        func slim(_ l: String, _ media: Int) throws -> String {
+            let src = t.appendingPathComponent("s.jsonl"), dst = t.appendingPathComponent("o.jsonl")
+            try l.write(to: src, atomically: true, encoding: .utf8)
+            var p = EchoPolicy(); p.media = media; p.now = now
+            _ = try EchoSlim.slimFile(src, to: dst, policy: p)
+            return try String(contentsOf: dst, encoding: .utf8)
+        }
+        check(try !slim(line("2026-11-23T00:00:00Z"), 0).contains(img), "图片：默认不备份，换成占位")
+        check(try slim(line("2026-11-23T00:00:00Z"), 7).contains(img), "图片：保留 7 天时，昨天的原样留着")
+        check(try !slim(line("2026-11-10T00:00:00Z"), 7).contains(img), "图片：保留 7 天时，两周前的换成占位")
+        check(try slim(line("2026-01-01T00:00:00Z"), -1).contains(img), "图片：永久保留时一直留着")
+        let d = UserDefaults.standard, saved = d.object(forKey: "keepMedia")
+        defer { if let saved { d.set(saved, forKey: "keepMedia") } else { d.removeObject(forKey: "keepMedia") } }
+        EchoPrefs.keepMedia = 0
+        check(EchoBackupRule.action(for: "-p/s1/tool-results/a.png") == .skip, "图片文件：不备份时跳过")
+        EchoPrefs.keepMedia = 7
+        check(EchoBackupRule.action(for: "-p/s1/tool-results/a.png") == .copy, "图片文件：设了期限时照原样复制")
+        // 清理：备份里的图片文件按修改时间到期移走
+        let comp = t.appendingPathComponent("电脑"), dir = comp.appendingPathComponent("claude/projects/-p/s1/tool-results")
+        try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        try Data([1, 2, 3]).write(to: dir.appendingPathComponent("old.png"))
+        try Data([1, 2, 3]).write(to: dir.appendingPathComponent("new.png"))
+        try fm.setAttributes([.modificationDate: now.addingTimeInterval(-86400 * 10)], ofItemAtPath: dir.appendingPathComponent("old.png").path)
+        try fm.setAttributes([.modificationDate: now.addingTimeInterval(-86400)], ofItemAtPath: dir.appendingPathComponent("new.png").path)
+        var p = EchoPolicy(); p.media = 7; p.now = now
+        _ = try EchoClean.run(computerDir: comp, policy: p, remove: { try fm.removeItem(at: $0); return nil })
+        check(!fm.fileExists(atPath: dir.appendingPathComponent("old.png").path) && fm.fileExists(atPath: dir.appendingPathComponent("new.png").path), "清理：过期的图片文件移走，没到期的留着")
+        p.media = 0
+        _ = try EchoClean.run(computerDir: comp, policy: p, remove: { try fm.removeItem(at: $0); return nil })
+        check(!fm.fileExists(atPath: dir.appendingPathComponent("new.png").path), "清理：改回不备份后，备份里的图片文件也移走")
+        print("  图片和文件 8 项")
     }
 
     /// 复制恢复命令：到会话的文件夹，路径里的单引号要转义

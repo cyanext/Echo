@@ -214,6 +214,8 @@ private struct RawParser {
 /// 各类内容在备份里留多久（天）：-1 永久，0 不备份，其余按那一行的时间算。now 是「现在」，测试时给固定值
 struct EchoPolicy {
     var toolUse = 30, toolResult = 30, thinking = 0, system = 0
+    /// 图片和文件（会话里贴的截图、读的 PDF，Codex 生成的图片，会话目录里的图片和 PDF 文件）：默认 0 不备份，换成占位
+    var media = 0
     var now = Date()
 
     func expired(_ days: Int, _ ts: Date?) -> Bool {
@@ -230,7 +232,7 @@ struct EchoPolicy {
     }
 
     /// 期限的写法，清理记录里比对用（期限改了要重新看）
-    var key: String { "\(toolUse),\(toolResult),\(thinking),\(system)" }
+    var key: String { "\(toolUse),\(toolResult),\(thinking),\(system)" + (media == 0 ? "" : ",m\(media)") }   // 不备份图片时和旧版一样，清理记录不用重算
 }
 
 /// 一个文件从头处理到尾时要记住的：git 提交、合并命令的调用编号（它的结果也一直留着）
@@ -552,8 +554,10 @@ enum EchoSlim {
             case "image_generation_call":
                 let k = RawJSON.quoted("result")
                 if case .string(let raw)? = cur[k], raw.count - 2 > 1000 {
-                    set(&p, k, .string(jsonString(placeholder("图片", (raw.count - 2) * 3 / 4))))
-                    changed = true
+                    if policy.expired(policy.media, ts) {
+                        set(&p, k, .string(jsonString(placeholder("图片", (raw.count - 2) * 3 / 4))))
+                        changed = true
+                    } else { next = min(next, policy.expiry(policy.media, ts)) }
                 }
             default: break
             }
@@ -573,9 +577,18 @@ enum EchoSlim {
         }
         var bytes: [UInt8]? = nil   // 改写过的这一行（不含换行），nil 表示原样
         let codexJ = EchoLines.has(body, needlePayload) ? RawJSON.parse(body) : nil
+        // 图片和文件按这一行的时间看到没到期：到期（默认 0 天，一律）换成占位，没到期原样留着、记下哪天到期
+        func media(_ j: RawJSON, _ strip: (RawJSON) -> (RawJSON, Bool)) -> (RawJSON, Bool) {
+            let (s, c) = strip(j)
+            guard c else { return (j, false) }
+            let ts = j[kTimestamp]?.stringRaw.flatMap { EchoTime.parse(String(decoding: $0.dropFirst().dropLast(), as: UTF8.self)) }
+            if policy.expired(policy.media, ts) { return (s, true) }
+            stats.nextExpiry = min(stats.nextExpiry, policy.expiry(policy.media, ts))
+            return (j, false)
+        }
         if let j = codexJ, isCodex(j) {
-            let (a, c0) = stripDataURLs(j)
-            let (b, c1) = stripBase64(a)
+            let (a, c0) = media(j, stripDataURLs)
+            let (b, c1) = media(a, stripBase64)
             let (c, c2) = applyCodex(b, policy, state, next: &stats.nextExpiry)
             if c0 || c1 || c2 {
                 var o = [UInt8]()
@@ -583,7 +596,7 @@ enum EchoSlim {
                 bytes = o
             }
         } else if needlesParse.contains(where: { EchoLines.has(body, $0) }), let j = codexJ ?? RawJSON.parse(body) {
-            let (a, c1) = stripBase64(j)
+            let (a, c1) = media(j, stripBase64)
             let (b, c2) = applyPolicy(a, policy, state, next: &stats.nextExpiry)
             if c1 || c2 {
                 var o = [UInt8]()
