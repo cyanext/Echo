@@ -38,6 +38,28 @@ enum EchoLayout {
         }
     }
 
+    /// 选的文件夹是一台电脑的备份（或里面某个应用的备份）时，往上找到放各台电脑的那一级。
+    /// 备份位置下面每个文件夹是一台电脑：选进电脑这一层，备份会再套一层电脑名，先前备份留下的 claude/ 还会被当成一台电脑
+    static func sharedRoot(_ picked: URL) -> URL {
+        var u = picked.standardizedFileURL
+        if isAppDir(u) { u = u.deletingLastPathComponent() }
+        if isComputerDir(u) { u = u.deletingLastPathComponent() }
+        return u
+    }
+
+    /// 一台电脑的备份文件夹：有备份日志，或某个应用的文件夹里有备份记录，或是没升级的老布局（这一级就有 projects 和备份记录）。
+    /// 放各台电脑的那一级只有电脑文件夹和合集.json，这几样都不会有
+    static func isComputerDir(_ u: URL) -> Bool {
+        let fm = FileManager.default
+        func has(_ p: String) -> Bool { fm.fileExists(atPath: u.appendingPathComponent(p).path) }
+        return has("备份日志.jsonl") || EchoSource.allCases.contains { has($0.folder + "/备份记录.json") } || (has("projects") && has("备份记录.json"))
+    }
+
+    /// 某个应用的备份文件夹：名字是 claude、codex 这些，里面有备份记录
+    static func isAppDir(_ u: URL) -> Bool {
+        EchoSource.allCases.contains { $0.folder == u.lastPathComponent } && FileManager.default.fileExists(atPath: u.appendingPathComponent("备份记录.json").path)
+    }
+
     /// Claude 那几样（会话目录、备份记录、移动记录）在哪：新位置 claude/ 有就用它，否则（没升级的电脑）是电脑这一级
     static func claudeDirs(_ computerDir: URL) -> [URL] {
         let fm = FileManager.default

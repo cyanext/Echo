@@ -22,7 +22,7 @@ enum EchoTests {
             if let r = ProcessInfo.processInfo.environment["ECHO_SHOT_ROOT"] { EchoPrefs.backupRoot = URL(fileURLWithPath: r) }
             exit(EchoCLI.main(Array(a.dropFirst(2))))
         }
-        if a.count == 3, a[1] == "--rules" { rules(); try renameTest(fixture: URL(fileURLWithPath: a[2])); try statsTest(); try commitMatchTest(); timeTest(); try cleanTest(); try layoutTest(); try pathTest(); try echTest(); try codexMoveTest(); try codexBackupTest(); try autoDeleteTest(); try claudeSettingsTest(); try updateTest(); try emptySessionTest(); menuBarTest() }
+        if a.count == 3, a[1] == "--rules" { rules(); try renameTest(fixture: URL(fileURLWithPath: a[2])); try statsTest(); try commitMatchTest(); timeTest(); try cleanTest(); try layoutTest(); try backupRootTest(); try pathTest(); try echTest(); try codexMoveTest(); try codexBackupTest(); try autoDeleteTest(); try claudeSettingsTest(); try updateTest(); try emptySessionTest(); menuBarTest() }
         else if a.count == 4, a[1] == "--overview" {   // 手动排查：按应用的方式整理总览数据，写到文件，看用了多久
             let t0 = Date()
             let list = EchoLibrary.scan(backupRoot: URL(fileURLWithPath: a[2]))
@@ -444,6 +444,46 @@ enum EchoTests {
         check(lit(EchoSearchModel.marked("Bash 里主色定了", "主色定 B")) == ["主色定"], "单个字不该单独标")
         check(EchoSearchModel.matches("回响 日期筛选", "筛选 回响") && !EchoSearchModel.matches("回响 日期筛选", "回响 搜索"), "会话名应几个词都有才算")
         print("  ech 分段、引用、猜新位置、搜索 24 项")
+    }
+
+    /// 备份位置选进了某台电脑的备份文件夹：改用放各台电脑的那一级，已经设错的启动时改回
+    static func backupRootTest() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent("echo-root-\(getpid())").standardizedFileURL
+        defer { try? fm.removeItem(at: root) }
+        let mac = root.appendingPathComponent("本机"), old = root.appendingPathComponent("老电脑")
+        let codexOnly = root.appendingPathComponent("只有Codex"), empty = root.appendingPathComponent("新文件夹")
+        for d in ["本机/claude/projects/-p", "本机/codex/sessions", "老电脑/projects", "只有Codex/codex/sessions", "新文件夹"] {
+            try fm.createDirectory(at: root.appendingPathComponent(d), withIntermediateDirectories: true)
+        }
+        for f in ["本机/claude/备份记录.json", "本机/codex/备份记录.json", "老电脑/备份记录.json", "只有Codex/codex/备份记录.json"] {
+            try Data("{}".utf8).write(to: root.appendingPathComponent(f))
+        }
+        try Data().write(to: mac.appendingPathComponent("备份日志.jsonl"))
+        try Data("{}".utf8).write(to: root.appendingPathComponent("合集.json"))
+        try (#"{"type":"user","uuid":"s1","timestamp":"2026-11-20T00:00:00Z","cwd":"/tmp/p","message":{"role":"user","content":"本机的会话"}}"# + "\n")
+            .write(to: mac.appendingPathComponent("claude/projects/-p/s1.jsonl"), atomically: true, encoding: .utf8)
+
+        let r = root.path
+        check(EchoLayout.sharedRoot(root).path == r, "备份位置：放各台电脑的那一级应原样用")
+        check(EchoLayout.sharedRoot(empty).path == empty.path, "备份位置：新建的空文件夹应原样用")
+        check(EchoLayout.sharedRoot(mac).path == r, "备份位置：选了一台电脑的备份文件夹应改用上一级")
+        check(EchoLayout.sharedRoot(mac.appendingPathComponent("claude")).path == r, "备份位置：选了电脑里的 claude/ 应改用放各台电脑的那一级")
+        check(EchoLayout.sharedRoot(mac.appendingPathComponent("codex")).path == r, "备份位置：选了电脑里的 codex/ 应改用放各台电脑的那一级")
+        check(EchoLayout.sharedRoot(old).path == r, "备份位置：没升级的老布局电脑文件夹也应改用上一级")
+        check(EchoLayout.sharedRoot(codexOnly).path == r, "备份位置：只备份 Codex、还没有备份日志的电脑文件夹也应改用上一级")
+        // 设错了位置时，本机的 claude/ 被当成一台叫 claude 的电脑；改对后只认真的电脑
+        check(EchoLibrary.scan(backupRoot: mac).map(\.computer) == ["claude"], "备份位置：复现设错时多出的「claude」电脑")
+        check(EchoLibrary.scan(backupRoot: root).map(\.computer) == ["本机"], "备份位置：改对后会话应在「本机」下")
+
+        let saved = UserDefaults.standard.string(forKey: "backupRoot")
+        defer { if let saved { UserDefaults.standard.set(saved, forKey: "backupRoot") } else { UserDefaults.standard.removeObject(forKey: "backupRoot") } }
+        EchoPrefs.backupRoot = mac
+        EchoPrefs.repairBackupRoot()
+        check(EchoPrefs.backupRoot.path == r, "备份位置：已经设成电脑文件夹的，启动时应改回上一级，实际 \(EchoPrefs.backupRoot.path)")
+        EchoPrefs.repairBackupRoot()
+        check(EchoPrefs.backupRoot.path == r, "备份位置：改对的再跑不应再动")
+        print("  备份位置 11 项")
     }
 
     static func layoutTest() throws {

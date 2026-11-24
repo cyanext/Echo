@@ -216,7 +216,8 @@ struct EchoGeneralSettings: View {
         p.canChooseFiles = false
         p.canCreateDirectories = true
         p.directoryURL = EchoPrefs.backupRoot
-        guard p.runModal() == .OK, let u = p.url else { return }
+        guard p.runModal() == .OK, let picked = p.url else { return }
+        let u = EchoLayout.sharedRoot(picked)   // 选进了某台电脑的备份文件夹时用上一级，不再套一层电脑名
         EchoPrefs.backupRoot = u
         root = u.path
         EchoState.shared.lastSuccess = nil
