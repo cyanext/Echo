@@ -98,7 +98,7 @@ Run in Terminal:
 curl -fsSL https://raw.githubusercontent.com/cyanext/Echo/main/install.sh | zsh
 ```
 
-This installs the latest release to `~/Applications` and opens it. You can also download `Echo-<version>.zip` from [Releases](https://github.com/cyanext/Echo/releases) and drag Echo to Applications; if macOS says it can't verify the developer on first launch, go to System Settings > Privacy & Security and click "Open Anyway".
+This installs the latest release to `~/Applications` and opens it. You can also download `Echo-<version>.dmg` from [Releases](https://github.com/cyanext/Echo/releases), open it and drag Echo to Applications; if macOS says it can't verify the developer on first launch, go to System Settings > Privacy & Security and click "Open Anyway".
 
 Requires an Apple silicon Mac with macOS 14 or later. Supports Claude Code and Codex sessions. On first launch, choose the backup location, the apps to back up and the cleanup rules; click "Allow" when macOS asks for folder access.
 
