@@ -22,7 +22,7 @@ enum EchoTests {
             if let r = ProcessInfo.processInfo.environment["ECHO_SHOT_ROOT"] { EchoPrefs.backupRoot = URL(fileURLWithPath: r) }
             exit(EchoCLI.main(Array(a.dropFirst(2))))
         }
-        if a.count == 3, a[1] == "--rules" { rules(); try renameTest(fixture: URL(fileURLWithPath: a[2])); try statsTest(); try commitMatchTest(); timeTest(); try cleanTest(); try layoutTest(); try pathTest(); try echTest(); try codexMoveTest(); try codexBackupTest(); try autoDeleteTest(); try claudeSettingsTest(); try updateTest(); try emptySessionTest(); menuBarTest() }
+        if a.count == 3, a[1] == "--rules" { rules(); try renameTest(fixture: URL(fileURLWithPath: a[2])); try statsTest(); try commitMatchTest(); timeTest(); try cleanTest(); try layoutTest(); try backupRootTest(); try pathTest(); try echTest(); try codexMoveTest(); try codexBackupTest(); try autoDeleteTest(); try claudeSettingsTest(); try updateTest(); try emptySessionTest(); menuBarTest() }
         else if a.count == 4, a[1] == "--overview" {   // 手动排查：按应用的方式整理总览数据，写到文件，看用了多久
             let t0 = Date()
             let list = EchoLibrary.scan(backupRoot: URL(fileURLWithPath: a[2]))
@@ -444,6 +444,80 @@ enum EchoTests {
         check(lit(EchoSearchModel.marked("Bash 里主色定了", "主色定 B")) == ["主色定"], "单个字不该单独标")
         check(EchoSearchModel.matches("回响 日期筛选", "筛选 回响") && !EchoSearchModel.matches("回响 日期筛选", "回响 搜索"), "会话名应几个词都有才算")
         print("  ech 分段、引用、猜新位置、搜索 24 项")
+    }
+
+    /// 备份位置选进了某台电脑的备份文件夹（0.14.1 及以前能选）：选的时候改用上一级；已经设错的，启动时改回来，多套那层的备份挪回来
+    static func backupRootTest() throws {
+        let fm = FileManager.default
+        let r = fm.temporaryDirectory.appendingPathComponent("回响备份位置-\(UUID().uuidString)").standardizedFileURL
+        defer { try? fm.removeItem(at: r) }
+        let mac = r.appendingPathComponent("本机"), nested = mac.appendingPathComponent("本机")
+        func put(_ rel: String, _ text: String, at base: URL, age: Double = 0) throws {
+            let u = base.appendingPathComponent(rel)
+            try fm.createDirectory(at: u.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try text.write(to: u, atomically: true, encoding: .utf8)
+            if age > 0 { try fm.setAttributes([.modificationDate: Date(timeIntervalSinceNow: -age)], ofItemAtPath: u.path) }
+        }
+        func line(_ id: String, _ text: String) -> String {
+            #"{"type":"user","uuid":"u-\#(id)","sessionId":"\#(id)","timestamp":"2026-11-20T00:00:00Z","cwd":"/tmp/p","origin":{"kind":"human"},"message":{"role":"user","content":"\#(text)"}}"# + "\n"
+        }
+        // 设错之前：本机的备份；设错之后写进多套的那层：s1 更新了，s3 是新会话（原会话之后被自动清理，只在这层有）
+        try put("备份日志.jsonl", "{\"a\":1}\n", at: mac)
+        try put("claude/备份记录.json", "{}", at: mac)
+        try put("claude/projects/-p/s1.jsonl", line("s1", "旧"), at: mac, age: 3600)
+        try put("claude/projects/-p/s2.jsonl", line("s2", "只在本机"), at: mac)
+        try EchoMoved.add(["s1": "/x"], mac.appendingPathComponent("claude"))
+        try EchoDeleted.add([EchoDeletedSession(sid: "a", t: "删掉的 a", cwd: "/p", c: "本机", deleted: "2026-11-01T00:00:00Z", days: [:])], mac)
+        try put("备份日志.jsonl", "{\"b\":2}\n", at: nested)
+        try put("claude/备份记录.json", "{}", at: nested)
+        try put("claude/projects/-p/s1.jsonl", line("s1", "新"), at: nested)
+        try put("claude/projects/-p/s3.jsonl", line("s3", "只在多套的那层"), at: nested)
+        try EchoMoved.add(["s3": "/y"], nested.appendingPathComponent("claude"))
+        try EchoDeleted.add([EchoDeletedSession(sid: "b", t: "删掉的 b", cwd: "/p", c: "本机", deleted: "2026-11-21T00:00:00Z", days: [:])], nested)
+
+        check(EchoLayout.sharedRoot(r).path == r.path, "备份位置：放各台电脑的那一级原样用")
+        check(EchoLayout.sharedRoot(mac).path == r.path, "备份位置：选了电脑的备份文件夹改用上一级")
+        check(EchoLayout.sharedRoot(mac.appendingPathComponent("claude")).path == r.path, "备份位置：选了电脑里的 claude/ 改用放各台电脑的那一级")
+        check(EchoLayout.sharedRoot(nested).path == r.path, "备份位置：多套了一层的也找回放各台电脑的那一级")
+        let fresh = r.appendingPathComponent("新文件夹")
+        try fm.createDirectory(at: fresh, withIntermediateDirectories: true)
+        check(EchoLayout.sharedRoot(fresh).path == fresh.path, "备份位置：新建的空文件夹原样用")
+        try put("备份记录.json", "{}", at: r.appendingPathComponent("老电脑"))
+        try fm.createDirectory(at: r.appendingPathComponent("老电脑/projects"), withIntermediateDirectories: true)
+        check(EchoLayout.sharedRoot(r.appendingPathComponent("老电脑")).path == r.path, "备份位置：0.7 及以前的老布局也认得是电脑文件夹")
+        try fm.removeItem(at: r.appendingPathComponent("老电脑"))
+        try fm.removeItem(at: fresh)
+
+        // 设错时：本机的 claude/ 被当成一台叫 claude 的电脑，ech 的索引也这么记
+        check(Set(EchoLibrary.scan(backupRoot: mac).map(\.computer)).contains("claude"), "备份位置：复现设错时多出的「claude」电脑")
+        try EchoIndex.update(backupRoot: mac)
+
+        let d = UserDefaults.standard, savedRoot = d.string(forKey: "backupRoot"), savedName = d.string(forKey: "computerName")
+        defer {
+            if let savedRoot { d.set(savedRoot, forKey: "backupRoot") } else { d.removeObject(forKey: "backupRoot") }
+            if let savedName { d.set(savedName, forKey: "computerName") } else { d.removeObject(forKey: "computerName") }
+        }
+        EchoPrefs.backupRoot = mac
+        EchoPrefs.computerName = "本机"
+        EchoPrefs.repairBackupRoot(trash: { try fm.removeItem(at: $0) })
+        check(EchoPrefs.backupRoot.path == r.path, "备份位置：启动时改回上一级，实际 \(EchoPrefs.backupRoot.path)")
+        let p = mac.appendingPathComponent("claude/projects/-p")
+        check(fm.fileExists(atPath: p.appendingPathComponent("s3.jsonl").path), "备份位置：只在多套那层的会话挪回来")
+        check((try? String(contentsOf: p.appendingPathComponent("s1.jsonl"), encoding: .utf8))?.contains("新") == true, "备份位置：两边都有的会话留新的")
+        check(fm.fileExists(atPath: p.appendingPathComponent("s2.jsonl").path), "备份位置：只在本机的会话不动")
+        check(!fm.fileExists(atPath: nested.path), "备份位置：都挪回来后多套的那层移到废纸篓")
+        check(Set(EchoDeleted.load(mac).map(\.sid)) == ["a", "b"], "备份位置：已删除统计合到一起")
+        check(EchoMoved.load(mac.appendingPathComponent("claude")) == ["s1": "/x", "s3": "/y"], "备份位置：移动记录合到一起")
+        check((try? String(contentsOf: mac.appendingPathComponent("备份日志.jsonl"), encoding: .utf8)) == "{\"a\":1}\n{\"b\":2}\n", "备份位置：备份日志接在后面")
+        let list = EchoLibrary.scan(backupRoot: r)
+        check(list.map(\.computer) == ["本机", "本机", "本机"] && Set(list.map(\.sessionId)) == ["s1", "s2", "s3"], "备份位置：改对后三个会话都在「本机」下，实际 \(list.map { $0.computer + "/" + $0.sessionId })")
+        try EchoIndex.update(backupRoot: r)
+        var labels = Set<String>()
+        try EchoIndex.open().rows("SELECT computer FROM files") { labels.insert($0.text(0)) }
+        check(labels == ["本机"], "备份位置：ech 的索引改归「本机」，实际 \(labels)")
+        EchoPrefs.repairBackupRoot(trash: { try fm.removeItem(at: $0) })
+        check(EchoPrefs.backupRoot.path == r.path && fm.fileExists(atPath: p.appendingPathComponent("s3.jsonl").path), "备份位置：改对的再启动不再动")
+        print("  备份位置 18 项")
     }
 
     static func layoutTest() throws {

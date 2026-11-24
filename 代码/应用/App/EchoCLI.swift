@@ -36,6 +36,9 @@ enum EchoCLI {
     /// 返回退出码；输出写到标准输出，出错写到标准错误
     static func main(_ argv: [String]) -> Int32 {
         let a = Args(argv)
+        // 设置里的备份位置是一台电脑的备份文件夹（应用还没启动改过来）：这次按上一级读，设置不动
+        let stored = EchoPrefs.backupRoot.standardizedFileURL, fixed = EchoLayout.sharedRoot(stored)
+        if fixed.path != stored.path { EchoPrefs.runRoot = fixed }
         do {
             var out: String
             switch a.cmd {
