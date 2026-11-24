@@ -88,11 +88,20 @@ enum EchoSettingsStyle {
 struct EchoSettingRow<Trailing: View>: View {
     let title: String
     var note: String? = nil
+    /// 标题后面的主色小标签，比如首次设置里的「推荐」
+    var tag: String? = nil
     @ViewBuilder var trailing: Trailing
     var body: some View {
         HStack(alignment: .center, spacing: 16) {
             VStack(alignment: .leading, spacing: 0) {
-                Text(title).font(.system(size: 13)).foregroundStyle(EchoColor.fg)
+                HStack(spacing: 6) {
+                    Text(title).font(.system(size: 13)).foregroundStyle(EchoColor.fg)
+                    if let tag {
+                        Text(tag).font(.system(size: 11, weight: .medium)).foregroundStyle(EchoColor.accentText)
+                            .padding(.horizontal, 6).padding(.vertical, 1)
+                            .background(EchoColor.accentSoft, in: Capsule())
+                    }
+                }
                 if let note { Text(note).font(.system(size: 12)).foregroundStyle(EchoColor.fg3) }
             }
             Spacer(minLength: 0)
@@ -175,7 +184,7 @@ struct EchoGeneralSettings: View {
                     .onChange(of: theme) { _, t in EchoPrefs.theme = t }
             }
             if onboarding {
-                EchoSettingRow(title: "开机自动启动（推荐）", note: "完成设置时打开，在后台备份，不弹窗口") {
+                EchoSettingRow(title: "开机自动启动", note: "完成设置时打开，在后台备份，不弹窗口", tag: "推荐") {
                     Toggle("", isOn: $wantLogin).toggleStyle(.switch).labelsHidden()
                 }
             } else {
@@ -203,7 +212,7 @@ struct EchoGeneralSettings: View {
                 }
             }
             if onboarding {
-                EchoSettingRow(title: "安装命令行工具 ech（推荐）", note: "完成设置时安装，AI 能用它查以往的会话") {
+                EchoSettingRow(title: "安装命令行工具 ech", note: "完成设置时安装，AI 能用它查以往的会话", tag: "推荐") {
                     Toggle("", isOn: $wantCLI).toggleStyle(.switch).labelsHidden()
                 }
             } else {
@@ -436,7 +445,7 @@ struct EchoSourcesBlock: View {
                 }
             }
         } else if let closeClaude {
-            EchoSettingRow(title: "关闭 Claude 的自动清理（推荐）", note: "Claude 会直接删除 \(model.claudeCleanupDays) 天未使用的会话，不确认是否已备份") {
+            EchoSettingRow(title: "关闭 Claude 的自动清理", note: "Claude 会直接删除 \(model.claudeCleanupDays) 天未使用的会话，不确认是否已备份", tag: "推荐") {
                 Toggle("", isOn: closeClaude).toggleStyle(.switch).labelsHidden()
             }
         } else {
