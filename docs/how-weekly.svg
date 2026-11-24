@@ -1,8 +1,8 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="-28 -18 936 592" width="936" height="592" role="img" aria-label="在 Claude Code 里说写一下上周的周报，AI 调 ech list 拿到一周的会话、提交和版本，按项目写成周报">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-28 -18 936 634" width="936" height="634" role="img" aria-label="在 Claude Code 里说写一下上周的周报，AI 用 ech list 拿到两台电脑上 Claude Code、Codex 一周的会话、提交和版本，按项目写成周报">
 <defs><filter id="sh" x="-10%" y="-10%" width="120%" height="130%"><feDropShadow dx="0" dy="4" stdDeviation="8" flood-color="#000" flood-opacity=".12"/></filter></defs>
-<rect x=".5" y=".5" width="879" height="535" rx="11" fill="#1e1e1e" filter="url(#sh)"/>
+<rect x=".5" y=".5" width="879" height="577" rx="11" fill="#1e1e1e" filter="url(#sh)"/>
 <style>text{font-family:"SF Mono",Menlo,Monaco,"PingFang SC",monospace;font-size:14px;white-space:pre}.ui{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;font-size:13px}</style>
-<rect x=".5" y=".5" width="879" height="535" rx="11" fill="#1e1e1e" stroke="#3a3a3a"/>
+<rect x=".5" y=".5" width="879" height="577" rx="11" fill="#1e1e1e" stroke="#3a3a3a"/>
 <path d="M.5 34 V11.5 a11 11 0 0 1 11 -11 H868.5 a11 11 0 0 1 11 11 V34 z" fill="#2d2d2d"/><line x1="0" y1="34.5" x2="880" y2="34.5" stroke="#111"/>
 <circle cx="20" cy="17" r="6" fill="#ff5f57"/><circle cx="40" cy="17" r="6" fill="#febc2e"/><circle cx="60" cy="17" r="6" fill="#28c840"/>
 <text class="ui" x="440.0" y="22" text-anchor="middle" fill="#a8a8a8">周报 — claude — 100×36</text>
@@ -11,21 +11,23 @@
 <text x="38.8" y="107" fill="#e8e8e8" font-weight="700">Bash</text>
 <text x="72.4" y="107" fill="#e8e8e8">(ech list --since 11-16 --until 11-22)</text>
 <text x="38.8" y="128" fill="#7a7a7a">⎿</text>
-<text x="64.0" y="128" fill="#9a9a9a">11-16 至 11-22：38 个会话，我的消息 412 条，提交 27 次</text>
+<text x="64.0" y="128" fill="#9a9a9a">11-16 至 11-22：41 个会话，我的消息 386 条，提交 29 次</text>
 <text x="64.0" y="149" fill="#9a9a9a">11-22 回响 · 回响 1.0 · 32 条 · 提交 16（0.1.0 至 0.13.0）</text>
-<text x="64.0" y="170" fill="#9a9a9a">11-21 记账本 · 预算超支提醒 · 10 条 · 提交 1（1.14.0） · Codex</text>
-<text x="64.0" y="191" fill="#9a9a9a">11-20 年度复盘 · 明年规划初稿 · 7 条 · 家里的 iMac</text>
-<text x="64.0" y="212" fill="#6a6a6a">… +35 lines (ctrl+r to expand)</text>
+<text x="64.0" y="170" fill="#9a9a9a">11-21 订单服务 · 库存扣减改成乐观锁 · 12 条 · 提交 2（2.8.0） · Codex</text>
+<text x="64.0" y="191" fill="#9a9a9a">11-20 记账本 · iCloud 同步冲突 · 9 条 · 提交 1（1.15.0） · 家里的 iMac</text>
+<text x="64.0" y="212" fill="#6a6a6a">… +38 lines (ctrl+r to expand)</text>
 <text x="22.0" y="254" fill="#e8e8e8">⏺</text>
 <text x="38.8" y="254" fill="#e8e8e8">上周的周报：</text>
 <text x="38.8" y="296" fill="#e8e8e8" font-weight="700">## 回响</text>
 <text x="38.8" y="317" fill="#e8e8e8">- 发布 0.1.0 至 0.13.0：自动备份、按版本回看、总览、目录管理、</text>
 <text x="38.8" y="338" fill="#e8e8e8">  ech、全局搜索，开源到 GitHub，一行命令安装、自动更新</text>
-<text x="38.8" y="359" fill="#e8e8e8" font-weight="700">## 记账本</text>
-<text x="38.8" y="380" fill="#e8e8e8">- 1.14.0 预算超支提醒，1.15.0 分类图标改版，导入银行账单完成</text>
-<text x="38.8" y="401" fill="#e8e8e8" font-weight="700">## 年度复盘</text>
-<text x="38.8" y="422" fill="#e8e8e8">- 复盘提纲、数据汇总定稿，明年规划写完初稿</text>
-<rect x="18" y="445" width="844" height="40" rx="7" fill="none" stroke="#5a5a5a"/>
-<text x="32" y="470" fill="#9a9a9a">&gt; </text><rect x="48.8" y="457" width="8.4" height="17" fill="#c8c8c8"/>
-<text x="22" y="507" fill="#6a6a6a" font-size="12.5">? for shortcuts</text>
+<text x="38.8" y="359" fill="#e8e8e8" font-weight="700">## 订单服务</text>
+<text x="38.8" y="380" fill="#e8e8e8">- 2.8.0 库存扣减改成乐观锁，对账脚本冲正了 3 笔历史重复入账</text>
+<text x="38.8" y="401" fill="#e8e8e8" font-weight="700">## 记账本</text>
+<text x="38.8" y="422" fill="#e8e8e8">- 1.15.0 处理 iCloud 同步冲突，Core Data 迁移补了测试</text>
+<text x="38.8" y="443" fill="#e8e8e8" font-weight="700">## 天气小程序</text>
+<text x="38.8" y="464" fill="#e8e8e8">- 3.10.0 城市搜索上线，接口超时加了兜底</text>
+<rect x="18" y="487" width="844" height="40" rx="7" fill="none" stroke="#5a5a5a"/>
+<text x="32" y="512" fill="#9a9a9a">&gt; </text><rect x="48.8" y="499" width="8.4" height="17" fill="#c8c8c8"/>
+<text x="22" y="549" fill="#6a6a6a" font-size="12.5">? for shortcuts</text>
 </svg>

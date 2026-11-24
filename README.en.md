@@ -51,7 +51,7 @@ You remember discussing it but not which session: press ⌥⌘F and find it.
 - Results are grouped by session; click a hit to land on that exact line, highlighted
 - The full-text index is local and updated after each backup, milliseconds even across thousands of sessions
 
-<p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/search-dark.png"><img src="docs/search-light.png" width="100%" alt="Searching the sidebar: hits grouped by session, highlighted in the conversation"></picture></p>
+<p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/search-dark.png"><img src="docs/search-light.png" width="100%" alt="Searching the sidebar for duplicate ledger entries: hits from 4 sessions in two projects, grouped by session and highlighted in the conversation"></picture></p>
 
 ## ech: Echo for your AI
 
@@ -65,7 +65,7 @@ Start a new session and say "continue the last one". Your AI checks Echo for whe
 
 When a problem comes up again, your AI first checks what you tried last time and how it went, then advises, so you don't start over.
 
-<p align="center"><img src="docs/how-tried.svg" width="100%" alt="The build fails with the same signing error again; the AI runs ech find, sees the three fixes tried on Oct 28 and which one worked, and starts there"></p>
+<p align="center"><img src="docs/how-tried.svg" width="100%" alt="A duplicate ledger entry shows up again; the AI runs ech find, reads the two earlier debugging sessions, checks git, finds the promised unique index was never added, and adds it"></p>
 
 Weekly reports work the same way: one sentence, and the AI uses `ech list` to get a week of sessions, commits and versions across your Macs and AI tools, then writes it up by project.
 
