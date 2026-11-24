@@ -65,6 +65,10 @@
 
 <p align="center"><img src="docs/how-ech.svg" width="100%" alt="你说接着上次那个做，AI 用 ech 在回响里查到上次的回顾，接着往下做"></p>
 
+让 AI 推荐工具时，它会先查你以前试过哪些、当时哪里不好用，不会把你卸掉的又推荐一遍。
+
+<p align="center"><img src="docs/how-tried.svg" width="100%" alt="问有没有轻量的菜单栏图标管理工具，AI 先用 ech find 查到 11 月 9 日试过的三个应用和各自的问题，再给建议"></p>
+
 写周报也是一句话的事。AI 用 `ech list` 拿到一周里所有电脑、所有 AI 的会话、提交和版本，按项目整理出来。
 
 <p align="center"><img src="docs/how-weekly.svg" width="100%" alt="在 Claude Code 里说写一下上周的周报，AI 用 ech list 拿到两台电脑上 Claude Code、Codex 一周的会话、提交和版本，按项目写成周报"></p>
@@ -119,7 +123,7 @@ curl -fsSL https://raw.githubusercontent.com/cyanext/Echo/main/install.sh | zsh
 
 - 回响只读取 `~/.claude`、`~/.codex` 里的会话，不改动内容。只有你改名、删除、移动会话，或开启了自动清理时，才会动会话文件，删除一律进废纸篓。
 - 备份只写到你选的文件夹。除了 iCloud，不会传到任何地方。
-- 只有两处联网，都只发一个请求，不带任何本机信息：每周下载一次公开的模型价格表；每天检查一次新版本，可以在设置里关掉。
+- 只有两处联网，都只发一个请求，不带任何本机信息：每周下载一次公开的模型价格表，每天检查一次新版本。检查新版本可以在设置里关掉。
 
 ## 从源码编译
 
