@@ -22,7 +22,7 @@ enum EchoTests {
             if let r = ProcessInfo.processInfo.environment["ECHO_SHOT_ROOT"] { EchoPrefs.backupRoot = URL(fileURLWithPath: r) }
             exit(EchoCLI.main(Array(a.dropFirst(2))))
         }
-        if a.count == 3, a[1] == "--rules" { rules(); try renameTest(fixture: URL(fileURLWithPath: a[2])); try statsTest(); try commitMatchTest(); timeTest(); try cleanTest(); try layoutTest(); try backupRootTest(); try pathTest(); try echTest(); try codexMoveTest(); try codexBackupTest(); try autoDeleteTest(); try claudeSettingsTest(); try updateTest(); try emptySessionTest(); menuBarTest(); resumeTest(); try restoreTest(); try handoffTest(); mergeTest(); try mediaTest(); try cloudTest(); try openTest() }
+        if a.count == 3, a[1] == "--rules" { rules(); try renameTest(fixture: URL(fileURLWithPath: a[2])); try statsTest(); try commitMatchTest(); timeTest(); try cleanTest(); try layoutTest(); try backupRootTest(); try pathTest(); try mvLinkTest(); try echTest(); try codexMoveTest(); try codexBackupTest(); try autoDeleteTest(); try claudeSettingsTest(); try updateTest(); try emptySessionTest(); menuBarTest(); resumeTest(); try restoreTest(); try handoffTest(); mergeTest(); try mediaTest(); try cloudTest(); try openTest() }
         else if a.count == 4, a[1] == "--overview" {   // 手动排查：按应用的方式整理总览数据，写到文件，看用了多久
             let t0 = Date()
             let list = EchoLibrary.scan(backupRoot: URL(fileURLWithPath: a[2]))
@@ -653,6 +653,30 @@ enum EchoTests {
         check(EchoPath.parts("/private/tmp/claude-501/x/scratchpad").comps == ["临时文件夹"], "临时文件夹没归组")
         check(EchoStats.project(home + "/Documents/New project") == "Codex 默认项目", "New project 没换名字")
         print("  目录路径 7 项")
+    }
+
+    /// ech mv：旧路径是指向新路径的软链时只挪会话、软链留在原处（新路径写软链路径或真实路径都认），普通文件夹照旧改名
+    static func mvLinkTest() throws {
+        let fm = FileManager.default
+        let t = fm.temporaryDirectory.path + "/echo-mv-\(getpid())"   // 不解析软链：/var 本身是软链，下面拿真实路径再比一次
+        defer { try? fm.removeItem(atPath: t) }
+        try fm.createDirectory(atPath: t + "/code/NAS", withIntermediateDirectories: true)
+        try fm.createDirectory(atPath: t + "/桌面/旧", withIntermediateDirectories: true)
+        try fm.createSymbolicLink(atPath: t + "/桌面/NAS", withDestinationPath: t + "/code/NAS")
+        let a = t + "/桌面/NAS", b = t + "/code/NAS"
+        let r = EchoCLI.mvTarget(from: a, to: b)
+        check(r.to == b && !r.moveFolder && r.link, "指向新路径的软链应只挪会话：\(r)")
+        let r2 = EchoCLI.mvTarget(from: a, to: EchoPath.real(b))
+        check(r2.to == EchoPath.real(b) && !r2.moveFolder && r2.link, "新路径写真实路径也应认出软链：\(r2)")
+        check(EchoCLI.mvTarget(from: t + "/桌面/旧", to: t + "/code") == (t + "/code/旧", true, false, false), "普通文件夹挪进已有的文件夹不对")
+        check(EchoCLI.mvTarget(from: t + "/桌面/旧", to: t + "/桌面/新") == (t + "/桌面/新", true, false, false), "普通文件夹改名不对")
+        // 新路径下原有的会话不算要挪的；执行后软链还在，新路径里没多出软链
+        let other = { (id: String, cwd: String) in EchoSession(url: URL(fileURLWithPath: "/x/\(id).jsonl"), sessionId: id, computer: "别的电脑", size: 1, meta: EchoSessionMeta(title: id, cwd: cwd, start: "", end: "")) }
+        let p = EchoDirMove.plan(from: a, to: b, sessions: [other("l1", a + "/子"), other("l2", b), other("l3", b + "/子")], moveFolder: r.moveFolder)
+        check(p.skipped.map(\.sessionId) == ["l1"] && p.count == 0, "新路径下原有的会话被算进来了：\(p.skipped.map(\.sessionId))")
+        _ = try EchoDirMove.run(p)
+        check((try? fm.destinationOfSymbolicLink(atPath: a)) == b && !fm.fileExists(atPath: b + "/NAS"), "软链被挪走了")
+        print("  ech mv 软链 6 项")
     }
 
     /// ech：分段（开头、版本提交后、跨天、压缩）、版本号只认说明开头、引用的写法

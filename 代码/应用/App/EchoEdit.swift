@@ -515,8 +515,9 @@ enum EchoDirMove {
         for s in sessions {
             let real = EchoPath.real(s.projectPath)
             guard real == from || real.hasPrefix(from + "/") else { continue }
-            guard s.computer == me, let orig = EchoRename.originalURL(for: s) else { p.skipped.append(s); continue }   // 只剩备份的、在其他电脑上的不跟
             let dest = to + real.dropFirst(from.count)
+            if (s.projectPath as NSString).standardizingPath == dest { continue }   // 已经在新位置：旧路径是指向新路径的软链时，新路径下原有的会话
+            guard s.computer == me, let orig = EchoRename.originalURL(for: s) else { p.skipped.append(s); continue }   // 只剩备份的、在其他电脑上的不跟
             if !moveFolder, !fm.fileExists(atPath: dest) { p.missing.append(s); continue }
             p.groups[dest, default: []].append(s)
             if p.busy == nil, EchoRename.isActive(orig) || EchoMove.isOpen(s.sessionId) { p.busy = s }
