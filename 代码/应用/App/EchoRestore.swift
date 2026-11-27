@@ -1,6 +1,7 @@
 // 同步到本机：把回响备份里的 Claude Code 会话写回本机 ~/.claude/projects，用 claude --resume 接着聊（规则见 CLAUDE.md「数据安全」）。
 // 本机没有这个会话时新写一份；本机有、另一台电脑接着聊了而本机这份之后没动过时，用新版本替换（本机这份先移到废纸篓）；
-// 两边各自接着聊过（分叉了）时不自动替换，由用户选。用于另一台电脑上的会话，或本机原会话已被清理的。备份是精简过的：对话全文都在，没有思考过程，到期的工具输出是占位，密钥打码；接着聊不受影响（11-24 实测过）。
+// 两边各自接着聊过（分叉了）时不自动替换，由用户选。用于另一台电脑上的会话，或本机原会话已被清理的。那台电脑交过来的（有交接副本，EchoHandoff）用交接副本，原样；
+// 没有时用备份，备份是精简过的：对话全文都在，没有思考过程，到期的工具输出是占位，密钥打码；接着聊不受影响（11-24 实测过）。
 // 会话 ID 不变；会话文件里记的工作目录还是原来的，回响用移动记录显示本机的文件夹。
 import Foundation
 
@@ -36,9 +37,15 @@ enum EchoRestore {
         return ids
     }
 
-    static func state(_ s: EchoSession, source: URL = EchoBackup.source) -> State {
+    /// 同步用哪份：那台电脑交过来的交接副本（原样，EchoHandoff）包含备份里的全部对话时用它，不然用备份
+    static func from(_ s: EchoSession, root: URL = EchoPrefs.backupRoot) -> URL {
+        guard let c = EchoHandoff.copy(for: s, root: root) else { return s.url }
+        return messageIDs(s.url).isSubset(of: messageIDs(c)) ? c : s.url
+    }
+
+    static func state(_ s: EchoSession, from: URL? = nil, source: URL = EchoBackup.source) -> State {
         guard let local = existing(s.sessionId, source: source) else { return .missing }
-        let mine = messageIDs(local), theirs = messageIDs(s.url)
+        let mine = messageIDs(local), theirs = messageIDs(from ?? s.url)
         let onlyMine = mine.subtracting(theirs).count, onlyTheirs = theirs.subtracting(mine).count
         if onlyTheirs == 0 { return .upToDate(local: local) }
         if onlyMine == 0 { return .newer(local: local, added: onlyTheirs) }
@@ -47,17 +54,18 @@ enum EchoRestore {
 
     /// 用备份替换本机这份：本机的会话文件和同名目录先移到废纸篓（trash 测试时换成直接删），再写备份；位置不变，修改时间改成现在。
     /// 正在 Claude 里开着、2 分钟内还在写的不换
-    static func replace(_ s: EchoSession, local: URL, open: (String) -> Bool = { EchoMove.isOpen($0) },
+    static func replace(_ s: EchoSession, from: URL? = nil, local: URL, open: (String) -> Bool = { EchoMove.isOpen($0) },
                         trash: (URL) throws -> Void = { try FileManager.default.trashItem(at: $0, resultingItemURL: nil) }, now: Date = Date()) throws {
         guard s.app == .claude else { throw Fail(errorDescription: "目前只能同步 Claude Code 的会话") }
         if open(s.sessionId) { throw Fail(errorDescription: "此会话正在 Claude 中打开，请先关闭再同步") }
         if EchoRename.isActive(local) { throw Fail(errorDescription: "此会话 2 分钟内还有写入，请稍后再同步") }
         let fm = FileManager.default
-        let sub = local.deletingPathExtension(), from = s.url.deletingPathExtension()
+        let src = from ?? s.url
+        let sub = local.deletingPathExtension(), srcSub = src.deletingPathExtension()
         try trash(local)
         if fm.fileExists(atPath: sub.path) { try trash(sub) }
-        if fm.fileExists(atPath: from.path) { try fm.copyItem(at: from, to: sub) }
-        try fm.copyItem(at: s.url, to: local)
+        if fm.fileExists(atPath: srcSub.path) { try fm.copyItem(at: srcSub, to: sub) }
+        try fm.copyItem(at: src, to: local)
         try fm.setAttributes([.modificationDate: now], ofItemAtPath: local.path)
     }
 
@@ -77,7 +85,7 @@ enum EchoRestore {
     /// 写回本机：<source>/<文件夹编码>/<会话ID>.jsonl，同名目录（子代理、工具结果）一起；修改时间改成现在，免得被当成很久没用、又被自动清理；
     /// 记一条移动记录（claudeDir 是这台电脑 Claude 的备份），回响显示本机的文件夹。返回写好的会话文件
     @discardableResult
-    static func restore(_ s: EchoSession, to dir: String, source: URL = EchoBackup.source, claudeDir: URL = EchoPrefs.claudeDir, now: Date = Date()) throws -> URL {
+    static func restore(_ s: EchoSession, from: URL? = nil, to dir: String, source: URL = EchoBackup.source, claudeDir: URL = EchoPrefs.claudeDir, now: Date = Date()) throws -> URL {
         guard s.app == .claude else { throw Fail(errorDescription: "目前只能同步 Claude Code 的会话") }
         if let u = existing(s.sessionId, source: source) {
             throw Fail(errorDescription: "本机已有此会话（\(u.deletingLastPathComponent().lastPathComponent)），不再新写一份")
@@ -86,9 +94,10 @@ enum EchoRestore {
         let dest = source.appendingPathComponent(EchoMove.projectDirName(dir))
         try fm.createDirectory(at: dest, withIntermediateDirectories: true)
         let file = dest.appendingPathComponent(s.sessionId + ".jsonl")
-        let sub = s.url.deletingPathExtension(), subDest = dest.appendingPathComponent(s.sessionId)
+        let src = from ?? s.url
+        let sub = src.deletingPathExtension(), subDest = dest.appendingPathComponent(s.sessionId)
         if fm.fileExists(atPath: sub.path), !fm.fileExists(atPath: subDest.path) { try fm.copyItem(at: sub, to: subDest) }
-        try fm.copyItem(at: s.url, to: file)
+        try fm.copyItem(at: src, to: file)
         try fm.setAttributes([.modificationDate: now], ofItemAtPath: file.path)
         try fm.createDirectory(at: claudeDir, withIntermediateDirectories: true)   // 新电脑还没备份过时没有这个文件夹
         try EchoMoved.add([s.sessionId: dir], claudeDir)

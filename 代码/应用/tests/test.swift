@@ -22,7 +22,7 @@ enum EchoTests {
             if let r = ProcessInfo.processInfo.environment["ECHO_SHOT_ROOT"] { EchoPrefs.backupRoot = URL(fileURLWithPath: r) }
             exit(EchoCLI.main(Array(a.dropFirst(2))))
         }
-        if a.count == 3, a[1] == "--rules" { rules(); try renameTest(fixture: URL(fileURLWithPath: a[2])); try statsTest(); try commitMatchTest(); timeTest(); try cleanTest(); try layoutTest(); try backupRootTest(); try pathTest(); try echTest(); try codexMoveTest(); try codexBackupTest(); try autoDeleteTest(); try claudeSettingsTest(); try updateTest(); try emptySessionTest(); menuBarTest(); resumeTest(); try restoreTest(); try mediaTest(); try cloudTest() }
+        if a.count == 3, a[1] == "--rules" { rules(); try renameTest(fixture: URL(fileURLWithPath: a[2])); try statsTest(); try commitMatchTest(); timeTest(); try cleanTest(); try layoutTest(); try backupRootTest(); try pathTest(); try echTest(); try codexMoveTest(); try codexBackupTest(); try autoDeleteTest(); try claudeSettingsTest(); try updateTest(); try emptySessionTest(); menuBarTest(); resumeTest(); try restoreTest(); try handoffTest(); mergeTest(); try mediaTest(); try cloudTest() }
         else if a.count == 4, a[1] == "--overview" {   // 手动排查：按应用的方式整理总览数据，写到文件，看用了多久
             let t0 = Date()
             let list = EchoLibrary.scan(backupRoot: URL(fileURLWithPath: a[2]))
@@ -224,6 +224,114 @@ enum EchoTests {
         print("  同步到本机 16 项")
     }
 
+    /// 交给另一台电脑：原样复制成交接副本、本机这份移走；另一台同步时用交接副本；接手后、30 天后交接副本移走；git 有没提交没推送的拦下
+    static func handoffTest() throws {
+        let fm = FileManager.default
+        let t = fm.temporaryDirectory.appendingPathComponent("回响接力-\(UUID().uuidString)").resolvingSymlinksInPath()
+        defer { try? fm.removeItem(at: t) }
+        func msg(_ id: String, _ text: String) -> String {
+            #"{"type":"user","uuid":"\#(id)","sessionId":"h1","timestamp":"2026-10-01T00:00:00Z","cwd":"/Users/a/p","origin":{"kind":"human"},"message":{"role":"user","content":"\#(text)"},"thinking":"原样的思考"}"# + "\n"
+        }
+        let root = t.appendingPathComponent("备份"), srcA = t.appendingPathComponent("A/projects"), srcB = t.appendingPathComponent("B/projects")
+        let claudeA = root.appendingPathComponent("A/claude"), claudeB = root.appendingPathComponent("B/claude")
+        let orig = srcA.appendingPathComponent("-Users-a-p/h1.jsonl")
+        try fm.createDirectory(at: orig.deletingPathExtension().appendingPathComponent("subagents"), withIntermediateDirectories: true)
+        let body = msg("u1", "第一句") + msg("u2", "第二句")
+        try body.write(to: orig, atomically: true, encoding: .utf8)
+        try "子代理".write(to: orig.deletingPathExtension().appendingPathComponent("subagents/a.jsonl"), atomically: true, encoding: .utf8)
+        try fm.setAttributes([.modificationDate: Date(timeIntervalSinceNow: -600)], ofItemAtPath: orig.path)
+        // A 的精简备份（只有 u1，模拟备份落后）
+        let slimA = claudeA.appendingPathComponent("projects/-Users-a-p/h1.jsonl")
+        try fm.createDirectory(at: slimA.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try msg("u1", "第一句").write(to: slimA, atomically: true, encoding: .utf8)
+        let rm: (URL) throws -> Void = { try fm.removeItem(at: $0) }
+        // 没交出的不能在另一台同步：A 最近备份过时拦，A 30 天没备份过时放行，本机自己的不拦
+        let sA = EchoSession(url: slimA, sessionId: "h1", computer: "A", size: 1, meta: EchoSessionMeta(title: "", cwd: "/Users/a/p", start: "", end: ""))
+        let recA = claudeA.appendingPathComponent("备份记录.json")
+        try EchoBackupRecord(lastSuccess: Date(timeIntervalSinceNow: -40 * 86400)).save(recA)
+        check(!EchoHandoff.mustHandOff(sA, root: root, me: "B"), "接力：那台 30 天没备份过时能直接同步")
+        try EchoBackupRecord(lastSuccess: Date(timeIntervalSinceNow: -3600)).save(recA)
+        check(EchoHandoff.mustHandOff(sA, root: root, me: "B"), "接力：A 上的会话没交出时 B 不能同步")
+        check(!EchoHandoff.mustHandOff(sA, root: root, me: "A"), "接力：本机自己的会话不拦")
+        do { try EchoHandoff.handOff(original: orig, sessionId: "h1", claudeDir: claudeA, open: { _ in true }, trash: rm); check(false, "接力：开着的会话不该交出") } catch {}
+        check(fm.fileExists(atPath: orig.path), "接力：没交出时本机这份还在")
+        let copy = try EchoHandoff.handOff(original: orig, sessionId: "h1", claudeDir: claudeA, open: { _ in false }, trash: rm)
+        check(copy.path == claudeA.appendingPathComponent("接力/h1.jsonl").path, "接力：交接副本放在 claude/接力/，实际 \(copy.path)")
+        check((try? String(contentsOf: copy, encoding: .utf8)) == body, "接力：交接副本和原文件一样")
+        check(fm.fileExists(atPath: copy.deletingPathExtension().appendingPathComponent("subagents/a.jsonl").path), "接力：同名目录一起复制")
+        check(!fm.fileExists(atPath: orig.path) && !fm.fileExists(atPath: orig.deletingPathExtension().path), "接力：本机这份和同名目录移走")
+        check(EchoHandoff.handedOff(claudeA) == ["h1"], "接力：记得本机交出了哪些")
+        check(!EchoHandoff.mustHandOff(sA, root: root, me: "B"), "接力：交出后 B 能同步")
+        // B 同步：有交接副本时用它，原样写入
+        let s = EchoSession(url: slimA, sessionId: "h1", computer: "A", size: 1, meta: EchoSessionMeta(title: "", cwd: "/Users/a/p", start: "", end: ""))
+        check(EchoRestore.from(s, root: root).path == copy.path, "接力：同步时用交接副本")
+        let dir = t.appendingPathComponent("B 的项目").path
+        try fm.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        let got = try EchoRestore.restore(s, from: EchoRestore.from(s, root: root), to: dir, source: srcB, claudeDir: claudeB)
+        check((try? String(contentsOf: got, encoding: .utf8)) == body, "接力：B 写入的是原样的交接副本")
+        check(fm.fileExists(atPath: got.deletingPathExtension().appendingPathComponent("subagents/a.jsonl").path), "接力：B 写入时同名目录一起")
+        // 清理：B 的备份还没有它时不动；有了全部对话后移走
+        check(EchoHandoff.cleanup(root: root, me: "A", source: srcA, trash: rm) == 0 && fm.fileExists(atPath: copy.path), "接力：没人接手时交接副本留着")
+        let slimB = claudeB.appendingPathComponent("projects/-x/h1.jsonl")
+        try fm.createDirectory(at: slimB.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try msg("u1", "第一句").write(to: slimB, atomically: true, encoding: .utf8)
+        check(EchoHandoff.cleanup(root: root, me: "A", source: srcA, trash: rm) == 0, "接力：B 的备份少了对话时不移走")
+        try (body + msg("u3", "B 接着聊")).write(to: slimB, atomically: true, encoding: .utf8)
+        check(EchoHandoff.cleanup(root: root, me: "A", source: srcA, trash: rm) == 1 && !fm.fileExists(atPath: copy.path), "接力：B 接手后交接副本移走")
+        check(!fm.fileExists(atPath: copy.deletingPathExtension().path), "接力：交接副本的同名目录一起移走")
+        check(EchoRestore.from(s, root: root) == slimA, "接力：没有交接副本时用备份")
+        // 30 天没人接
+        try body.write(to: orig, atomically: true, encoding: .utf8)
+        try fm.setAttributes([.modificationDate: Date(timeIntervalSinceNow: -600)], ofItemAtPath: orig.path)
+        let c2 = try EchoHandoff.handOff(original: orig, sessionId: "h1", claudeDir: claudeA, open: { _ in false }, trash: rm, now: Date(timeIntervalSinceNow: -86400 * 31))
+        try fm.removeItem(at: slimB)
+        check(EchoHandoff.cleanup(root: root, me: "A", source: srcA, trash: rm) == 1 && !fm.fileExists(atPath: c2.path), "接力：30 天没人接的交接副本移走")
+        // git：没提交的、没推送的拦下；干净的不拦；不是仓库的不查
+        let repo = t.appendingPathComponent("仓库").path, remote = t.appendingPathComponent("远端.git").path
+        func git(_ dir: String, _ a: String...) { _ = EchoHandoff.git(dir, a) }
+        try fm.createDirectory(atPath: repo, withIntermediateDirectories: true)
+        git(t.path, "init", "-q", "--bare", remote)
+        git(repo, "init", "-q", "-b", "main"); git(repo, "config", "user.email", "t@t"); git(repo, "config", "user.name", "t")
+        try "a".write(toFile: repo + "/a.txt", atomically: true, encoding: .utf8)
+        check(EchoHandoff.gitProblems(repo).contains { $0.contains("1 个文件没提交") }, "接力：没提交的文件拦下，实际 \(EchoHandoff.gitProblems(repo))")
+        git(repo, "add", "."); git(repo, "commit", "-q", "-m", "a")
+        check(EchoHandoff.gitProblems(repo).isEmpty, "接力：没有远端的仓库只查没提交的")
+        git(repo, "remote", "add", "origin", remote)
+        check(EchoHandoff.gitProblems(repo).contains { $0.contains("没推送到远端") }, "接力：分支没推送过拦下")
+        git(repo, "push", "-q", "-u", "origin", "main")
+        check(EchoHandoff.gitProblems(repo).isEmpty, "接力：推送完不拦，实际 \(EchoHandoff.gitProblems(repo))")
+        try "b".write(toFile: repo + "/a.txt", atomically: true, encoding: .utf8)
+        git(repo, "commit", "-q", "-am", "b")
+        check(EchoHandoff.gitProblems(repo).contains { $0.contains("1 个提交没推送") }, "接力：没推送的提交拦下")
+        git(repo, "push", "-q")
+        git(repo, "worktree", "add", "-q", "-b", "主题", repo + "/.worktrees/主题")
+        try "c".write(toFile: repo + "/.worktrees/主题/c.txt", atomically: true, encoding: .utf8)
+        let p = EchoHandoff.gitProblems(repo)
+        check(p.contains { $0.contains("主题：1 个文件没提交") } && p.contains { $0.contains("「主题」没推送到远端") }, "接力：工作区一起查，实际 \(p)")
+        check(EchoHandoff.gitProblems(t.path).isEmpty, "接力：不在仓库里的文件夹不查")
+        print("  交给另一台电脑 25 项")
+    }
+
+    /// 几台电脑上的同一个会话：一份包含另一份只留多的，一样多留本机的；分叉都留并标注；只有一台的不动
+    static func mergeTest() {
+        func ses(_ sid: String, _ c: String, _ end: String = "2026-11-20T00:00:00Z") -> EchoSession {
+            EchoSession(url: URL(fileURLWithPath: "/备份/\(c)/claude/projects/p/\(sid).jsonl"), sessionId: sid, computer: c, size: 1, meta: EchoSessionMeta(title: sid, cwd: "/p", start: "", end: end))
+        }
+        let ids: [String: Set<String>] = ["/备份/A/claude/projects/p/s1.jsonl": ["1", "2"], "/备份/B/claude/projects/p/s1.jsonl": ["1", "2", "3"],
+                                          "/备份/A/claude/projects/p/s2.jsonl": ["1", "2"], "/备份/B/claude/projects/p/s2.jsonl": ["1", "3"],
+                                          "/备份/A/claude/projects/p/s3.jsonl": ["1"], "/备份/B/claude/projects/p/s3.jsonl": ["1"],
+                                          "/备份/A/claude/projects/p/s4.jsonl": ["1"]]
+        let out = EchoMerge.apply([ses("s1", "A"), ses("s1", "B"), ses("s2", "A"), ses("s2", "B"), ses("s3", "A"), ses("s3", "B", "2026-11-25T00:00:00Z"), ses("s4", "A")],
+                                  me: "A", ids: { ids[$0.path] ?? [] })
+        let got = out.map { "\($0.sessionId)@\($0.computer):\($0.merged ?? "")" }
+        check(got.contains("s1@B:在 B 上接着聊过") && !got.contains { $0.hasPrefix("s1@A") }, "归组：包含时只留多的，标在哪台接着聊过，实际 \(got)")
+        check(got.contains("s2@A:分叉") && got.contains("s2@B:分叉"), "归组：分叉都留，都标分叉")
+        check(got.contains("s3@A:") && !got.contains { $0.hasPrefix("s3@B") }, "归组：一样多时留本机的")
+        check(got.contains("s4@A:"), "归组：只有一台的不动")
+        check(out.count == 5, "归组：7 个里留 5 个，实际 \(out.count)")
+        print("  几台电脑上的同一个会话 5 项")
+    }
+
     /// 图片和文件：默认不备份（换成占位、图片文件跳过）；设了期限时没到期的原样留着，到期的换成占位，备份下来的图片文件到期移走
     static func mediaTest() throws {
         let fm = FileManager.default
@@ -370,21 +478,28 @@ enum EchoTests {
         func reply(_ rid: String, _ out: Int, _ ts: String = "2026-11-20T03:00:00Z") -> String {
             #"{"type":"assistant","timestamp":"\#(ts)","requestId":"\#(rid)","message":{"model":"claude-opus-5-5","usage":{"input_tokens":1,"output_tokens":\#(out)}}}"#
         }
-        let ask = #"{"type":"user","timestamp":"2026-11-20T02:59:00Z","message":{"role":"user","content":"开始"},"origin":{"kind":"human"}}"#
-        try [ask, reply("r1", 100)].joined(separator: "\n").write(to: tdir.appendingPathComponent("a.jsonl"), atomically: true, encoding: .utf8)
+        let ask = #"{"type":"user","timestamp":"2026-11-20T02:59:00Z","uuid":"u1","message":{"role":"user","content":"开始"},"origin":{"kind":"human"}}"#
+        let ask2 = #"{"type":"user","timestamp":"2026-11-20T03:59:00Z","uuid":"u2","message":{"role":"user","content":"接着"},"origin":{"kind":"human"}}"#
+        func took(_ uuid: String, _ ms: Int, _ ts: String) -> String {
+            #"{"type":"system","subtype":"turn_duration","durationMs":\#(ms),"timestamp":"\#(ts)","uuid":"\#(uuid)"}"#
+        }
+        let tool = #"{"type":"user","timestamp":"2026-11-20T03:00:30Z","uuid":"x1","message":{"role":"user","content":[{"type":"tool_result","content":"ok"}]}}"#
+        try [ask, reply("r1", 100), tool, took("t1", 60000, "2026-11-20T03:01:00Z")].joined(separator: "\n").write(to: tdir.appendingPathComponent("a.jsonl"), atomically: true, encoding: .utf8)
         try reply("r9", 7).write(to: tdir.appendingPathComponent("a/subagents/agent-1.jsonl"), atomically: true, encoding: .utf8)
         try reply("r9", 7).write(to: tdir.appendingPathComponent("a/subagents/agent-2.jsonl"), atomically: true, encoding: .utf8)
-        try [ask, reply("r1", 100), reply("r3", 20, "2026-11-20T04:00:00Z")].joined(separator: "\n").write(to: tdir.appendingPathComponent("b.jsonl"), atomically: true, encoding: .utf8)
+        try [ask, reply("r1", 100), tool, took("t1", 60000, "2026-11-20T03:01:00Z"), ask2, reply("r3", 20, "2026-11-20T04:00:00Z"), took("t2", 30000, "2026-11-20T04:01:00Z")].joined(separator: "\n").write(to: tdir.appendingPathComponent("b.jsonl"), atomically: true, encoding: .utf8)
         check(try EchoStats.read(tdir.appendingPathComponent("a.jsonl"))[day]?.k["claude-opus-5-5"] == [2, 107, 0, 0, 0], "统计：子代理的 Token 算进主会话，两个子代理记录里同一次请求只算一次")
         let sa = EchoSession(url: tdir.appendingPathComponent("a.jsonl"), sessionId: "a", computer: "机", size: 0, meta: EchoSessionMeta(title: "原会话", cwd: "/x/y", start: "2026-11-20T02:59:00Z", end: ""))
         let sb = EchoSession(url: tdir.appendingPathComponent("b.jsonl"), sessionId: "b", computer: "机", size: 0, meta: EchoSessionMeta(title: "分叉出来的", cwd: "/x/y", start: "2026-11-20T03:30:00Z", end: ""))
         for _ in 0..<2 {   // 第二遍走缓存，结果要一样
             let o = try JSONSerialization.jsonObject(with: EchoStats.build([sb, sa])) as! [String: Any]
-            let out = Dictionary(uniqueKeysWithValues: (o["sessions"] as! [[String: Any]]).map { x -> (String, [Double]) in
-                let k = ((x["days"] as! [String: Any])[day] as! [String: Any])["k"] as! [String: [Double]]
-                return (x["t"] as! String, k["claude-opus-5-5"]!)
-            })
+            let ds = Dictionary(uniqueKeysWithValues: (o["sessions"] as! [[String: Any]]).map { x in (x["t"] as! String, (x["days"] as! [String: Any])[day] as! [String: Any]) })
+            let out = ds.mapValues { ($0["k"] as! [String: [Double]])["claude-opus-5-5"]! }
             check(out["原会话"] == [2, 107, 0, 0, 0] && out["分叉出来的"] == [1, 20, 0, 0, 0], "统计：分叉出来的会话不再算原会话的请求，实际 \(out)")
+            let mm = ds.mapValues { [($0["m"] as! NSNumber).intValue, ($0["ms"] as! NSNumber).intValue] }
+            check(mm["原会话"] == [1, 60000] && mm["分叉出来的"] == [1, 30000], "统计：分叉出来的会话不再算原会话的消息和 AI 干活时长，实际 \(mm)")
+            let a = (ds["分叉出来的"]?["a"] as? NSNumber)?.doubleValue ?? 0
+            check(a == ISO8601DateFormatter().date(from: "2026-11-20T03:59:00Z")!.timeIntervalSince1970, "统计：分叉出来的会话从自己的第一条算起止时间，实际 \(a)")
         }
         // Git：上级目录往下找两层里的仓库，.开头的不进；删掉的分支工作区换成主目录
         let fm = FileManager.default
@@ -403,6 +518,15 @@ enum EchoTests {
     /// 清理备份：到期的换成占位、行数不变；旧文件进废纸篓（这里换成临时目录）；再跑一遍不动；没到门槛不重写，第一次（force）照样重写；估算不改文件
     /// 手写的时间解析和本地日期，要和系统格式器、Calendar 算的一样
     static func timeTest() {
+        // 时间筛选「昨天」：昨天 0 点到今天 0 点，跨月、跨年的第一天也对
+        let cal = Calendar.current
+        for (now, from) in [("2026-11-26 09:30", "2026-11-25"), ("2026-12-01 00:00", "2026-11-30"), ("2027-01-01 23:59", "2026-12-31")] {
+            let df = DateFormatter(); df.dateFormat = "yyyy-MM-dd HH:mm"; let n = df.date(from: now)!
+            df.dateFormat = "yyyy-MM-dd"
+            let r = EchoDateFilter.range("y1", now: n)
+            check(r?.lowerBound == df.date(from: from) && r?.upperBound == cal.startOfDay(for: n), "昨天的范围不对：\(now) → \(String(describing: r))")
+        }
+        check(EchoDateFilter.title("y1") == "昨天" && EchoDateFilter.short("y1") == "昨天", "昨天的名字不对")
         let f = ISO8601DateFormatter(); f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         let g = ISO8601DateFormatter()
         for s in ["2026-11-04T11:41:10.072Z", "2026-02-28T23:59:59.999Z", "2024-02-29T16:00:00Z", "2000-01-01T00:00:00.5Z", "2026-12-31T15:59:60Z"] {

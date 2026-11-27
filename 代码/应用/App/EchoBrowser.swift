@@ -23,10 +23,12 @@ struct EchoBrowserView: View {
     @State private var moveDone: String?                               // 挪好后的提示和恢复命令
     @State private var moveCmd: String?
     @State private var doneTitle = "已移动"                                // 移动、同步到本机完成后提示框的标题
+    @State private var syncing: String?                                // 同步到本机在后台做时盖住窗口的加载提示
     @AppStorage("sidebarOrder") private var orderRaw = ""              // 拖动排好的顺序（EchoOrder），JSON
     @State private var drag = EchoDragState()                          // 拖动的状态：放在 @State 里不订阅，鼠标移动时左栏的树不重画
     @State private var currentID: String?                              // 当前打开的会话；数据变了算一次，不在每行里找
     @State private var multiComputer = false                           // 有几台电脑的会话，会话行才写电脑名
+    @State private var handed: Set<String> = []                        // 本机交给另一台电脑的会话 ID（交接副本还在的），会话行标「已交给另一台」
     @State private var openState: [String: Bool] = [:]                 // dirStateRaw 解析好的展开状态
     @State private var pendingDirs: Set<String> = []                   // 正在后台改名、移动的新位置：还没真的建好，不算「已不存在」
     @State private var missingDirs: Set<String> = []                   // 访达里已经不存在的目录（改了名、挪走了），左栏标「已不存在」，数据变了算一次
@@ -70,6 +72,7 @@ struct EchoBrowserView: View {
     var body: some View {
         layout
         .overlay(alignment: .bottom) { EchoDropTip(drag: drag) }
+        .overlay { if let t = syncing { EchoBusy(text: t) } }
         .overlay(alignment: .topLeading) {
             // 筛选菜单：盖在最上层，左栏右上角按钮下面；点外面任何地方收起。出现、收起淡入淡出 0.15 秒（规范「动效」）
             ZStack(alignment: .topLeading) {
@@ -299,7 +302,7 @@ struct EchoBrowserView: View {
                 guard let to = dest[s.id] else { return s }
                 var m = s.meta
                 m.cwd = to
-                return EchoSession(url: s.url, sessionId: s.sessionId, computer: s.computer, size: s.size, meta: m, app: s.app)
+                return EchoSession(url: s.url, sessionId: s.sessionId, computer: s.computer, size: s.size, meta: m, app: s.app, merged: s.merged)
             }
         }
         Task { @MainActor in
@@ -396,10 +399,32 @@ struct EchoBrowserView: View {
 
     /// 同步到本机（EchoRestore）：本机没有就新写一份（先猜本机对应的文件夹，问一句；猜不到或选「选择其他文件夹…」打开选择框）；
     /// 本机有、另一台接着聊了就问一句再替换；已是最新只提示；两边各自聊过（分叉）让用户选，默认保留本机的。做完立刻备份
+    /// 比对两边、猜文件夹要读整份会话，备份还在 iCloud 云端时要等下载，在后台做，窗口上盖一层加载提示
     private func startSync(_ s: EchoSession) {
-        let note = "同步的是回响的备份：对话全文都在，思考过程和到期的工具输出不在，接着聊不受影响。"
-        let from = s.computer == EchoPrefs.computerName ? "回响的备份" : s.computer
-        switch EchoRestore.state(s) {
+        guard syncing == nil else { return }
+        if EchoHandoff.mustHandOff(s) {
+            errorTitle = "请先在\(s.computer)上交出此会话"
+            editError = "此会话还在\(s.computer)上，直接同步过来两台都能接着聊，会聊出分叉。\n在\(s.computer)上右键此会话「交给另一台电脑…」，再回来同步。"
+            return
+        }
+        syncing = EchoCloud.isPlaceholder(s.url.path) ? "正在从 iCloud 下载备份…" : "正在比对本机的会话…"
+        Task { @MainActor in
+            let (src, st, guess) = await Task.detached(priority: .userInitiated) { () -> (URL, EchoRestore.State, String?) in
+                let src = EchoRestore.from(s)
+                let st = EchoRestore.state(s, from: src)
+                return (src, st, st == .missing ? EchoRestore.guessFolder(s.meta.cwd) : nil)
+            }.value
+            syncing = nil
+            askSync(s, src, st, guess)
+        }
+    }
+
+    private func askSync(_ s: EchoSession, _ src: URL, _ st: EchoRestore.State, _ guess: String?) {
+        let whole = src != s.url   // 那台电脑交过来的交接副本，原样
+        let note = whole ? "同步的是交接时的完整会话，和原来的一样。"
+            : "同步的是回响的备份：对话全文都在，思考过程和到期的工具输出不在，接着聊不受影响。"
+        let from = s.computer == EchoPrefs.computerName ? (whole ? "交接副本" : "回响的备份") : s.computer
+        switch st {
         case .missing:
             break
         case .upToDate:
@@ -412,7 +437,7 @@ struct EchoBrowserView: View {
             a.informativeText = "\(from)上多了 \(added) 条对话。本机这份会移到废纸篓，能放回。\n" + note
             a.addButton(withTitle: "更新")
             a.addButton(withTitle: "取消")
-            if a.runModal() == .alertFirstButtonReturn { doReplace(s, local) }
+            if a.runModal() == .alertFirstButtonReturn { doReplace(s, src, local) }
             return
         case .diverged(let local, let mine, let theirs):
             let a = NSAlert()
@@ -421,10 +446,10 @@ struct EchoBrowserView: View {
             a.addButton(withTitle: "保留本机的")
             a.addButton(withTitle: "用\(from)的替换")
             a.buttons[1].hasDestructiveAction = true
-            if a.runModal() == .alertSecondButtonReturn { doReplace(s, local) }
+            if a.runModal() == .alertSecondButtonReturn { doReplace(s, src, local) }
             return
         }
-        if let g = EchoRestore.guessFolder(s.meta.cwd) {
+        if let g = guess {
             let a = NSAlert()
             a.messageText = "将此会话同步到本机？"
             a.informativeText = "放到：" + (g as NSString).abbreviatingWithTildeInPath + "\n" + note
@@ -432,7 +457,7 @@ struct EchoBrowserView: View {
             a.addButton(withTitle: "选择其他文件夹…")
             a.addButton(withTitle: "取消")
             switch a.runModal() {
-            case .alertFirstButtonReturn: doRestore(s, g); return
+            case .alertFirstButtonReturn: doRestore(s, src, g); return
             case .alertSecondButtonReturn: break
             default: return
             }
@@ -444,32 +469,76 @@ struct EchoBrowserView: View {
         panel.prompt = "同步到此处"
         panel.message = "选择在本机哪个文件夹里接着这个会话。" + note
         guard panel.runModal() == .OK, let u = panel.url else { return }
-        doRestore(s, u.path)
+        doRestore(s, src, u.path)
     }
 
-    private func doRestore(_ s: EchoSession, _ dir: String) {
-        do {
-            try EchoRestore.restore(s, to: dir)
-        } catch {
-            errorTitle = "同步失败"
-            editError = error.localizedDescription
-            return
+    private func doRestore(_ s: EchoSession, _ src: URL, _ dir: String) {
+        runSync(s, dir) { try EchoRestore.restore(s, from: src, to: dir) }
+    }
+
+    /// 写回本机在后台做（复制会话文件和同名目录），做完提示
+    private func runSync(_ s: EchoSession, _ dir: String, _ work: @escaping @Sendable () throws -> Void) {
+        syncing = "正在同步到本机…"
+        Task { @MainActor in
+            let r = await Task.detached(priority: .userInitiated) { Result { try work() } }.value
+            syncing = nil
+            if case .failure(let e) = r {
+                errorTitle = "同步失败"
+                editError = e.localizedDescription
+                return
+            }
+            syncDone(s, dir)
         }
-        syncDone(s, dir)
     }
 
-    private func doReplace(_ s: EchoSession, _ local: URL) {
+    private func doReplace(_ s: EchoSession, _ src: URL, _ local: URL) {
         // 本机这份记的文件夹（挪过的按移动记录）：替换后位置不变，恢复命令还用它
         let dir = (try? EchoSessionScan.read(local).cwd).flatMap { $0.isEmpty ? nil : $0 } ?? s.meta.cwd
         let shown = state.sessions.first { $0.sessionId == s.sessionId && $0.computer == EchoPrefs.computerName }?.meta.cwd ?? dir
-        do {
-            try EchoRestore.replace(s, local: local)
-        } catch {
-            errorTitle = "同步失败"
-            editError = error.localizedDescription
-            return
+        runSync(s, shown) { try EchoRestore.replace(s, from: src, local: local) }
+    }
+
+    // MARK: 交给另一台电脑
+
+    /// 交给另一台电脑（EchoHandoff）：先在后台查开着没有、git 有没有没提交没推送的，有就拦下列出来；没有再问一句，
+    /// 备份一次、原样复制成交接副本、本机这份移到废纸篓
+    private func startHandoff(_ s: EchoSession) {
+        guard syncing == nil, let original = EchoRename.originalURL(for: s) else { return }
+        syncing = "正在检查会话和 Git…"
+        Task { @MainActor in
+            let (busy, problems) = await Task.detached(priority: .userInitiated) { () -> (String?, [String]) in
+                if EchoMove.isOpen(s.sessionId) { return ("此会话正在 Claude 中打开，请先退出再交。", []) }
+                if EchoRename.isActive(original) { return ("此会话 2 分钟内还有写入，请稍后再交。", []) }
+                return (nil, EchoHandoff.gitProblems(s.meta.cwd))
+            }.value
+            syncing = nil
+            if let busy { errorTitle = "暂时不能交出"; editError = busy; return }
+            if !problems.isEmpty {
+                errorTitle = "还有改动没同步"
+                editError = "换电脑前先提交并推送，处理完再交：\n" + problems.prefix(12).joined(separator: "\n")
+                    + (problems.count > 12 ? "\n还有 \(problems.count - 12) 处" : "")
+                return
+            }
+            let a = NSAlert()
+            a.messageText = "将此会话交给另一台电脑？"
+            a.informativeText = "会话原样复制到回响备份的「接力」文件夹，本机这份移到废纸篓（能放回），本机不再接着聊。\n在另一台电脑上右键这个会话「同步到本机…」接着聊。"
+            a.addButton(withTitle: "交出")
+            a.addButton(withTitle: "取消")
+            guard a.runModal() == .alertFirstButtonReturn else { return }
+            syncing = "正在交给另一台电脑…"
+            let r = await Task.detached(priority: .userInitiated) { Result {
+                try EchoHandoff.backupOne(original)
+                try EchoHandoff.handOff(original: original, sessionId: s.sessionId)
+            } }.value
+            syncing = nil
+            if case .failure(let e) = r { errorTitle = "交出失败"; editError = e.localizedDescription; return }
+            handed.insert(s.sessionId)
+            state.lastSuccess = nil
+            state.backupNow()
+            doneTitle = "已交出"
+            moveCmd = nil
+            moveDone = "在另一台电脑上打开回响，右键这个会话「同步到本机…」接着聊。"
         }
-        syncDone(s, shown)
     }
 
     private func syncDone(_ s: EchoSession, _ dir: String) {
@@ -528,6 +597,10 @@ struct EchoBrowserView: View {
             } else {
                 Button(local ? "复制恢复命令" : "复制恢复命令（在 \(s.computer) 上）") { EchoResume.copy(s) }
                     .disabled(!local || s.meta.cwd.isEmpty)
+            }
+            // 换电脑接着聊：本机还在的 Claude 会话
+            if local, s.app == .claude, !restorable {
+                Button("交给另一台电脑…") { startHandoff(s) }
             }
         }
         // Codex 的会话在 Codex 里改名；能移动（只改 Codex 记录里的文件夹，EchoCodexMove）
@@ -628,6 +701,7 @@ struct EchoBrowserView: View {
         multiApp = Set(state.sessions.map(\.app)).count > 1
         tree = EchoOrder.arrange(baseTree, orderMap)
         multiComputer = Set(state.sessions.map(\.computer)).count > 1
+        handed = EchoHandoff.handedOff()
         currentID = session?.id
         openState = dirState
         var seen = Set<String>(), dirs: [String] = []
@@ -699,7 +773,7 @@ struct EchoBrowserView: View {
             .background(EchoWindowDrag())                                     // 红绿灯那一行，按住能拖窗口
 
             if !state.sessions.isEmpty {
-                EchoSearchField(text: $query, focused: $searchFocus) { if let g = search.groups.first { if let h = g.hits.first { openHit(g.session, h) } else { openPlain(g.session) } } }
+                EchoSearchField(text: $query, focused: $searchFocus) { if let g = search.groups.first { if let h = g.hits.first { openHit(g.session, h) } else { openSession(g.session) } } }
                     .padding(.horizontal, 16).padding(.bottom, 8)
                     .background {   // ⌥⌘F 聚焦搜索框（照「备忘录」在全部备忘录中搜索）
                         Button("") { searchFocus = true }.keyboardShortcut("f", modifiers: [.command, .option]).opacity(0).allowsHitTesting(false)
@@ -779,7 +853,7 @@ struct EchoBrowserView: View {
                     .font(.system(size: 12)).foregroundStyle(EchoColor.fg3).monospacedDigit()
                 }
                 .padding(.vertical, 6)
-            } action: { if let h = g.hits.first { openHit(s, h) } else { openPlain(s) } }
+            } action: { openSession(s) }
             .help(s.projectPath)
             .contextMenu { sessionMenu(s) }   // 和左栏会话一样的右键菜单：复制恢复命令、同步到本机、改名、移动……
             ForEach(list, id: \.line) { h in searchHitRow(h, s, q: q, anchor: anchor).contextMenu { sessionMenu(s) } }
@@ -809,12 +883,13 @@ struct EchoBrowserView: View {
         .help(EchoCLI.hm(h.ts))
     }
 
-    /// 只有会话名命中：打开会话，不跳
-    private func openPlain(_ s: EchoSession) {
+    /// 点会话（左栏的会话行、搜索结果里会话那一行）：打开会话，停在最底下一条（会话名命中不算聊天里的命中，不跳）；已开着、翻到上面时也回到最底下
+    private func openSession(_ s: EchoSession) {
         picked = []
         collectionID = nil
         sessionID = s.id
         jumpAt = nil; jumpQuery = nil; jumpVer = nil
+        jumpSeq += 1
         searchPick = nil
         showOverview = false
     }
@@ -936,6 +1011,8 @@ struct EchoBrowserView: View {
                     HStack(spacing: 6) {
                         Text(EchoTime.short(s.endDate))
                         if multiComputer { Text(s.computer).lineLimit(1) }
+                        if s.computer == EchoPrefs.computerName, handed.contains(s.sessionId) { Text("已交给另一台").lineLimit(1) }
+                        if let m = s.merged { Text(m).lineLimit(1) }
                         Spacer(minLength: 4)
                         Text(ByteCountFormatter.string(fromByteCount: s.size, countStyle: .file))
                     }
@@ -949,11 +1026,7 @@ struct EchoBrowserView: View {
                 if picked.isEmpty, collectionID == nil, let cur = session { picked.insert(cur.id) }
                 if picked.contains(s.id) { picked.remove(s.id) } else { picked.insert(s.id) }
             } else {
-                picked = []
-                collectionID = nil
-                sessionID = s.id
-                jumpAt = nil; jumpQuery = nil; jumpVer = nil
-                showOverview = false
+                openSession(s)
             }
         }
         .contextMenu { sessionMenu(s) }
@@ -1194,5 +1267,23 @@ struct EchoDropTip: View {
                 .padding(.bottom, 24)
                 .allowsHitTesting(false)
         }
+    }
+}
+
+/// 后台在做、要等的事（同步到本机）：窗口上盖一层浅遮罩挡住点击，中间一张小卡片写在做什么
+struct EchoBusy: View {
+    let text: String
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.12).contentShape(Rectangle()).onTapGesture {}
+            HStack(spacing: 10) {
+                ProgressView().controlSize(.small)
+                Text(text).font(.system(size: 13)).foregroundStyle(EchoColor.fg)
+            }
+            .padding(.horizontal, 20).padding(.vertical, 14)
+            .background(RoundedRectangle(cornerRadius: 10).fill(EchoColor.surface).shadow(color: .black.opacity(0.18), radius: 10, y: 3))
+        }
+        .transition(.opacity)
     }
 }

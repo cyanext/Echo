@@ -119,7 +119,7 @@ enum EchoStats {
     private static let needleToolResult = Array("\"tool_result\"".utf8)
     private static let kType = RawJSON.quoted("type"), kTs = RawJSON.quoted("timestamp"), kMessage = RawJSON.quoted("message")
     private static let kUsage = RawJSON.quoted("usage"), kModel = RawJSON.quoted("model"), kRequestId = RawJSON.quoted("requestId")
-    private static let kId = RawJSON.quoted("id"), kSubtype = RawJSON.quoted("subtype"), kDuration = RawJSON.quoted("durationMs")
+    private static let kId = RawJSON.quoted("id"), kUuid = RawJSON.quoted("uuid"), kSubtype = RawJSON.quoted("subtype"), kDuration = RawJSON.quoted("durationMs")
     private static let kCacheCreation = RawJSON.quoted("cache_creation")
 
     static func read(_ url: URL) throws -> [String: EchoDayStat] { try readAll(url).days }
@@ -200,20 +200,23 @@ enum EchoStats {
 
     /// 读一个会话文件，按天汇总；顺带收 git commit 跑出的提交号。同一次回复拆成几行记录，按 requestId 去重。
     /// 子代理的 Token 算进这个会话（按子代理记录里的时间归到哪天）；我的消息、AI 干活时长只看主会话。
-    /// skip：这几次请求已经算在别的会话里了（复制、分叉出来的会话带着原会话的记录），不再算。ids 是读到的全部请求 ID。
+    /// skip：这几次请求、这几条消息已经算在别的会话里了（复制、分叉出来的会话带着原会话的记录），Token、我的消息、AI 干活时长、起止时间都不再算。
+    /// ids 是读到的全部请求 ID，加上我的消息、插话、AI 干活时长那几行的 uuid。
     /// 只取要用的几个字段：用保留原文的解析器（RawJSON，不建字典），只有不带工具结果的用户消息才完整解析，判断是不是人打的字
     static func readAll(_ url: URL, skip: Set<String> = []) throws -> (days: [String: EchoDayStat], g: Set<String>, ids: Set<String>) {
         if try EchoExport.isCodexFile(url) { return try readCodex(url, skip: skip) }
-        var days: [String: EchoDayStat] = [:], seen = Set<String>(), offsets: [Int: Int] = [:], g = Set<String>()
+        var days: [String: EchoDayStat] = [:], seen = Set<String>(), uids = Set<String>(), offsets: [Int: Int] = [:], g = Set<String>()
+        var skipping = false   // 上一条记下的行算在别的会话里：紧跟着的工具输出也不算起止时间
         func str(_ v: RawJSON?) -> String? { v?.stringRaw.flatMap { EchoSlim.decode($0) } }
         func num(_ v: RawJSON?) -> Double {
             guard case .scalar(let b)? = v else { return 0 }
             return Double(String(decoding: b, as: UTF8.self)) ?? 0
         }
+        func rid(_ j: RawJSON) -> String { str(j[kRequestId]) ?? str(j[kMessage]?[kId]) ?? UUID().uuidString }
         /// 一次回复的 Token：同一个 requestId 只算一次，skip 里的不算
         func usage(_ j: RawJSON, _ day: String) {
             guard let msg = j[kMessage], let u = msg[kUsage], case .object = u else { return }
-            let rid = str(j[kRequestId]) ?? str(msg[kId]) ?? UUID().uuidString
+            let rid = rid(j)
             guard seen.insert(rid).inserted, !skip.contains(rid) else { return }
             let model = str(msg[kModel]) ?? "?"
             guard model != "<synthetic>" else { return }
@@ -237,6 +240,16 @@ enum EchoStats {
             else if !isUser, EchoLines.has(b, needleAsst) { commitMessages(b, into: &g) }
             guard isUser || isUsage || isTurn || isQueued, let j = RawJSON.parse(b),
                   let ts = str(j[kTs]), let t = epoch(ts) else { return }
+            // 算在别的会话里的行：请求按 requestId，其余按 uuid；工具输出跟着前一条
+            let tool = isUser && EchoLines.has(b, needleToolResult)
+            if isUsage {
+                let r = rid(j)
+                if skip.contains(r) { seen.insert(r); skipping = true; return }
+            } else if !tool, let u = str(j[kUuid]) {
+                uids.insert(u)
+                if skip.contains(u) { skipping = true; return }
+            }
+            if tool { if skipping { return } } else { skipping = false }
             let day = localDay(t, &offsets)
             var span = days[day, default: .init()]
             span.a = span.a == 0 ? t : min(span.a, t)
@@ -272,7 +285,7 @@ enum EchoStats {
                 usage(j, localDay(t, &offsets))
             }
         }
-        return (days, g, seen)
+        return (days, g, seen.union(uids))
     }
 
     /// Codex 的会话按天汇总：我的消息数人打的字（EchoExport.codexUserParts）；Token 取 token_usage_record（按 response_id 去重，
@@ -449,8 +462,8 @@ enum EchoStats {
 
     /// skipCloud：会话文件或它的子代理记录只在 iCloud 云端、缓存里又没有的，这次不算，记进 waiting 并叫 iCloud 下载（应用里用，见 EchoCloud）
     static func build(_ sessions: [EchoSession], deleted: [EchoDeletedSession] = [], skipCloud: Bool) -> (data: Data, waiting: [String]) {
-        let cacheURL = EchoLibrary.supportDir.appendingPathComponent("总览缓存5.json")   // 2：加了每天的起止时间；3：加了提交号；4：插话算进我的消息；5：算子代理的 Token、记请求 ID
-        for v in 2...4 { try? FileManager.default.removeItem(at: EchoLibrary.supportDir.appendingPathComponent("总览缓存\(v).json")) }   // 旧版的缓存用不上了
+        let cacheURL = EchoLibrary.supportDir.appendingPathComponent("总览缓存6.json")   // 2：加了每天的起止时间；3：加了提交号；4：插话算进我的消息；5：算子代理的 Token、记请求 ID；6：再记消息的 uuid
+        for v in 2...5 { try? FileManager.default.removeItem(at: EchoLibrary.supportDir.appendingPathComponent("总览缓存\(v).json")) }   // 旧版的缓存用不上了
         let cache = (try? Data(contentsOf: cacheURL)).flatMap { try? JSONDecoder().decode(EchoStatsCache.self, from: $0) } ?? EchoStatsCache()
         var fresh = EchoStatsCache()
         var list: [[String: Any]] = []
@@ -479,7 +492,8 @@ enum EchoStats {
             else if held.contains(i), let e = cache.entries[s.url.path] { entries[i] = e }   // 等 iCloud 下载的：先算上次的，记录不换，下完再读
             if let e = entries[i] { fresh.entries[s.url.path] = e }
         }
-        // 同一次请求出现在几个会话里（复制、分叉出来的会话带着原会话的记录）：算给最早开始的那个，其余的去掉这几次重读
+        // 同一次请求、同一条消息出现在几个会话里（复制、分叉出来的会话带着原会话的记录，同一个会话在两台电脑上分叉）：
+        // 算给最早开始的那个，其余的去掉这些重读
         var counted = Set<String>()
         var days = [[String: EchoDayStat]?](repeating: nil, count: sessions.count)
         for i in sessions.indices.sorted(by: { (sessions[$0].meta.start, sessions[$0].url.path) < (sessions[$1].meta.start, sessions[$1].url.path) }) {

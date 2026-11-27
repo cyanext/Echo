@@ -10,6 +10,7 @@
   --line: #e3e5ec;
   --line-strong: #d5d8de;
   --bubble: #f3f9f6;   /* 你的消息气泡：很淡的绿（原来 #f0f1f5 偏灰蓝，#eef7f3 还嫌绿） */
+  --skel: #edf0f0;     /* 加载占位的灰块，和总览的一样 */
   --bad: #d4383e;
   --good: #12a150;
   --hit: #ffe58f;
@@ -22,7 +23,7 @@
     --bg: #1d1e23; --bg-subtle: #23252b; --bg-hover: rgba(255, 255, 255, .06);
     --fg: #e6e8ec; --fg-muted: #9aa0ab; --fg-faint: #6f7581;
     --line: #2c2e35; --line-strong: #3e414a;
-    --bubble: #232b29; --bad: #f0686d; --good: #3ccf7e; --hit: #6b5512;
+    --bubble: #232b29; --skel: #2a2f30; --bad: #f0686d; --good: #3ccf7e; --hit: #6b5512;
     --shadow: 0 6px 20px rgba(0, 0, 0, .45), 0 0 0 1px rgba(255, 255, 255, .06);
     color-scheme: dark;
   }
@@ -32,7 +33,7 @@
   --bg: #1d1e23; --bg-subtle: #23252b; --bg-hover: rgba(255, 255, 255, .06);
   --fg: #e6e8ec; --fg-muted: #9aa0ab; --fg-faint: #6f7581;
   --line: #2c2e35; --line-strong: #3e414a;
-  --bubble: #232b29; --bad: #f0686d; --good: #3ccf7e; --hit: #6b5512;
+  --bubble: #232b29; --skel: #2a2f30; --bad: #f0686d; --good: #3ccf7e; --hit: #6b5512;
   --shadow: 0 6px 20px rgba(0, 0, 0, .45), 0 0 0 1px rgba(255, 255, 255, .06);
   color-scheme: dark;
 }
@@ -117,7 +118,8 @@
 .c-menu hr { border: 0; height: 1px; margin: 4px 8px; background: var(--line); }
 
 /* 消息列 */
-.c-main { max-width: 760px; margin: 0 auto; padding: 8px 32px 120px; }
+html { overflow-anchor: none; }   /* 往上补画前面的消息时由脚本保持位置（app.js drawUp），浏览器别再挪一次 */
+.c-main { max-width: 760px; margin: 0 auto; padding: 8px 32px 40px; }
 /* 拖选跨了几段时，浅蓝的选中底色只铺在正文这一栏，不铺到两边的要点栏、我的消息上：translate(0) 不改位置，只让正文栏成为单独的选区边界 */
 .c-main { transform: translate(0); }
 
@@ -338,3 +340,19 @@
 
 img[src="app-workbuddy.svg"] { transform: scale(.86); }   /* WorkBuddy 整块绿底，缩到 86% 和另两家视觉一样大 */
 
+
+/* 加载占位（app.js skeleton）：几块灰的消息，整块一起呼吸，照总览的 .ui-skel */
+.c-skel { pointer-events: none; user-select: none; animation: c-skel 1.6s ease-in-out infinite; }
+.c-skel .sk { display: block; height: 12px; margin: 12px 0; border-radius: 6px; background: var(--skel); }
+.c-skel .c-tt .sk:first-child { width: 36%; height: 18px; margin: 8px 0 10px; }
+.c-skel .c-tt .sk:last-child { width: 56%; margin: 0 0 4px; }
+.c-skel .sk-u { display: flex; justify-content: flex-end; margin: 28px 0; }
+.c-skel .sk-u .sk { width: 44%; height: 40px; margin: 0; border-radius: 18px; }
+.c-skel .sk-u:nth-of-type(4n+3) .sk { width: 28%; }
+.c-skel .sk-a { margin: 28px 0; }
+.c-skel .sk-a .sk:nth-child(1) { width: 94%; }
+.c-skel .sk-a .sk:nth-child(2) { width: 86%; }
+.c-skel .sk-a .sk:nth-child(3) { width: 97%; }
+.c-skel .sk-a .sk:nth-child(4) { width: 52%; }
+@keyframes c-skel { 50% { opacity: .55; } }
+@media (prefers-reduced-motion: reduce) { .c-skel { animation: none; } }

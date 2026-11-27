@@ -29,6 +29,14 @@ enum EchoTarget: Hashable {
         }
     }
 
+    /// 哪个会话（合集）：内容变了 key 跟着变，id 不变
+    var id: String {
+        switch self {
+        case .session(let s): return s.id
+        case .collection(let c, _): return c.id
+        }
+    }
+
     /// 内容变了（会话又写了、合集成员变了、改了名）才重新整理
     var key: String {
         switch self {
@@ -68,7 +76,6 @@ struct EchoConversation: View {
     var body: some View {
         ZStack {
             EchoWebView(target: target, at: at, q: q, ver: ver, seq: seq, loading: $loading, failed: $failed)
-            if loading { ProgressView().controlSize(.small) }
             if let f = failed {
                 VStack(spacing: 6) {
                     Text("会话打不开").font(.headline)
@@ -105,8 +112,10 @@ struct EchoWebView: NSViewRepresentable {
         let scheme = EchoScheme()
         weak var web: WKWebView?
         private var current: String?
+        private var currentID: String?
         private var currentAt: Double?
         private var currentSeq = 0
+        private var waiting: String?   // 正在整理、还没打开的会话（key）
 
         func show(_ t: EchoTarget, at: Double?, q: String?, ver: String?, seq: Int, loading: Binding<Bool>, failed: Binding<String?>) {
             let key = t.key
@@ -119,31 +128,92 @@ struct EchoWebView: NSViewRepresentable {
                 } else if q == nil, let at, at != currentAt {
                     currentAt = at
                     web?.evaluateJavaScript("window.echoJump && window.echoJump(\(Int(at)), \(Self.js(ver ?? "")))")
+                } else if q == nil, at == nil, seq != currentSeq {
+                    currentSeq = seq; currentAt = nil
+                    web?.evaluateJavaScript("window.echoEnd && window.echoEnd()")
                 }
                 return
             }
+            // 同一个会话又写了（正在进行的会话）：重新整理后停在原来读到的地方、留着页面里的查找词，不再跳回搜索命中或总览点进来的那一处
+            let same = t.id == currentID && seq == currentSeq && at == currentAt && web != nil
             currentAt = at
             currentSeq = seq
             current = key
-            loading.wrappedValue = true
+            currentID = t.id
             failed.wrappedValue = nil
+            if !same {
+                loading.wrappedValue = true
+                // 整理超过 0.15 秒（长会话）才先打开灰块占位，短的直接换，不闪一下
+                waiting = key
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+                    guard let self, self.waiting == key else { return }
+                    self.web?.load(URLRequest(url: URL(string: "echo://app/index.html?skel=1")!))
+                }
+            }
+            load(t, key: key, keep: same, jump: Self.jump(at, q, ver), loading: loading, failed: failed)
+        }
+
+        static func jump(_ at: Double?, _ q: String?, _ ver: String?) -> String {
+            var jump = at.map { "&at=\(Int($0))" } ?? ""
+            if let q, let e = q.addingPercentEncoding(withAllowedCharacters: .alphanumerics) { jump += "&q=" + e }
+            if let ver, let e = ver.addingPercentEncoding(withAllowedCharacters: .alphanumerics) { jump += "&v=" + e }
+            return jump
+        }
+
+        private func load(_ t: EchoTarget, key: String, keep: Bool, jump: String, loading: Binding<Bool>, failed: Binding<String?>) {
             Task.detached(priority: .userInitiated) {
-                let r = Result { () -> Data in try JSONSerialization.data(withJSONObject: t.load()) }
+                let r = Result { () -> Data in
+                    if let d = Self.cached(key) { return d }
+                    let d = try JSONSerialization.data(withJSONObject: t.load())
+                    Self.remember(key, d)
+                    return d
+                }
                 await MainActor.run {
                     guard self.current == key else { return }   // 整理期间又点了别的会话
                     loading.wrappedValue = false
+                    self.waiting = nil
                     switch r {
                     case .success(let data):
-                        let token = UUID().uuidString
-                        self.scheme.sessions = [token: data]
-                        var jump = at.map { "&at=\(Int($0))" } ?? ""
-                        if let q, let e = q.addingPercentEncoding(withAllowedCharacters: .alphanumerics) { jump += "&q=" + e }
-                        if let ver, let e = ver.addingPercentEncoding(withAllowedCharacters: .alphanumerics) { jump += "&v=" + e }
-                        self.web?.load(URLRequest(url: URL(string: "echo://app/index.html?s=\(token)\(jump)")!))
+                        if keep { self.swapKeeping(data, key: key, fallback: jump) } else { self.open(data, jump) }
                     case .failure(let e):
                         failed.wrappedValue = e.localizedDescription
+                        self.web?.loadHTMLString("", baseURL: nil)   // 换掉占位，只留出错说明
                     }
                 }
+            }
+        }
+
+        // 最近打开过的几个会话整理好的数据留在内存里，来回切换时不用再读一遍（key 带着文件状态，会话又写了就换新的）
+        nonisolated(unsafe) private static var recent: [(String, Data)] = []
+        private static let lock = NSLock()
+        nonisolated static func cached(_ key: String) -> Data? {
+            lock.lock(); defer { lock.unlock() }
+            return recent.first { $0.0 == key }?.1
+        }
+        nonisolated static func remember(_ key: String, _ d: Data) {
+            lock.lock(); defer { lock.unlock() }
+            recent.removeAll { $0.0 == key }
+            recent.insert((key, d), at: 0)
+            if recent.count > 6 { recent.removeLast() }
+        }
+
+        private func open(_ data: Data, _ jump: String) {
+            let token = UUID().uuidString
+            scheme.sessions = [token: data]
+            web?.load(URLRequest(url: URL(string: "echo://app/index.html?s=\(token)\(jump)")!))
+        }
+
+        /// 同一个会话又写了：新内容整理好以后，在换页前一刻问网页读到哪（echoKeep），新页面停回原处。
+        /// 用户正在滚动时网页回答 busy，半秒后再问，免得换页时丢掉这期间滚过的距离；网页还没加载好时用原来的跳转
+        private func swapKeeping(_ data: Data, key: String, fallback: String) {
+            web?.evaluateJavaScript("window.echoKeep ? window.echoKeep() : ''") { r, _ in
+                guard self.current == key else { return }
+                let keep = r as? String ?? ""
+                if keep == "busy" {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { self.swapKeeping(data, key: key, fallback: fallback) }
+                    return
+                }
+                self.open(data, keep.isEmpty ? fallback : keep)
             }
         }
 
