@@ -78,7 +78,7 @@ enum EchoCLI {
       ech read <引用> [--tools]                       把一段读成对话文字：ce57ce36#3 第 3 段，ce57ce36#L1200-1500 这几行，只写会话读最后一段
       ech context <会话> [--tools]                    续上一个会话：最近一次压缩的阶段总结和之后的对话
       ech resume <会话>                              恢复命令：在终端或 MintPop 主页里打开原会话接着聊
-      ech mv <旧路径> <新路径> [--dry-run]              改名或移动文件夹，本机的会话（Claude Code、Codex）随之移动
+      ech mv <旧路径> <新路径> [--dry-run]              改名或移动文件夹，本机的会话（Claude Code、Codex）随之移动；旧路径已不存在时，或是指向新路径的软链时，只移动会话
       ech backup                                     备份并更新索引（和回响的「立即备份」一样）
       ech index                                      只更新索引和总览数据，不备份
       ech schema [命令]                              各命令的参数（JSON）
@@ -505,7 +505,7 @@ enum EchoCLI {
     // MARK: mv
 
     /// 改文件夹名或挪位置，本机的会话（Claude Code、Codex）随之移动（和左栏目录右键「改名」同一套）。
-    /// 旧路径已经不在了（在访达里改过了）只挪会话；--dry-run 只说会做什么
+    /// 旧路径已经不在了（在访达里改过了），或是指向新路径的软链（另一台电脑经 iCloud 同步来的），只挪会话；--dry-run 只说会做什么
     static func mv(_ a: Args) throws -> String {
         guard a.pos.count == 2 else { throw Fail(text: "用法：ech mv <旧路径> <新路径> [--dry-run]") }
         let cwd = FileManager.default.currentDirectoryPath
@@ -513,23 +513,19 @@ enum EchoCLI {
             let e = (s as NSString).expandingTildeInPath
             return ((e.hasPrefix("/") ? e : (cwd as NSString).appendingPathComponent(e)) as NSString).standardizingPath
         }
-        let fm = FileManager.default
         let from = abs(a.pos[0])
-        var to = abs(a.pos[1])
-        var isDir: ObjCBool = false
-        let fromExists = fm.fileExists(atPath: from, isDirectory: &isDir) && isDir.boolValue
-        // 和 mv 一样：新路径是已有的文件夹时，挪进去
-        if fromExists, fm.fileExists(atPath: to, isDirectory: &isDir), isDir.boolValue { to = (to as NSString).appendingPathComponent((from as NSString).lastPathComponent) }
-        if !fromExists, !fm.fileExists(atPath: to) { throw Fail(text: "\(from) 和 \(to) 都不存在") }
+        let t = mvTarget(from: from, to: abs(a.pos[1]))
+        let to = t.to, fromExists = t.moveFolder
+        if t.gone { throw Fail(text: "\(from) 和 \(to) 都不存在") }
         let root = EchoPrefs.backupRoot
         let p = EchoDirMove.plan(from: from, to: to, sessions: EchoLibrary.scan(backupRoot: root), moveFolder: fromExists)
-        let what = fromExists ? "把 \(from) 改成 \(to)" : "\(from) 已不存在，只把会话移到 \(to)"
+        let what = fromExists ? "把 \(from) 改成 \(to)" : t.link ? "\(from) 是指向 \(to) 的软链，只把会话移到 \(to)" : "\(from) 已不存在，只把会话移到 \(to)"
         if a.flags.contains("json") && a.flags.contains("dry-run") {
             return json(["from": from, "to": to, "moveFolder": fromExists, "sessions": p.count, "skipped": p.skipped.count, "missing": p.missing.count, "busy": p.busy?.meta.title ?? ""])
         }
         if a.flags.contains("dry-run") {
             var out = "预览：\(what)；\(EchoDirMove.describe(p))。"
-            if let b = p.busy { out += "\n「\(b.meta.title)」正在使用，现在执行会整个不动。" }
+            if let b = p.busy { out += "\n「\(b.meta.title)」正在使用，现在执行" + (fromExists ? "会整个不动。" : "会跳过它。") }
             return out + "\n去掉 --dry-run 执行。"
         }
         let r = try EchoDirMove.run(p)
@@ -539,6 +535,17 @@ enum EchoCLI {
         let rest = EchoDirMove.describe(Plan(skipped: p.skipped, missing: p.missing))
         if !p.skipped.isEmpty || !p.missing.isEmpty { out += "\n" + rest + "。" }
         return out
+    }
+
+    /// ech mv 实际做什么：新路径是已有的文件夹时挪进去（和 mv 一样）；旧路径已不存在、或是指向新路径的软链时只挪会话（moveFolder 为 false），
+    /// 软链留在原处。比对时两边都解析软链，新路径写软链路径或真实路径都认。gone：两边都不存在
+    static func mvTarget(from: String, to: String) -> (to: String, moveFolder: Bool, link: Bool, gone: Bool) {
+        let fm = FileManager.default
+        if (try? fm.destinationOfSymbolicLink(atPath: from)) != nil, EchoPath.real(from) == EchoPath.real(to) { return (to, false, true, false) }
+        var isDir: ObjCBool = false
+        let fromExists = fm.fileExists(atPath: from, isDirectory: &isDir) && isDir.boolValue
+        if fromExists, fm.fileExists(atPath: to, isDirectory: &isDir), isDir.boolValue { return ((to as NSString).appendingPathComponent((from as NSString).lastPathComponent), true, false, false) }
+        return (to, fromExists, false, !fromExists && !fm.fileExists(atPath: to))
     }
 
     private static func Plan(skipped: [EchoSession], missing: [EchoSession]) -> EchoDirMove.Plan {
@@ -561,7 +568,7 @@ enum EchoCLI {
          "args": [["name": "会话", "required": true]], "options": [["name": "--tools"], ["name": "--page"], ["name": "--json"]]],
         ["command": "resume", "summary": "会话的恢复命令（cd <文件夹> && claude --resume <ID>，Codex 是 codex resume），贴到终端或 MintPop 主页接着聊原会话；挪过文件夹的用新文件夹（只读）",
          "args": [["name": "会话", "required": true]], "options": [["name": "--json"]]],
-        ["command": "mv", "summary": "改名或移动文件夹，本机的会话随之移动（会写：访达里的文件夹、~/.claude 的会话位置、~/.codex/state_5.sqlite 的会话文件夹、备份）；旧路径已不存在时只移动会话",
+        ["command": "mv", "summary": "改名或移动文件夹，本机的会话随之移动（会写：访达里的文件夹、~/.claude 的会话位置、~/.codex/state_5.sqlite 的会话文件夹、备份）；旧路径已不存在时，或是指向新路径的软链时，只移动会话",
          "args": [["name": "旧路径", "required": true], ["name": "新路径", "required": true, "desc": "是已有的文件夹时移入其中，和 mv 一样"]],
          "options": [["name": "--dry-run", "desc": "只说会做什么，不动文件"], ["name": "--json"]]],
         ["command": "backup", "summary": "备份、更新索引和总览数据（和回响的「立即备份」一样，会写备份目录）"],
