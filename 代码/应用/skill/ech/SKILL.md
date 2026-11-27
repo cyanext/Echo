@@ -21,7 +21,7 @@ description: >-
 | 找以前会话里说过的话、定过的事 | `ech find <关键词>`，再 `ech read <引用>` |
 | 看一个会话分了哪几段 | `ech segs <会话>` |
 | 接着另一个会话（或另一台电脑上的会话）做 | `ech context <会话>` |
-| 要某个会话的恢复命令（到终端或 MintPop 主页里打开原会话） | `ech resume <会话>` |
+| 要某个会话的恢复命令（到终端或其他能运行命令的应用里打开原会话） | `ech resume <会话>` |
 | 列一段时间的会话和提交（周报） | `ech list --since 2026-11-16 --until 2026-11-22` |
 | 要查今天刚聊过的内容 | 先 `ech backup` |
 | 改名或移动文件夹（里面开过会话的也一样） | `ech mv <旧路径> <新路径>`，不用 `mv` |
@@ -43,7 +43,7 @@ ech read ce57ce36
 ech read ce57ce36#21 --tools
 # 续上一个会话：最近一次压缩的阶段总结和之后的全部对话，读完就能接着做
 ech context ce57ce36
-# 原会话的恢复命令：cd <文件夹> && claude --resume <完整 ID>（Codex 是 codex resume），用户贴到终端或 MintPop 主页
+# 原会话的恢复命令：cd <文件夹> && claude --resume <完整 ID>（Codex 是 codex resume），用户贴到终端或其他能运行命令的应用
 ech resume 9f4476a1
 # 会话的分段：每段一个引用、起止时间、提交的版本、第一句话
 ech segs ce57ce36
