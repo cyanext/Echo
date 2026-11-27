@@ -22,7 +22,7 @@ enum EchoTests {
             if let r = ProcessInfo.processInfo.environment["ECHO_SHOT_ROOT"] { EchoPrefs.backupRoot = URL(fileURLWithPath: r) }
             exit(EchoCLI.main(Array(a.dropFirst(2))))
         }
-        if a.count == 3, a[1] == "--rules" { rules(); try renameTest(fixture: URL(fileURLWithPath: a[2])); try statsTest(); try commitMatchTest(); timeTest(); try cleanTest(); try layoutTest(); try backupRootTest(); try pathTest(); try mvLinkTest(); try echTest(); try codexMoveTest(); try codexBackupTest(); try autoDeleteTest(); try claudeSettingsTest(); try updateTest(); try emptySessionTest(); menuBarTest(); resumeTest(); try restoreTest(); try handoffTest(); mergeTest(); try mediaTest(); try cloudTest(); try openTest() }
+        if a.count == 3, a[1] == "--rules" { rules(); try renameTest(fixture: URL(fileURLWithPath: a[2])); try statsTest(); try commitMatchTest(); timeTest(); try cleanTest(); try layoutTest(); try backupRootTest(); try pathTest(); try mvLinkTest(); try echTest(); try codexMoveTest(); try codexBackupTest(); try autoDeleteTest(); try claudeSettingsTest(); try updateTest(); try emptySessionTest(); menuBarTest(); resumeTest(); try restoreTest(); try handoffTest(); mergeTest(); try mediaTest(); try cloudTest(); try openTest(); try memoryMoveTest() }
         else if a.count == 4, a[1] == "--overview" {   // 手动排查：按应用的方式整理总览数据，写到文件，看用了多久
             let t0 = Date()
             let list = EchoLibrary.scan(backupRoot: URL(fileURLWithPath: a[2]))
@@ -394,6 +394,84 @@ enum EchoTests {
     }
 
     /// 复制恢复命令：到会话的文件夹，路径里的单引号要转义
+    /// 目录改名、移动时 Claude 记忆跟着移：没有记忆、新位置没有、新位置已有同名文件，只移会话、旧路径是软链、编码撞上的兄弟文件夹
+    static func memoryMoveTest() throws {
+        let fm = FileManager.default, t = URL(fileURLWithPath: EchoPath.real(fm.temporaryDirectory.path)).appendingPathComponent("回响记忆-" + UUID().uuidString)
+        defer { try? fm.removeItem(at: t) }
+        let projects = t.appendingPathComponent("projects"), code = t.appendingPathComponent("code")
+        var n = 0
+        func ok(_ b: Bool, _ what: String) { n += 1; check(b, "记忆跟着移动：" + what) }
+        func enc(_ p: String) -> String { EchoMove.projectDirName(p) }
+        func mem(_ path: String) -> URL { projects.appendingPathComponent(enc(path)).appendingPathComponent("memory") }
+        func put(_ path: String, _ files: [String: String]) throws {
+            try fm.createDirectory(at: mem(path), withIntermediateDirectories: true)
+            for (f, v) in files { try v.write(to: mem(path).appendingPathComponent(f), atomically: true, encoding: .utf8) }
+        }
+        func read(_ u: URL) -> String? { try? String(contentsOf: u, encoding: .utf8) }
+        let old = code.appendingPathComponent("项目 A").path, new = t.appendingPathComponent("新/项目 A").path
+        try fm.createDirectory(atPath: old + "/子目录", withIntermediateDirectories: true)
+
+        // 没有记忆：会话文件夹在、memory/ 不在
+        try fm.createDirectory(at: projects.appendingPathComponent(enc(old)), withIntermediateDirectories: true)
+        var p = EchoDirMove.plan(from: old, to: new, sessions: [], moveFolder: true, projects: projects)
+        ok(p.memories.isEmpty && p.memoryUnsure.isEmpty && !EchoDirMove.describe(p).contains("记忆"), "没有记忆时不提记忆")
+
+        // 新位置没有：本目录和子目录的记忆整个移过去，旧的 memory/ 不留
+        try put(old, ["MEMORY.md": "旧索引", "a.md": "甲"])
+        try put(old + "/子目录", ["b.md": "乙"])
+        p = EchoDirMove.plan(from: old, to: new, sessions: [], moveFolder: true, projects: projects)
+        ok(p.memories.count == 2 && p.memories.allSatisfy(\.whole), "本目录和子目录各一份，新位置没有时整个移")
+        ok(EchoDirMove.describe(p).contains("2 份 Claude 记忆将移到新位置"), "预览写明移几份")
+        try fm.createDirectory(atPath: (new as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
+        let r = try EchoDirMove.run(p)
+        ok(r.memory.moved == 2 && r.memory.conflicts.isEmpty, "移了 2 份，没有冲突")
+        ok(read(mem(new).appendingPathComponent("MEMORY.md")) == "旧索引" && read(mem(new + "/子目录").appendingPathComponent("b.md")) == "乙", "内容原样到了新位置")
+        ok(!fm.fileExists(atPath: mem(old).path) && !fm.fileExists(atPath: mem(old + "/子目录").path), "旧的 memory/ 不留")
+
+        // 新位置已有同名文件：只移对方没有的，同名的（含 MEMORY.md）不覆盖、不合并，列出来
+        let old2 = code.appendingPathComponent("项目 B").path, new2 = t.appendingPathComponent("新/项目 B").path
+        try fm.createDirectory(atPath: old2, withIntermediateDirectories: true)
+        try put(old2, ["MEMORY.md": "旧", "c.md": "丙", "d.md": "旧丁"])
+        try put(new2, ["MEMORY.md": "新", "d.md": "新丁"])
+        p = EchoDirMove.plan(from: old2, to: new2, sessions: [], moveFolder: false, projects: projects)
+        ok(p.memories.count == 1 && p.memories[0].files == ["c.md"] && p.memories[0].conflicts == ["MEMORY.md", "d.md"], "预览分出要移的和同名的")
+        ok(EchoDirMove.describe(p).contains("1 份在新位置有同名文件"), "预览写明有冲突")
+        let m = EchoDirMove.moveMemories(p.memories)
+        ok(read(mem(new2).appendingPathComponent("c.md")) == "丙" && read(mem(new2).appendingPathComponent("MEMORY.md")) == "新" && read(mem(new2).appendingPathComponent("d.md")) == "新丁", "没有的移过去，同名的不覆盖")
+        ok(Set(m.conflicts) == Set([mem(old2).appendingPathComponent("MEMORY.md").path, mem(old2).appendingPathComponent("d.md").path]) && read(mem(old2).appendingPathComponent("d.md")) == "旧丁", "同名的留在原处并列出来")
+
+        // 只移会话（文件夹已在访达里改名）：按新路径下的子文件夹对回去
+        let old3 = code.appendingPathComponent("项目 C").path, new3 = code.appendingPathComponent("项目 C 改名").path
+        try fm.createDirectory(atPath: new3 + "/docs", withIntermediateDirectories: true)
+        try put(old3 + "/docs", ["e.md": "戊"])
+        p = EchoDirMove.plan(from: old3, to: new3, sessions: [], moveFolder: false, projects: projects)
+        ok(p.memories.map(\.to) == [mem(new3 + "/docs")], "旧路径已不存在时按新路径的子文件夹对回去")
+
+        // 旧路径是指向新路径的软链：软链路径编码下的记忆移到真实路径下
+        let link = code.appendingPathComponent("快捷方式").path
+        try fm.createSymbolicLink(atPath: link, withDestinationPath: new3)
+        try put(link, ["f.md": "己"])
+        p = EchoDirMove.plan(from: link, to: new3, sessions: [], moveFolder: false, projects: projects)
+        ok(p.memories.contains { $0.from == mem(link) && $0.to == mem(new3) }, "软链路径的记忆移到真实路径下")
+
+        // 相对路径的软链（两台电脑用户名不同，软链写 ../code/…）：记忆也跟着移
+        let desk = t.appendingPathComponent("desk"), rel = desk.appendingPathComponent("软链测试").path
+        try fm.createDirectory(at: desk, withIntermediateDirectories: true)
+        try fm.createSymbolicLink(atPath: rel, withDestinationPath: "../code/项目 C 改名")
+        try put(rel, ["h.md": "辛"])
+        p = EchoDirMove.plan(from: rel, to: new3, sessions: [], moveFolder: false, projects: projects)
+        ok(p.memories.contains { $0.from == mem(rel) && $0.to == mem(new3) } && p.memoryUnsure.isEmpty, "相对软链路径的记忆移到真实路径下")
+
+        // 编码撞上：旁边有「项目 D-x」时，「…项目-D-x」的记忆分不清是谁的，不移
+        let old4 = code.appendingPathComponent("项目 D").path
+        try fm.createDirectory(atPath: old4, withIntermediateDirectories: true)
+        try fm.createDirectory(atPath: code.appendingPathComponent("项目 D-x").path, withIntermediateDirectories: true)
+        try put(code.appendingPathComponent("项目 D-x").path, ["g.md": "庚"])
+        p = EchoDirMove.plan(from: old4, to: t.appendingPathComponent("新/项目 D").path, sessions: [], moveFolder: true, projects: projects)
+        ok(p.memories.isEmpty && p.memoryUnsure == [enc(code.appendingPathComponent("项目 D-x").path)], "兄弟文件夹的记忆不移，列为对不上")
+        print("  记忆跟着移动 \(n) 项")
+    }
+
     static func resumeTest() {
         check(EchoResume.command(.claude, cwd: "/Users/a/项目 A", id: "s1") == "cd '/Users/a/项目 A' && claude --resume s1", "恢复命令：Claude 用 claude --resume")
         check(EchoResume.command(.codex, cwd: "/tmp/x", id: "019d") == "cd '/tmp/x' && codex resume 019d", "恢复命令：Codex 用 codex resume")
