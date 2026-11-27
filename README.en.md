@@ -113,7 +113,7 @@ Requires an Apple silicon Mac with macOS 14 or later. Supports Claude Code and C
 | `ech context <session>` | Resume a session: latest recap, compaction summary and all turns after it |
 | `ech list --since 7d` | Sessions, your messages, tokens, commits and versions by date; dates like `2026-11-16` or `11-16` also work |
 | `ech resume <session>` | The resume command for a session, to paste into Terminal or any app that runs commands and continue it |
-| `ech mv <old path> <new path>` | Rename or move a folder, and local sessions move along; `--dry-run` to preview |
+| `ech mv <old path> <new path>` | Rename or move a folder, and local sessions and Claude memory move along; `--dry-run` to preview |
 | `ech backup` / `ech index` | Back up now and update the index / update only the index and overview data |
 | `ech schema [command]` | Each command's parameters as JSON, for AI agents |
 

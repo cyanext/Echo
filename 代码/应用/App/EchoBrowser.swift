@@ -312,6 +312,11 @@ struct EchoBrowserView: View {
             switch r {
             case .success(let x):
                 if let e = x.error { errorTitle = title; editError = "已移动 \(x.done) 个，其余未移动。" + e.localizedDescription }
+                else if !x.memory.conflicts.isEmpty || x.memory.error != nil {
+                    errorTitle = "部分记忆未移动"
+                    editError = x.memory.conflicts.isEmpty ? (x.memory.error?.localizedDescription ?? "")
+                        : "以下记忆文件在新位置已有同名文件，没有移动，请手动处理：\n" + x.memory.conflicts.map { ($0 as NSString).abbreviatingWithTildeInPath }.joined(separator: "\n")
+                }
             case .failure(let e):
                 errorTitle = title; editError = e.localizedDescription
             }
@@ -339,11 +344,12 @@ struct EchoBrowserView: View {
         guard target != d.path, !target.hasPrefix(d.path + "/") else { return }
         let p = EchoDirMove.plan(from: d.path, to: target, sessions: state.sessions, moveFolder: false)
         let a = NSAlert()
+        let any = p.count > 0 || (!p.memories.isEmpty && p.busy == nil)
         a.messageText = "将「\(d.name)」中的 \(p.count) 个会话移动到「\((target as NSString).lastPathComponent)」？"
         a.informativeText = "子文件夹中的会话移到对应的子文件夹，移动后在新位置恢复会话。" + EchoDirMove.describe(p) + "。"
-        if p.count > 0 { a.addButton(withTitle: "移动") }
-        a.addButton(withTitle: p.count > 0 ? "取消" : "好")
-        guard a.runModal() == .alertFirstButtonReturn, p.count > 0 else { return }
+        if any { a.addButton(withTitle: "移动") }
+        a.addButton(withTitle: any ? "取消" : "好")
+        guard a.runModal() == .alertFirstButtonReturn, any else { return }
         runDirMove(p, title: "移动失败")
     }
 

@@ -521,17 +521,26 @@ enum EchoCLI {
         let p = EchoDirMove.plan(from: from, to: to, sessions: EchoLibrary.scan(backupRoot: root), moveFolder: fromExists)
         let what = fromExists ? "把 \(from) 改成 \(to)" : t.link ? "\(from) 是指向 \(to) 的软链，只把会话移到 \(to)" : "\(from) 已不存在，只把会话移到 \(to)"
         if a.flags.contains("json") && a.flags.contains("dry-run") {
-            return json(["from": from, "to": to, "moveFolder": fromExists, "sessions": p.count, "skipped": p.skipped.count, "missing": p.missing.count, "busy": p.busy?.meta.title ?? ""])
+            return json(["from": from, "to": to, "moveFolder": fromExists, "sessions": p.count, "skipped": p.skipped.count, "missing": p.missing.count, "busy": p.busy?.meta.title ?? "",
+                         "memories": p.memories.map { ["from": $0.from.path, "to": $0.to.path, "whole": $0.whole, "conflicts": $0.conflicts] }, "memoryUnsure": p.memoryUnsure])
         }
         if a.flags.contains("dry-run") {
             var out = "预览：\(what)；\(EchoDirMove.describe(p))。"
-            if let b = p.busy { out += "\n「\(b.meta.title)」正在使用，现在执行" + (fromExists ? "会整个不动。" : "会跳过它。") }
+            if let b = p.busy { out += "\n「\(b.meta.title)」正在使用，现在执行" + (fromExists ? "会整个不动。" : "会跳过它，记忆也不移动。") }
+            for m in p.memories where !m.conflicts.isEmpty {
+                out += "\n记忆 \(m.to.path) 已有同名文件，这些不覆盖：" + m.conflicts.joined(separator: "、")
+            }
+            if !p.memoryUnsure.isEmpty { out += "\n对应不上唯一文件夹、不移动的记忆：" + p.memoryUnsure.map { "~/.claude/projects/\($0)/memory" }.joined(separator: "、") }
             return out + "\n去掉 --dry-run 执行。"
         }
         let r = try EchoDirMove.run(p)
         _ = try? EchoIndex.update(backupRoot: root)
         var out = (fromExists ? "已把 \(from) 改成 \(to)" : "已把会话移到 \(to)") + "；移动了 \(r.done) 个会话。"
         if p.count > r.done, let e = r.error { out += "\n其余未移动：" + e.localizedDescription }
+        if r.memory.moved > 0 { out += "\n移动了 \(r.memory.moved) 份 Claude 记忆。" }
+        if !r.memory.conflicts.isEmpty { out += "\n这些记忆文件在新位置有同名的，没有移动，请自己处理：\n" + r.memory.conflicts.map { "  " + $0 }.joined(separator: "\n") }
+        if let e = r.memory.error { out += "\n记忆没有全部移动：" + e.localizedDescription }
+        if p.busy != nil, !p.memories.isEmpty { out += "\n有会话正在使用，记忆没有移动，结束后再运行一次。" }
         let rest = EchoDirMove.describe(Plan(skipped: p.skipped, missing: p.missing))
         if !p.skipped.isEmpty || !p.missing.isEmpty { out += "\n" + rest + "。" }
         return out
@@ -568,7 +577,7 @@ enum EchoCLI {
          "args": [["name": "会话", "required": true]], "options": [["name": "--tools"], ["name": "--page"], ["name": "--json"]]],
         ["command": "resume", "summary": "会话的恢复命令（cd <文件夹> && claude --resume <ID>，Codex 是 codex resume），贴到终端或其他能运行命令的应用里接着聊原会话；挪过文件夹的用新文件夹（只读）",
          "args": [["name": "会话", "required": true]], "options": [["name": "--json"]]],
-        ["command": "mv", "summary": "改名或移动文件夹，本机的会话随之移动（会写：访达里的文件夹、~/.claude 的会话位置、~/.codex/state_5.sqlite 的会话文件夹、备份）；旧路径已不存在时，或是指向新路径的软链时，只移动会话",
+        ["command": "mv", "summary": "改名或移动文件夹，本机的会话和 Claude 记忆随之移动（会写：访达里的文件夹、~/.claude 的会话和记忆位置、~/.codex/state_5.sqlite 的会话文件夹、备份）；旧路径已不存在时，或是指向新路径的软链时，只移动会话",
          "args": [["name": "旧路径", "required": true], ["name": "新路径", "required": true, "desc": "是已有的文件夹时移入其中，和 mv 一样"]],
          "options": [["name": "--dry-run", "desc": "只说会做什么，不动文件"], ["name": "--json"]]],
         ["command": "backup", "summary": "备份、更新索引和总览数据（和回响的「立即备份」一样，会写备份目录）"],

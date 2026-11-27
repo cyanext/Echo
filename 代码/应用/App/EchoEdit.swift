@@ -504,11 +504,25 @@ enum EchoDirMove {
         var skipped: [EchoSession] = []               // 跟不过去的：只剩备份、在其他电脑上
         var missing: [EchoSession] = []               // 新位置没有对应的子文件夹（只挪会话时）
         var busy: EchoSession?                        // 2 分钟内还在写或正在 Claude 里开着
+        var memories: [Memory] = []                   // 跟着移动的 Claude 记忆
+        var memoryUnsure: [String] = []               // 对不上唯一文件夹的记忆（projects 下的文件夹名），不移动
         var count: Int { groups.values.reduce(0) { $0 + $1.count } }
     }
 
+    /// 一份 Claude 记忆（~/.claude/projects/<文件夹编码>/memory/）移到新路径对应的编码下。内容一行不改
+    struct Memory: Equatable {
+        var from: URL, to: URL                        // 两边的 memory 文件夹
+        var whole: Bool                               // 新位置还没有 memory/：整个移过去
+        var files: [String] = []                      // 新位置已有 memory/ 时，只移这些（对方没有的）
+        var conflicts: [String] = []                  // 两边都有的同名文件（含 MEMORY.md），不覆盖、不合并，留给用户处理
+    }
+
+    /// 移完记忆的结果：移了几份，哪些同名文件没移（旧位置的完整路径）
+    struct MemoryResult { var moved = 0; var conflicts: [String] = []; var error: Error? }
+
     /// from、to 是访达里的路径。sessions 是全部会话（不管左栏的筛选）
-    static func plan(from: String, to: String, sessions: [EchoSession], moveFolder: Bool) -> Plan {
+    static func plan(from: String, to: String, sessions: [EchoSession], moveFolder: Bool, projects: URL = EchoBackup.source) -> Plan {
+        let raws = [from, (from as NSString).standardizingPath]   // 记忆按 Claude Code 当时的路径编码，原样的、整理过的写法都找
         let from = EchoPath.real(from), to = (to as NSString).standardizingPath
         var p = Plan(from: from, to: to, moveFolder: moveFolder)
         let fm = FileManager.default, me = EchoPrefs.computerName
@@ -522,11 +536,96 @@ enum EchoDirMove {
             p.groups[dest, default: []].append(s)
             if p.busy == nil, EchoRename.isActive(orig) || EchoMove.isOpen(s.sessionId) { p.busy = s }
         }
+        // 记忆：旧路径没解析软链和解析后的写法都找；子文件夹的记忆按磁盘上的文件夹对回去（移动前看旧路径，只挪会话时看新路径）
+        // 新路径按真实路径算编码（standardizingPath 会去掉 /private，和 Claude Code 记的不一样）
+        let realTo = EchoPath.real(to)
+        let m = memories(raws: raws, real: from, to: realTo, base: moveFolder ? from : realTo, projects: projects)
+        p.memories = m.moves; p.memoryUnsure = m.unsure
         return p
     }
 
+    /// 旧路径（及子文件夹）在 projects 下对应的记忆。Claude Code 的文件夹编码会丢信息（a/b-c 和 a/b/c 编出来一样），
+    /// 所以每份都要在 base 下对回唯一一个真实的子文件夹，旧路径旁边也没有编码撞上的兄弟文件夹，才移；对不上的放进 unsure
+    static func memories(raws: [String], real: String, to: String, base: String, projects: URL) -> (moves: [Memory], unsure: [String]) {
+        let fm = FileManager.default
+        let encs = Set((raws + [real]).map(EchoMove.projectDirName)).subtracting([EchoMove.projectDirName(to)])
+        func isDir(_ p: String) -> Bool { var d: ObjCBool = false; return fm.fileExists(atPath: p, isDirectory: &d) && d.boolValue }
+        func kids(_ p: String) -> [String] { ((try? fm.contentsOfDirectory(atPath: p)) ?? []).filter { isDir((p as NSString).appendingPathComponent($0)) } }
+        // suffix 是编码里旧路径之后那段（「-子-孙」），找出 base 下哪些子路径编出来正好是它
+        func rels(_ dir: String, _ suffix: String, depth: Int) -> [String] {
+            if suffix.isEmpty { return [""] }
+            guard depth > 0 else { return [] }
+            return kids(dir).flatMap { c -> [String] in
+                let e = EchoMove.projectDirName("/" + c)
+                guard suffix.hasPrefix(e) else { return [] }
+                let rest = String(suffix.dropFirst(e.count))
+                guard rest.isEmpty || rest.hasPrefix("-") else { return [] }
+                return rels((dir as NSString).appendingPathComponent(c), rest, depth: depth - 1).map { "/" + c + $0 }
+            }
+        }
+        // 旧路径旁边编码撞上的兄弟文件夹（旧路径叫 b，旁边有 b-c 时，「…-b-c」也可能是 b-c 的）
+        func siblingClash(_ name: String) -> Bool {
+            (raws + [real]).contains { p in
+                let parent = (p as NSString).deletingLastPathComponent, me = (p as NSString).lastPathComponent
+                return kids(parent).contains { c in
+                    // 旧路径自己、指向同一个文件夹的软链不算
+                    guard c != me, EchoPath.real((parent as NSString).appendingPathComponent(c)) != real else { return false }
+                    let e = EchoMove.projectDirName((parent as NSString).appendingPathComponent(c))
+                    return name == e || name.hasPrefix(e + "-")
+                }
+            }
+        }
+        var moves: [Memory] = [], unsure: [String] = []
+        let names = ((try? fm.contentsOfDirectory(atPath: projects.path)) ?? []).sorted()
+        for n in names {
+            guard let e = encs.first(where: { n == $0 || n.hasPrefix($0 + "-") }) else { continue }
+            let src = projects.appendingPathComponent(n).appendingPathComponent("memory")
+            let entries = ((try? fm.contentsOfDirectory(atPath: src.path)) ?? []).filter { $0 != ".DS_Store" }.sorted()
+            guard isDir(src.path), !entries.isEmpty else { continue }
+            let found = Set(rels(base, String(n.dropFirst(e.count)), depth: 8))
+            guard found.count == 1, let rel = found.first, !siblingClash(n) else { unsure.append(n); continue }
+            let dest = projects.appendingPathComponent(EchoMove.projectDirName(to + rel)).appendingPathComponent("memory")
+            guard dest.path != src.path else { continue }
+            if !isDir(dest.path) { moves.append(Memory(from: src, to: dest, whole: true, files: entries)); continue }
+            let there = Set((try? fm.contentsOfDirectory(atPath: dest.path)) ?? [])
+            moves.append(Memory(from: src, to: dest, whole: false, files: entries.filter { !there.contains($0) }, conflicts: entries.filter { there.contains($0) }))
+        }
+        return (moves, unsure)
+    }
+
+    /// 移记忆：新位置没有 memory/ 的整个挪过去；已有的只挪对方没有的文件，同名的留在原处。旧的 memory/ 挪空了就删掉
+    static func moveMemories(_ list: [Memory]) -> MemoryResult {
+        let fm = FileManager.default
+        var r = MemoryResult()
+        for m in list {
+            do {
+                if m.whole, !fm.fileExists(atPath: m.to.path) {
+                    try fm.createDirectory(at: m.to.deletingLastPathComponent(), withIntermediateDirectories: true)
+                    try fm.moveItem(at: m.from, to: m.to)
+                    r.moved += 1
+                    continue
+                }
+                // 计划之后新位置才有了 memory/：按现在的情况重新分
+                let there = Set((try? fm.contentsOfDirectory(atPath: m.to.path)) ?? [])
+                var moved = false
+                for f in m.files + m.conflicts {
+                    let src = m.from.appendingPathComponent(f)
+                    if there.contains(f) { r.conflicts.append(src.path); continue }
+                    try fm.moveItem(at: src, to: m.to.appendingPathComponent(f))
+                    moved = true
+                }
+                if moved { r.moved += 1 }
+                let left = ((try? fm.contentsOfDirectory(atPath: m.from.path)) ?? []).filter { $0 != ".DS_Store" }
+                if left.isEmpty { try? fm.removeItem(at: m.from) }
+            } catch {
+                r.error = r.error ?? error
+            }
+        }
+        return r
+    }
+
     /// 按计划执行：要挪文件夹的先挪文件夹（有会话正在用、新位置已有同名的整个不动），再把会话挪到新路径下
-    static func run(_ p: Plan) throws -> (done: Int, error: Error?) {
+    static func run(_ p: Plan) throws -> (done: Int, error: Error?, memory: MemoryResult) {
         let fm = FileManager.default
         if p.moveFolder {
             if let b = p.busy { throw EchoMove.fail("「\(b.meta.title)」正在使用，请结束后重试") }
@@ -539,7 +638,9 @@ enum EchoDirMove {
             done += r.done.count
             firstError = firstError ?? r.error
         }
-        return (done, firstError)
+        // 有会话正在用时记忆不动（它随时可能写记忆）
+        let memory = p.busy == nil ? moveMemories(p.memories) : MemoryResult()
+        return (done, firstError, memory)
     }
 
     /// 计划写成一句话：挪几个会话，几个不跟、为什么
@@ -553,6 +654,12 @@ enum EchoDirMove {
         if other > 0 { not.append("\(other) 个其他电脑上的会话") }
         if !not.isEmpty { out.append(not.joined(separator: "、") + "不随之移动") }
         if !p.missing.isEmpty { out.append("\(p.missing.count) 个会话在新位置没有对应的子文件夹，不移动") }
+        if !p.memories.isEmpty {
+            let clash = p.memories.filter { !$0.conflicts.isEmpty }.count
+            out.append(p.busy != nil ? "有会话正在使用，\(p.memories.count) 份 Claude 记忆暂不移动"
+                       : "\(p.memories.count) 份 Claude 记忆将移到新位置" + (clash > 0 ? "，其中 \(clash) 份在新位置有同名文件，同名的不覆盖" : ""))
+        }
+        if !p.memoryUnsure.isEmpty { out.append("\(p.memoryUnsure.count) 份 Claude 记忆对应不上唯一的文件夹，不移动") }
         return out.isEmpty ? "此文件夹中没有会话" : out.joined(separator: "；")
     }
 

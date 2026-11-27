@@ -115,7 +115,7 @@ curl -fsSL https://raw.githubusercontent.com/cyanext/Echo/main/install.sh | zsh
 | `ech context <会话>` | 接上一个会话：给出最近的回顾、阶段总结和之后的全部对话 |
 | `ech list --since 7d` | 按时间列出会话、我的消息、Token、提交和版本。日期也能写成 `2026-11-16`、`11-16` |
 | `ech resume <会话>` | 给出会话的恢复命令，贴到终端或其他能运行命令的应用里，打开原会话接着聊 |
-| `ech mv <旧路径> <新路径>` | 给文件夹改名或移动，本机的会话跟着过去。加 `--dry-run` 先预览 |
+| `ech mv <旧路径> <新路径>` | 给文件夹改名或移动，本机的会话和 Claude 记忆跟着过去。加 `--dry-run` 先预览 |
 | `ech backup` / `ech index` | 立即备份并更新索引 / 只更新索引和总览数据 |
 | `ech schema [命令]` | 列出各命令的参数（JSON），给 AI 看 |
 
