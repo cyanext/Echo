@@ -128,6 +128,57 @@ enum EchoHandoff {
         if let f = r.failures.first { throw Fail(errorDescription: "备份此会话失败：\(f.message)") }
     }
 
+    // MARK: 接手
+
+    /// 自动接手：另一台电脑交出的会话（它的交接副本），这台备份前自动同步到本机，不用再点「同步到本机」。
+    /// 本机有这个会话、交接副本接着它聊了：本机这份移到废纸篓，原位置换成交接副本（EchoRestore.replace）；
+    /// 本机没有：写到本机对应的文件夹（EchoRestore.guessFolder），找不到文件夹的留给用户手动同步。
+    /// 本机已包含、两边分叉、本机正开着或 2 分钟内还在写的不动。done 记已经看过的交接副本（电脑/会话 ID/修改时间），同一份只看一次：
+    /// 用户之后删掉或改动本机这份，不会被同一份交接副本再写回来。还在 iCloud 云端的先叫它下载，下次再看。
+    /// 返回接手的会话（标题、来自哪台电脑）和新的 done
+    static func receive(root: URL = EchoPrefs.backupRoot, me: String = EchoPrefs.computerName, source: URL = EchoBackup.source,
+                        claudeDir: URL = EchoPrefs.claudeDir, done: Set<String>,
+                        open: (String) -> Bool = { EchoMove.isOpen($0) },
+                        trash: @escaping (URL) throws -> Void = { try FileManager.default.trashItem(at: $0, resultingItemURL: nil) },
+                        guess: (String) -> String? = { EchoRestore.guessFolder($0) }) -> (got: [(title: String, from: String)], done: Set<String>) {
+        let fm = FileManager.default
+        var done = done, got: [(title: String, from: String)] = []
+        let others = ((try? fm.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)) ?? [])
+            .filter { $0.lastPathComponent != me && !$0.lastPathComponent.hasPrefix(".") }
+        for c in others {
+            let d = dir(EchoLayout.dir(c, .claude))
+            let files = ((try? fm.contentsOfDirectory(at: d, includingPropertiesForKeys: [.contentModificationDateKey])) ?? [])
+                .filter { $0.pathExtension == "jsonl" && !$0.lastPathComponent.hasPrefix(".") }
+            for f in files {
+                let sid = String(f.lastPathComponent.dropLast(6)), sub = f.deletingPathExtension()
+                let cloud = ([f] + ((fm.enumerator(at: sub, includingPropertiesForKeys: nil)?.allObjects as? [URL]) ?? [])).map(\.path).filter(EchoCloud.isPlaceholder)
+                if !cloud.isEmpty { EchoCloud.download(cloud); continue }
+                let mtime = (try? f.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate?.timeIntervalSince1970) ?? 0
+                let key = "\(c.lastPathComponent)/\(sid)/\(Int(mtime))"
+                if done.contains(key) { continue }
+                let meta = (try? EchoSessionScan.read(f)) ?? EchoSessionMeta()
+                let s = EchoSession(url: f, sessionId: sid, computer: c.lastPathComponent, size: 0, meta: meta)
+                let title = meta.title.isEmpty || meta.title == sid ? "未命名会话" : meta.title
+                do {
+                    switch EchoRestore.state(s, from: f, source: source) {
+                    case .upToDate, .diverged:
+                        done.insert(key)   // 已包含的不用接；分叉的留给用户在「同步到本机」里选
+                    case .newer(let local, _):
+                        if open(sid) || EchoRename.isActive(local) { continue }   // 下次再接
+                        try EchoRestore.replace(s, from: f, local: local, open: open, trash: trash)
+                        done.insert(key); got.append((title, c.lastPathComponent))
+                    case .missing:
+                        done.insert(key)
+                        guard let folder = guess(meta.cwd) else { continue }   // 找不到本机对应的文件夹：留给用户手动同步
+                        try EchoRestore.restore(s, from: f, to: folder, source: source, claudeDir: claudeDir)
+                        got.append((title, c.lastPathComponent))
+                    }
+                } catch { NSLog("回响自动接手失败：%@：%@", f.path, error.localizedDescription) }
+            }
+        }
+        return (got, done)
+    }
+
     // MARK: 清理
 
     /// 这台电脑的交接副本：别的电脑的备份（或本机拿回来的会话）已有它的全部对话，或交出超过 30 天的，移到废纸篓。
