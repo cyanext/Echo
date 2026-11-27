@@ -680,6 +680,10 @@ enum EchoTests {
         check(r.to == b && !r.moveFolder && r.link, "指向新路径的软链应只挪会话：\(r)")
         let r2 = EchoCLI.mvTarget(from: a, to: EchoPath.real(b))
         check(r2.to == EchoPath.real(b) && !r2.moveFolder && r2.link, "新路径写真实路径也应认出软链：\(r2)")
+        // 两台电脑用户名不同，经 iCloud 同步的软链写相对路径（../code/NAS）
+        try fm.createSymbolicLink(atPath: t + "/桌面/相对", withDestinationPath: "../code/NAS")
+        let r3 = EchoCLI.mvTarget(from: t + "/桌面/相对", to: b)
+        check(r3.to == b && !r3.moveFolder && r3.link, "相对路径的软链也应认出指向新路径：\(r3)")
         check(EchoCLI.mvTarget(from: t + "/桌面/旧", to: t + "/code") == (t + "/code/旧", true, false, false), "普通文件夹挪进已有的文件夹不对")
         check(EchoCLI.mvTarget(from: t + "/桌面/旧", to: t + "/桌面/新") == (t + "/桌面/新", true, false, false), "普通文件夹改名不对")
         // 新路径下原有的会话不算要挪的；执行后软链还在，新路径里没多出软链
@@ -688,7 +692,7 @@ enum EchoTests {
         check(p.skipped.map(\.sessionId) == ["l1"] && p.count == 0, "新路径下原有的会话被算进来了：\(p.skipped.map(\.sessionId))")
         _ = try EchoDirMove.run(p)
         check((try? fm.destinationOfSymbolicLink(atPath: a)) == b && !fm.fileExists(atPath: b + "/NAS"), "软链被挪走了")
-        print("  ech mv 软链 6 项")
+        print("  ech mv 软链 7 项")
     }
 
     /// ech：分段（开头、版本提交后、跨天、压缩）、版本号只认说明开头、引用的写法
