@@ -245,11 +245,17 @@ enum EchoCLI {
     /// 会话 ID 前缀或备份文件路径 → 索引里的文件
     static func resolve(_ db: EchoDB, _ key: String) throws -> (fid: Int, path: String, title: String, sid: String, computer: String) {
         var found: [(Int, String, String, String, String)] = []
-        let k = splitRef(key).0
+        var k = splitRef(key).0, computer: String?
+        // 会话@电脑名：同一个会话在两台电脑上分叉了，指定用哪台的（一份包含另一份时扫列表已只留一份，见 EchoMerge）
+        if !k.hasPrefix("/"), !k.hasPrefix("~"), let at = k.lastIndex(of: "@") { computer = String(k[k.index(after: at)...]); k = String(k[..<at]) }
         try db.rows("SELECT id, path, title, sid, computer FROM files WHERE sid LIKE ? OR path = ? LIMIT 10", [k + "%", (k as NSString).expandingTildeInPath]) {
             found.append(($0.int(0), $0.text(1), $0.text(2), $0.text(3), $0.text(4)))
         }
+        if let computer { found = found.filter { $0.4 == computer } }
         if found.isEmpty { throw Fail(text: "没找到会话「\(key)」：写会话 ID（前 8 位就够）或备份文件路径；今天新开的会话要先 ech backup") }
+        if found.count > 1, Set(found.map(\.3)).count == 1 {
+            throw Fail(text: "「\(key)」在几台电脑上各有新内容（分叉了），写成 会话@电脑名：\n" + found.map { "  \(short($0.3))@\($0.4)  \($0.2)" }.joined(separator: "\n"))
+        }
         if found.count > 1 { throw Fail(text: "「\(key)」对上了几个会话，写长一点：\n" + found.map { "  \($0.3)  \($0.2)" }.joined(separator: "\n")) }
         return found[0]
     }

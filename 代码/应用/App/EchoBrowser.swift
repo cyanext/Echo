@@ -28,6 +28,7 @@ struct EchoBrowserView: View {
     @State private var drag = EchoDragState()                          // 拖动的状态：放在 @State 里不订阅，鼠标移动时左栏的树不重画
     @State private var currentID: String?                              // 当前打开的会话；数据变了算一次，不在每行里找
     @State private var multiComputer = false                           // 有几台电脑的会话，会话行才写电脑名
+    @State private var handed: Set<String> = []                        // 本机交给另一台电脑的会话 ID（交接副本还在的），会话行标「已交给另一台」
     @State private var openState: [String: Bool] = [:]                 // dirStateRaw 解析好的展开状态
     @State private var pendingDirs: Set<String> = []                   // 正在后台改名、移动的新位置：还没真的建好，不算「已不存在」
     @State private var missingDirs: Set<String> = []                   // 访达里已经不存在的目录（改了名、挪走了），左栏标「已不存在」，数据变了算一次
@@ -301,7 +302,7 @@ struct EchoBrowserView: View {
                 guard let to = dest[s.id] else { return s }
                 var m = s.meta
                 m.cwd = to
-                return EchoSession(url: s.url, sessionId: s.sessionId, computer: s.computer, size: s.size, meta: m, app: s.app)
+                return EchoSession(url: s.url, sessionId: s.sessionId, computer: s.computer, size: s.size, meta: m, app: s.app, merged: s.merged)
             }
         }
         Task { @MainActor in
@@ -401,20 +402,28 @@ struct EchoBrowserView: View {
     /// 比对两边、猜文件夹要读整份会话，备份还在 iCloud 云端时要等下载，在后台做，窗口上盖一层加载提示
     private func startSync(_ s: EchoSession) {
         guard syncing == nil else { return }
+        if EchoHandoff.mustHandOff(s) {
+            errorTitle = "请先在\(s.computer)上交出此会话"
+            editError = "此会话还在\(s.computer)上，直接同步过来两台都能接着聊，会聊出分叉。\n在\(s.computer)上右键此会话「交给另一台电脑…」，再回来同步。"
+            return
+        }
         syncing = EchoCloud.isPlaceholder(s.url.path) ? "正在从 iCloud 下载备份…" : "正在比对本机的会话…"
         Task { @MainActor in
-            let (st, guess) = await Task.detached(priority: .userInitiated) { () -> (EchoRestore.State, String?) in
-                let st = EchoRestore.state(s)
-                return (st, st == .missing ? EchoRestore.guessFolder(s.meta.cwd) : nil)
+            let (src, st, guess) = await Task.detached(priority: .userInitiated) { () -> (URL, EchoRestore.State, String?) in
+                let src = EchoRestore.from(s)
+                let st = EchoRestore.state(s, from: src)
+                return (src, st, st == .missing ? EchoRestore.guessFolder(s.meta.cwd) : nil)
             }.value
             syncing = nil
-            askSync(s, st, guess)
+            askSync(s, src, st, guess)
         }
     }
 
-    private func askSync(_ s: EchoSession, _ st: EchoRestore.State, _ guess: String?) {
-        let note = "同步的是回响的备份：对话全文都在，思考过程和到期的工具输出不在，接着聊不受影响。"
-        let from = s.computer == EchoPrefs.computerName ? "回响的备份" : s.computer
+    private func askSync(_ s: EchoSession, _ src: URL, _ st: EchoRestore.State, _ guess: String?) {
+        let whole = src != s.url   // 那台电脑交过来的交接副本，原样
+        let note = whole ? "同步的是交接时的完整会话，和原来的一样。"
+            : "同步的是回响的备份：对话全文都在，思考过程和到期的工具输出不在，接着聊不受影响。"
+        let from = s.computer == EchoPrefs.computerName ? (whole ? "交接副本" : "回响的备份") : s.computer
         switch st {
         case .missing:
             break
@@ -428,7 +437,7 @@ struct EchoBrowserView: View {
             a.informativeText = "\(from)上多了 \(added) 条对话。本机这份会移到废纸篓，能放回。\n" + note
             a.addButton(withTitle: "更新")
             a.addButton(withTitle: "取消")
-            if a.runModal() == .alertFirstButtonReturn { doReplace(s, local) }
+            if a.runModal() == .alertFirstButtonReturn { doReplace(s, src, local) }
             return
         case .diverged(let local, let mine, let theirs):
             let a = NSAlert()
@@ -437,7 +446,7 @@ struct EchoBrowserView: View {
             a.addButton(withTitle: "保留本机的")
             a.addButton(withTitle: "用\(from)的替换")
             a.buttons[1].hasDestructiveAction = true
-            if a.runModal() == .alertSecondButtonReturn { doReplace(s, local) }
+            if a.runModal() == .alertSecondButtonReturn { doReplace(s, src, local) }
             return
         }
         if let g = guess {
@@ -448,7 +457,7 @@ struct EchoBrowserView: View {
             a.addButton(withTitle: "选择其他文件夹…")
             a.addButton(withTitle: "取消")
             switch a.runModal() {
-            case .alertFirstButtonReturn: doRestore(s, g); return
+            case .alertFirstButtonReturn: doRestore(s, src, g); return
             case .alertSecondButtonReturn: break
             default: return
             }
@@ -460,11 +469,11 @@ struct EchoBrowserView: View {
         panel.prompt = "同步到此处"
         panel.message = "选择在本机哪个文件夹里接着这个会话。" + note
         guard panel.runModal() == .OK, let u = panel.url else { return }
-        doRestore(s, u.path)
+        doRestore(s, src, u.path)
     }
 
-    private func doRestore(_ s: EchoSession, _ dir: String) {
-        runSync(s, dir) { try EchoRestore.restore(s, to: dir) }
+    private func doRestore(_ s: EchoSession, _ src: URL, _ dir: String) {
+        runSync(s, dir) { try EchoRestore.restore(s, from: src, to: dir) }
     }
 
     /// 写回本机在后台做（复制会话文件和同名目录），做完提示
@@ -482,11 +491,54 @@ struct EchoBrowserView: View {
         }
     }
 
-    private func doReplace(_ s: EchoSession, _ local: URL) {
+    private func doReplace(_ s: EchoSession, _ src: URL, _ local: URL) {
         // 本机这份记的文件夹（挪过的按移动记录）：替换后位置不变，恢复命令还用它
         let dir = (try? EchoSessionScan.read(local).cwd).flatMap { $0.isEmpty ? nil : $0 } ?? s.meta.cwd
         let shown = state.sessions.first { $0.sessionId == s.sessionId && $0.computer == EchoPrefs.computerName }?.meta.cwd ?? dir
-        runSync(s, shown) { try EchoRestore.replace(s, local: local) }
+        runSync(s, shown) { try EchoRestore.replace(s, from: src, local: local) }
+    }
+
+    // MARK: 交给另一台电脑
+
+    /// 交给另一台电脑（EchoHandoff）：先在后台查开着没有、git 有没有没提交没推送的，有就拦下列出来；没有再问一句，
+    /// 备份一次、原样复制成交接副本、本机这份移到废纸篓
+    private func startHandoff(_ s: EchoSession) {
+        guard syncing == nil, let original = EchoRename.originalURL(for: s) else { return }
+        syncing = "正在检查会话和 Git…"
+        Task { @MainActor in
+            let (busy, problems) = await Task.detached(priority: .userInitiated) { () -> (String?, [String]) in
+                if EchoMove.isOpen(s.sessionId) { return ("此会话正在 Claude 中打开，请先退出再交。", []) }
+                if EchoRename.isActive(original) { return ("此会话 2 分钟内还有写入，请稍后再交。", []) }
+                return (nil, EchoHandoff.gitProblems(s.meta.cwd))
+            }.value
+            syncing = nil
+            if let busy { errorTitle = "暂时不能交出"; editError = busy; return }
+            if !problems.isEmpty {
+                errorTitle = "还有改动没同步"
+                editError = "换电脑前先提交并推送，处理完再交：\n" + problems.prefix(12).joined(separator: "\n")
+                    + (problems.count > 12 ? "\n还有 \(problems.count - 12) 处" : "")
+                return
+            }
+            let a = NSAlert()
+            a.messageText = "将此会话交给另一台电脑？"
+            a.informativeText = "会话原样复制到回响备份的「接力」文件夹，本机这份移到废纸篓（能放回）。\n在另一台电脑上右键这个会话「同步到本机…」接着聊。"
+            a.addButton(withTitle: "交出")
+            a.addButton(withTitle: "取消")
+            guard a.runModal() == .alertFirstButtonReturn else { return }
+            syncing = "正在交给另一台电脑…"
+            let r = await Task.detached(priority: .userInitiated) { Result {
+                try EchoHandoff.backupOne(original)
+                try EchoHandoff.handOff(original: original, sessionId: s.sessionId)
+            } }.value
+            syncing = nil
+            if case .failure(let e) = r { errorTitle = "交出失败"; editError = e.localizedDescription; return }
+            handed.insert(s.sessionId)
+            state.lastSuccess = nil
+            state.backupNow()
+            doneTitle = "已交出"
+            moveCmd = nil
+            moveDone = "在另一台电脑上打开回响，右键这个会话「同步到本机…」接着聊。"
+        }
     }
 
     private func syncDone(_ s: EchoSession, _ dir: String) {
@@ -545,6 +597,10 @@ struct EchoBrowserView: View {
             } else {
                 Button(local ? "复制恢复命令" : "复制恢复命令（在 \(s.computer) 上）") { EchoResume.copy(s) }
                     .disabled(!local || s.meta.cwd.isEmpty)
+            }
+            // 换电脑接着聊：本机还在的 Claude 会话
+            if local, s.app == .claude, !restorable {
+                Button("交给另一台电脑…") { startHandoff(s) }
             }
         }
         // Codex 的会话在 Codex 里改名；能移动（只改 Codex 记录里的文件夹，EchoCodexMove）
@@ -645,6 +701,7 @@ struct EchoBrowserView: View {
         multiApp = Set(state.sessions.map(\.app)).count > 1
         tree = EchoOrder.arrange(baseTree, orderMap)
         multiComputer = Set(state.sessions.map(\.computer)).count > 1
+        handed = EchoHandoff.handedOff()
         currentID = session?.id
         openState = dirState
         var seen = Set<String>(), dirs: [String] = []
@@ -954,6 +1011,8 @@ struct EchoBrowserView: View {
                     HStack(spacing: 6) {
                         Text(EchoTime.short(s.endDate))
                         if multiComputer { Text(s.computer).lineLimit(1) }
+                        if s.computer == EchoPrefs.computerName, handed.contains(s.sessionId) { Text("已交给另一台").lineLimit(1) }
+                        if let m = s.merged { Text(m).lineLimit(1) }
                         Spacer(minLength: 4)
                         Text(ByteCountFormatter.string(fromByteCount: s.size, countStyle: .file))
                     }

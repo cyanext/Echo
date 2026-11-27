@@ -17,6 +17,7 @@ struct EchoSession: Identifiable, Hashable {
     let size: Int64
     let meta: EchoSessionMeta
     var app: EchoSource = .claude
+    var merged: String? = nil   // 几台电脑上都有这个会话时的说明（EchoMerge）：「在 <电脑> 上接着聊过」「分叉」
     var endDate: Date? { EchoTime.parse(meta.end) }
     var projectPath: String { meta.cwd.isEmpty ? url.deletingLastPathComponent().lastPathComponent : meta.cwd }
 }
@@ -386,7 +387,7 @@ enum EchoLibrary {
         }
         cache = fresh
         if let d = try? JSONEncoder().encode(cache) { try? d.write(to: cacheURL, options: .atomic) }
-        return EchoScanResult(sessions: out, waiting: waiting)
+        return EchoScanResult(sessions: EchoMerge.apply(out), waiting: waiting)   // 几台电脑上的同一个会话只留一份
     }
 
     /// 多级目录（规范「组件」目录树）：第一级是大目录（~/Desktop/项目代码、~/伙伴云NAS/客户文档 这一级，跳过 Desktop 这类外层），

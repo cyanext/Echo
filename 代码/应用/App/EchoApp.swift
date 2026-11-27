@@ -611,6 +611,10 @@ enum EchoBackupJob {
             if sources.contains(where: { $0.0 == .claude }), let a = EchoState.autoDeleteIfOn(claudeDir) {
                 logs.append(["t": started, "app": "claude", "autoDel": a.count, "autoDelBytes": a.bytes])
             }
+            if sources.contains(where: { $0.0 == .claude }) {
+                let n = EchoHandoff.cleanup()   // 交接副本：另一台接手了、或放了 30 天的移走
+                if n > 0 { NSLog("回响移走交接副本：%d 个", n) }
+            }
             if let (_, codexDir) = sources.first(where: { $0.0 == .codex }), let a = EchoState.autoDeleteCodexIfOn(codexDir) {
                 logs.append(["t": started, "app": "codex", "autoDel": a.count, "autoDelBytes": a.bytes])
             }
