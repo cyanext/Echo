@@ -403,6 +403,15 @@ enum EchoTests {
     /// 清理备份：到期的换成占位、行数不变；旧文件进废纸篓（这里换成临时目录）；再跑一遍不动；没到门槛不重写，第一次（force）照样重写；估算不改文件
     /// 手写的时间解析和本地日期，要和系统格式器、Calendar 算的一样
     static func timeTest() {
+        // 时间筛选「昨天」：昨天 0 点到今天 0 点，跨月、跨年的第一天也对
+        let cal = Calendar.current
+        for (now, from) in [("2026-11-26 09:30", "2026-11-25"), ("2026-12-01 00:00", "2026-11-30"), ("2027-01-01 23:59", "2026-12-31")] {
+            let df = DateFormatter(); df.dateFormat = "yyyy-MM-dd HH:mm"; let n = df.date(from: now)!
+            df.dateFormat = "yyyy-MM-dd"
+            let r = EchoDateFilter.range("y1", now: n)
+            check(r?.lowerBound == df.date(from: from) && r?.upperBound == cal.startOfDay(for: n), "昨天的范围不对：\(now) → \(String(describing: r))")
+        }
+        check(EchoDateFilter.title("y1") == "昨天" && EchoDateFilter.short("y1") == "昨天", "昨天的名字不对")
         let f = ISO8601DateFormatter(); f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         let g = ISO8601DateFormatter()
         for s in ["2026-11-04T11:41:10.072Z", "2026-02-28T23:59:59.999Z", "2024-02-29T16:00:00Z", "2000-01-01T00:00:00.5Z", "2026-12-31T15:59:60Z"] {

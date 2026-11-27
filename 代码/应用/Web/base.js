@@ -5,6 +5,8 @@
   const timers = new Map();
   function mark(t, on) {
     t.classList.toggle("scrolling", on);
+    // 页面本身不做：根元素切成 overflow: hidden 时，内核会按切换那一刻的高度截短滚动范围，滑到最底下会被弹回离底部几千像素的地方
+    if (t === document.documentElement) return;
     const s = t.style, o = s.overflow;
     s.overflow = "hidden"; void t.offsetWidth; s.overflow = o;
   }
