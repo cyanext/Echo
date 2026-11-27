@@ -447,6 +447,7 @@ enum EchoWindows {
         // 列表还没读过时先读已有的备份，不等这次备份做完（备份完会再读一遍）
         if s.sessions.isEmpty { s.reloadSessions() }
         if s.running { } else if let d = s.lastBackupRun, Date().timeIntervalSince(d) < 300 { s.reloadSessions() } else { s.backupNow() }
+        EchoMenuBar.shared.windowWillShow()
         NSApp.activate(ignoringOtherApps: true)
         browser?.makeKeyAndOrderFront(nil)
     }
@@ -471,6 +472,7 @@ enum EchoWindows {
             w.center()
             settings = w
         }
+        EchoMenuBar.shared.windowWillShow()
         NSApp.activate(ignoringOtherApps: true)
         settings?.makeKeyAndOrderFront(nil)
     }

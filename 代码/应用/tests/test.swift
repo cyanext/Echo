@@ -409,6 +409,18 @@ enum EchoTests {
                                    indexing: indexing, cloud: cloud)
         }
         check(st(running: true, done: 48, total: 48, indexing: true) == "正在更新索引…", "备份拷完在更新索引时说更新索引")
+        // 只在菜单栏时开着窗口才算普通应用：显示着的、缩到程序坞的普通窗口算，没显示的、提示框不算
+        MainActor.assumeIsolated {
+            _ = NSApplication.shared
+            func win(_ panel: Bool = false) -> NSWindow {
+                let r = NSRect(x: -4000, y: -4000, width: 100, height: 100)
+                return panel ? NSPanel(contentRect: r, styleMask: [.titled], backing: .buffered, defer: false) : NSWindow(contentRect: r, styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
+            }
+            let shown = win(), hidden = win(), panel = win(true)
+            shown.orderFront(nil); panel.orderFront(nil)
+            check(EchoMenuBar.hasWindow([shown, hidden]) && !EchoMenuBar.hasWindow([hidden, panel]), "开着窗口的判断不对：显示着的应算，没显示的、提示框不算")
+            shown.orderOut(nil); panel.orderOut(nil)
+        }
         check(st(stale: 5, cloud: 12) == "正在从 iCloud 下载 12 个文件", "等 iCloud 下载时说下载几个文件")
         check(st(failures: 3, cloud: 12) == "3 个文件备份失败", "备份失败排在等 iCloud 下载前面")
         check(st(running: true, done: 12, total: 48, error: "x") == "正在备份 12/48", "正在备份时先说进度")
@@ -429,7 +441,7 @@ enum EchoTests {
         check(EchoMenuBar.todayCount(list, now: EchoTime.parse("2026-11-23T12:00:00.000Z")!) == 2, "今天新增按开始时间算")
         check(EchoMenuBar.recent(list, limit: 2).map(\.sessionId) == ["c", "a"], "最近会话按最后使用时间排")
         check(EchoMenuBar.title(list[2]) == "未命名会话", "没有标题的写未命名会话")
-        print("  菜单栏 14 项")
+        print("  菜单栏 15 项")
     }
 
     /// 检查更新的版本号比较，默认备份位置
@@ -668,6 +680,10 @@ enum EchoTests {
         check(r.to == b && !r.moveFolder && r.link, "指向新路径的软链应只挪会话：\(r)")
         let r2 = EchoCLI.mvTarget(from: a, to: EchoPath.real(b))
         check(r2.to == EchoPath.real(b) && !r2.moveFolder && r2.link, "新路径写真实路径也应认出软链：\(r2)")
+        // 两台电脑用户名不同，经 iCloud 同步的软链写相对路径（../code/NAS）
+        try fm.createSymbolicLink(atPath: t + "/桌面/相对", withDestinationPath: "../code/NAS")
+        let r3 = EchoCLI.mvTarget(from: t + "/桌面/相对", to: b)
+        check(r3.to == b && !r3.moveFolder && r3.link, "相对路径的软链也应认出指向新路径：\(r3)")
         check(EchoCLI.mvTarget(from: t + "/桌面/旧", to: t + "/code") == (t + "/code/旧", true, false, false), "普通文件夹挪进已有的文件夹不对")
         check(EchoCLI.mvTarget(from: t + "/桌面/旧", to: t + "/桌面/新") == (t + "/桌面/新", true, false, false), "普通文件夹改名不对")
         // 新路径下原有的会话不算要挪的；执行后软链还在，新路径里没多出软链
@@ -676,7 +692,7 @@ enum EchoTests {
         check(p.skipped.map(\.sessionId) == ["l1"] && p.count == 0, "新路径下原有的会话被算进来了：\(p.skipped.map(\.sessionId))")
         _ = try EchoDirMove.run(p)
         check((try? fm.destinationOfSymbolicLink(atPath: a)) == b && !fm.fileExists(atPath: b + "/NAS"), "软链被挪走了")
-        print("  ech mv 软链 6 项")
+        print("  ech mv 软链 7 项")
     }
 
     /// ech：分段（开头、版本提交后、跨天、压缩）、版本号只认说明开头、引用的写法

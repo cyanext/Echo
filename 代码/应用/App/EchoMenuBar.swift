@@ -1,5 +1,6 @@
 // 菜单栏图标：常驻菜单栏，看备份状态；点开有立即备份、打开回响、全局搜索、最近会话、设置、检查更新、退出。
-// 设置「通用 → 显示图标」能选只在菜单栏或只在程序坞；只在菜单栏时程序坞和 ⌘Tab 里没有回响，窗口从菜单栏打开。
+// 设置「通用 → 显示图标」能选只在菜单栏或只在程序坞；只在菜单栏时窗口从菜单栏打开，开着窗口时和普通应用一样有顶部菜单栏、
+// 程序坞图标，⌘Tab 能切到（macOS 不给程序坞里没有的应用显示顶部菜单栏），窗口全关后程序坞和 ⌘Tab 里没有回响。
 import AppKit
 import Combine
 
@@ -17,12 +18,43 @@ final class EchoMenuBar: NSObject, NSMenuDelegate {
     private var backup: NSMenuItem?
     /// 状态行能点时点了去哪：备份失败去设置「通用」改备份位置，Claude Code 会删会话去「存储」
     private var fix: EchoSettingsView.Page?
+    private var windowWatch: [NSObjectProtocol] = []
 
     /// 按设置显示或去掉菜单栏图标、程序坞图标
     func apply() {
         let place = EchoPrefs.iconPlace
-        NSApp.setActivationPolicy(place == "menubar" ? .accessory : .regular)
+        if windowWatch.isEmpty {
+            let nc = NotificationCenter.default
+            windowWatch = [
+                nc.addObserver(forName: NSWindow.didBecomeKeyNotification, object: nil, queue: .main) { _ in
+                    MainActor.assumeIsolated { EchoMenuBar.shared.updatePolicy() }
+                },
+                // 关窗口的通知在窗口消失前发，等它关完再看还有没有窗口
+                nc.addObserver(forName: NSWindow.willCloseNotification, object: nil, queue: .main) { _ in
+                    DispatchQueue.main.async { MainActor.assumeIsolated { EchoMenuBar.shared.updatePolicy() } }
+                },
+            ]
+        }
+        updatePolicy()
         if place == "dock" { remove() } else { install() }
+    }
+
+    /// 打开窗口前调：只在菜单栏时先换成普通应用再把回响切到前面，顶部菜单栏才会跟着出来
+    func windowWillShow() {
+        if NSApp.activationPolicy() != .regular { NSApp.setActivationPolicy(.regular) }
+    }
+
+    /// 只在菜单栏时，开着窗口（含缩到程序坞的）就是普通应用，窗口全关了再从程序坞、⌘Tab 里去掉
+    func updatePolicy() {
+        let want: NSApplication.ActivationPolicy = EchoPrefs.iconPlace != "menubar" || Self.hasWindow(NSApp.windows) ? .regular : .accessory
+        if NSApp.activationPolicy() != want { NSApp.setActivationPolicy(want) }
+    }
+
+    /// 算不算开着回响的窗口：浏览、设置、首次设置这类带标题栏的普通窗口，显示着或缩到了程序坞；提示框、菜单不算
+    static func hasWindow(_ windows: [NSWindow]) -> Bool {
+        windows.contains { w in
+            !(w is NSPanel) && w.styleMask.contains(.titled) && w.level == .normal && (w.isVisible || w.isMiniaturized)
+        }
     }
 
     private func install() {
