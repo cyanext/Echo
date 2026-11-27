@@ -224,14 +224,12 @@ struct EchoGeneralSettings: View {
                     }
                 }
             }
-            EchoSettingRow(title: "显示图标", note: place == "menubar" ? "程序坞和 ⌘Tab 中不显示回响，从菜单栏打开窗口" : "菜单栏图标可查看备份状态、立即备份") {
+            EchoSettingRow(title: "显示图标", note: place == "menubar" ? "关闭窗口后程序坞和 ⌘Tab 中不显示回响，从菜单栏打开窗口" : "菜单栏图标可查看备份状态、立即备份") {
                 Picker("", selection: $place) { Text("程序坞和菜单栏").tag("both"); Text("仅菜单栏").tag("menubar"); Text("仅程序坞").tag("dock") }
                     .labelsHidden().frame(width: 140)
                     .onChange(of: place) { _, p in
                         EchoPrefs.iconPlace = p
-                        EchoMenuBar.shared.apply()
-                        // 换成只在菜单栏后系统会把回响切到后台，设置窗口留在前面
-                        DispatchQueue.main.async { NSApp.activate(ignoringOtherApps: true) }
+                        EchoMenuBar.shared.apply()   // 设置窗口开着，换成只在菜单栏后程序坞图标等窗口关了再去掉
                     }
             }
             EchoSettingRow(title: "自动检查更新", note: "当前版本 v\(EchoUpdate.current)，有新版本时提示") {

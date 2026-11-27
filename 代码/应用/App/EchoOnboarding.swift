@@ -7,8 +7,9 @@ import SwiftUI
 enum EchoOnboarding {
     private static var window: NSWindow?
     /// 引导还开着：点程序坞图标时把它提到前面，不开浏览窗口
-    static func bringFront() -> Bool {
+    @MainActor static func bringFront() -> Bool {
         guard let window else { return false }
+        EchoMenuBar.shared.windowWillShow()
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
         return true
@@ -26,7 +27,7 @@ enum EchoOnboarding {
         return true
     }
 
-    static func show(done: @escaping () -> Void) {
+    @MainActor static func show(done: @escaping () -> Void) {
         let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 680, height: 720),
                          styleMask: [.titled, .closable, .fullSizeContentView], backing: .buffered, defer: false)
         w.titlebarAppearsTransparent = true
@@ -40,6 +41,7 @@ enum EchoOnboarding {
         })
         w.center()
         window = w
+        EchoMenuBar.shared.windowWillShow()
         NSApp.activate(ignoringOtherApps: true)
         w.makeKeyAndOrderFront(nil)
     }
