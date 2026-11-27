@@ -521,7 +521,7 @@ struct EchoBrowserView: View {
             }
             let a = NSAlert()
             a.messageText = "将此会话交给另一台电脑？"
-            a.informativeText = "会话原样复制到回响备份的「接力」文件夹，本机这份移到废纸篓（能放回），本机不再接着聊。\n在另一台电脑上右键这个会话「同步到本机…」接着聊。"
+            a.informativeText = "会话原样复制到回响备份的「接力」文件夹，本机这份移到废纸篓（能放回）。\n在另一台电脑上右键这个会话「同步到本机…」接着聊。"
             a.addButton(withTitle: "交出")
             a.addButton(withTitle: "取消")
             guard a.runModal() == .alertFirstButtonReturn else { return }

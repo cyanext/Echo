@@ -1,5 +1,7 @@
 #!/bin/zsh
-# 安装回响：下载 GitHub 上最新的发版，装到 ~/Applications 并打开。
+# 安装回响：下载 GitHub 上最新的发版，装到「应用程序」（/Applications）并打开。
+# macOS 27 的菜单栏整理工具只认装在 /Applications 里的应用，装在别处时菜单栏图标可能被一直藏住；
+# 没有权限写 /Applications 时退回 ~/Applications。
 # 用法：curl -fsSL https://raw.githubusercontent.com/cyanext/Echo/main/install.sh | zsh
 # 用 curl 下载的安装包不带隔离标记，自签名的应用打开时不会被 macOS 拦下。
 set -e
@@ -15,9 +17,12 @@ ditto -x -k "$tmp/Echo.zip" "$tmp/app"
 [[ -d "$tmp/app/回响.app" ]] || { echo "安装包里没有回响.app" >&2; exit 1; }
 osascript -e 'quit app id "com.cyanext.echo"' >/dev/null 2>&1 || true
 sleep 1
-mkdir -p ~/Applications
-rm -rf ~/Applications/回响.app
-ditto "$tmp/app/回响.app" ~/Applications/回响.app
-xattr -cr ~/Applications/回响.app
-open ~/Applications/回响.app
-echo "已安装到 ~/Applications/回响.app 并打开"
+dir=/Applications
+[[ -w $dir ]] || { dir=~/Applications; mkdir -p $dir; }
+rm -rf "$dir/回响.app"
+ditto "$tmp/app/回响.app" "$dir/回响.app"
+xattr -cr "$dir/回响.app"
+# 以前装在 ~/Applications 的旧版删掉，免得留两份
+[[ $dir == /Applications ]] && rm -rf ~/Applications/回响.app
+open "$dir/回响.app"
+echo "已安装到 $dir/回响.app 并打开"
