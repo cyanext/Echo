@@ -1,6 +1,6 @@
 #!/bin/zsh
 # 编译 回响.app（Apple 芯片，macOS 14+），输出 dist/回响.app。
-# 用法：zsh 代码/应用/build.sh；装到 ~/Applications 并重新打开：zsh 代码/应用/build.sh install；
+# 用法：zsh 代码/应用/build.sh；装到 /Applications 并重新打开：zsh 代码/应用/build.sh install；
 # 打发版用的安装包 dist/Echo-<版本>.zip（自动更新和 install.sh 下载它）、dist/Echo-<版本>.dmg（给浏览器下载的人拖进应用程序）：zsh 代码/应用/build.sh release
 set -e
 VERSION=0.15.3; BUILD=38                           # 版本号只改这里
@@ -64,7 +64,8 @@ if [[ "$1" == release ]]; then
 fi
 if [[ "$1" == install ]]; then
   osascript -e 'quit app id "com.cyanext.echo"' 2>/dev/null || true
-  sleep 1; rm -rf ~/Applications/回响.app; mkdir -p ~/Applications; ditto "$D/dist/回响.app" ~/Applications/回响.app
-  env -u TZ open ~/Applications/回响.app   # 终端带美国时区，不去掉的话界面时间不对
-  echo "已装到 ~/Applications/回响.app 并打开"
+  # 装在 /Applications：macOS 27 的菜单栏整理工具只认这里的应用。以前装在 ~/Applications 的旧版一并删掉
+  sleep 1; rm -rf /Applications/回响.app ~/Applications/回响.app; ditto "$D/dist/回响.app" /Applications/回响.app
+  env -u TZ open /Applications/回响.app   # 终端带美国时区，不去掉的话界面时间不对
+  echo "已装到 /Applications/回响.app 并打开"
 fi
