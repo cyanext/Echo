@@ -22,7 +22,7 @@ enum EchoTests {
             if let r = ProcessInfo.processInfo.environment["ECHO_SHOT_ROOT"] { EchoPrefs.backupRoot = URL(fileURLWithPath: r) }
             exit(EchoCLI.main(Array(a.dropFirst(2))))
         }
-        if a.count == 3, a[1] == "--rules" { rules(); try renameTest(fixture: URL(fileURLWithPath: a[2])); try statsTest(); try commitMatchTest(); timeTest(); try cleanTest(); try layoutTest(); try backupRootTest(); try pathTest(); try echTest(); try codexMoveTest(); try codexBackupTest(); try autoDeleteTest(); try claudeSettingsTest(); try updateTest(); try emptySessionTest(); menuBarTest(); resumeTest(); try restoreTest(); try handoffTest(); mergeTest(); try mediaTest(); try cloudTest() }
+        if a.count == 3, a[1] == "--rules" { rules(); try renameTest(fixture: URL(fileURLWithPath: a[2])); try statsTest(); try commitMatchTest(); timeTest(); try cleanTest(); try layoutTest(); try backupRootTest(); try pathTest(); try echTest(); try codexMoveTest(); try codexBackupTest(); try autoDeleteTest(); try claudeSettingsTest(); try updateTest(); try emptySessionTest(); menuBarTest(); resumeTest(); try restoreTest(); try handoffTest(); mergeTest(); try mediaTest(); try cloudTest(); try openTest() }
         else if a.count == 4, a[1] == "--overview" {   // 手动排查：按应用的方式整理总览数据，写到文件，看用了多久
             let t0 = Date()
             let list = EchoLibrary.scan(backupRoot: URL(fileURLWithPath: a[2]))
@@ -1234,4 +1234,38 @@ enum EchoTests {
         check(found == ["h1.jsonl"], "带隐藏标记的会话没列出来，或临时文件被列出来：\(found)")
         print("  隐藏标记 1 项")
     }
+
+    /// 「正在 Claude 里开着」：进程在运行才算；僵尸进程、进程号被复用的不算
+    static func openTest() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("open-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        func reg(_ pid: Int32, _ id: String, startedAt: Double?) throws {
+            var o: [String: Any] = ["pid": pid, "sessionId": id]
+            if let t = startedAt { o["startedAt"] = t }
+            try JSONSerialization.data(withJSONObject: o).write(to: dir.appendingPathComponent("\(pid).json"))
+        }
+        let me = getpid(), now = Date().timeIntervalSince1970 * 1000
+        try reg(me, "live", startedAt: now)
+        check(EchoMove.isOpen("live", sessionsDir: dir), "进程在运行的会话应该算开着")
+        check(!EchoMove.isOpen("other", sessionsDir: dir), "没登记的会话不应该算开着")
+        try reg(me, "reused", startedAt: 1_000)
+        check(!EchoMove.isOpen("reused", sessionsDir: dir), "进程号被复用（进程晚于登记启动）不应该算开着")
+        try reg(me, "nostamp", startedAt: nil)
+        check(EchoMove.isOpen("nostamp", sessionsDir: dir), "登记里没有 startedAt 时按进程在不在判断")
+        // 起一个子进程，退出后不回收，留成僵尸进程
+        var pid: pid_t = 0
+        let argv: [UnsafeMutablePointer<CChar>?] = [strdup("/usr/bin/true"), nil]
+        defer { argv.forEach { free($0) } }
+        guard posix_spawn(&pid, "/usr/bin/true", nil, nil, argv, environ) == 0 else { check(false, "起子进程失败"); return }
+        var si = siginfo_t()
+        _ = waitid(P_PID, id_t(pid), &si, WEXITED | WNOWAIT)
+        try reg(pid, "zombie", startedAt: now)
+        check(EchoMove.processStart(pid) == nil, "僵尸进程不应该有启动时间")
+        check(!EchoMove.isOpen("zombie", sessionsDir: dir), "僵尸进程登记的会话不应该算开着")
+        var st: Int32 = 0
+        waitpid(pid, &st, 0)
+        check(!EchoMove.isOpen("zombie", sessionsDir: dir), "进程不在了的会话不应该算开着")
+    }
+
 }
