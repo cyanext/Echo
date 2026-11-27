@@ -112,6 +112,34 @@ struct EchoSettingRow<Trailing: View>: View {
     }
 }
 
+/// 从左往右排，一行排不下就换行（图例用）
+struct EchoFlow: Layout {
+    var spacing: CGFloat = 8
+    var lineSpacing: CGFloat = 4
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let w = proposal.width ?? .infinity
+        let f = frames(subviews, width: w)
+        return CGSize(width: proposal.width ?? f.map(\.maxX).max() ?? 0, height: f.map(\.maxY).max() ?? 0)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        for (v, f) in zip(subviews, frames(subviews, width: bounds.width)) {
+            v.place(at: CGPoint(x: bounds.minX + f.minX, y: bounds.minY + f.minY), proposal: ProposedViewSize(f.size))
+        }
+    }
+
+    private func frames(_ subviews: Subviews, width: CGFloat) -> [CGRect] {
+        var x: CGFloat = 0, y: CGFloat = 0, lineH: CGFloat = 0
+        return subviews.map { v in
+            let s = v.sizeThatFits(.unspecified)
+            if x > 0, x + s.width > width { x = 0; y += lineH + lineSpacing; lineH = 0 }
+            defer { x += s.width + spacing; lineH = max(lineH, s.height) }
+            return CGRect(origin: CGPoint(x: x, y: y), size: s)
+        }
+    }
+}
+
 /// 块标题：左边名字，右边灰字
 struct EchoBlockHeader: View {
     let title: String
@@ -196,14 +224,12 @@ struct EchoGeneralSettings: View {
                     }
                 }
             }
-            EchoSettingRow(title: "显示图标", note: place == "menubar" ? "程序坞和 ⌘Tab 中不显示回响，从菜单栏打开窗口" : "菜单栏图标可查看备份状态、立即备份") {
+            EchoSettingRow(title: "显示图标", note: place == "menubar" ? "关闭窗口后程序坞和 ⌘Tab 中不显示回响，从菜单栏打开窗口" : "菜单栏图标可查看备份状态、立即备份") {
                 Picker("", selection: $place) { Text("程序坞和菜单栏").tag("both"); Text("仅菜单栏").tag("menubar"); Text("仅程序坞").tag("dock") }
                     .labelsHidden().frame(width: 140)
                     .onChange(of: place) { _, p in
                         EchoPrefs.iconPlace = p
-                        EchoMenuBar.shared.apply()
-                        // 换成只在菜单栏后系统会把回响切到后台，设置窗口留在前面
-                        DispatchQueue.main.async { NSApp.activate(ignoringOtherApps: true) }
+                        EchoMenuBar.shared.apply()   // 设置窗口开着，换成只在菜单栏后程序坞图标等窗口关了再去掉
                     }
             }
             EchoSettingRow(title: "自动检查更新", note: "当前版本 v\(EchoUpdate.current)，有新版本时提示") {
@@ -535,7 +561,8 @@ struct EchoBackupBlock: View {
     }
 
     private var legend: some View {
-        HStack(spacing: 12) {
+        // 六类都有时一行放不下：排不下的换到下一行，不撑宽窗口
+        EchoFlow(spacing: 12, lineSpacing: 4) {
             // 「图片和文件」默认不备份，没有时不占图例的位置
             ForEach(EchoStorage.Kind.allCases.filter { $0 != .media || (model.backup?.bytes[.media] ?? 0) > 0 }) { k in
                 HStack(spacing: 4) {
