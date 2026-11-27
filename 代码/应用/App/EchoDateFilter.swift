@@ -4,12 +4,14 @@ import SwiftUI
 
 enum EchoDateFilter {
     /// 快捷选项，一项一行
-    static let recent = ["", "d1", "d7", "d30", "d90"]
+    static let recent = ["", "d1", "y1", "d7", "d30", "d90"]
 
-    /// 「今天」从今天 0 点起，「最近 7 天」含今天共 7 天；月份是那个月 1 号 0 点到下个月 1 号
-    static func range(_ key: String) -> Range<Date>? {
+    /// 「今天」从今天 0 点起，「昨天」是昨天 0 点到今天 0 点，「最近 7 天」含今天共 7 天；月份是那个月 1 号 0 点到下个月 1 号
+    static func range(_ key: String, now: Date = Date()) -> Range<Date>? {
         let cal = Calendar.current
-        if key.hasPrefix("d"), let n = Int(key.dropFirst()), let from = cal.date(byAdding: .day, value: 1 - n, to: cal.startOfDay(for: Date())) {
+        let today = cal.startOfDay(for: now)
+        if key == "y1", let from = cal.date(byAdding: .day, value: -1, to: today) { return from..<today }
+        if key.hasPrefix("d"), let n = Int(key.dropFirst()), let from = cal.date(byAdding: .day, value: 1 - n, to: today) {
             return from..<Date.distantFuture
         }
         if let (y, m) = month(key), let from = cal.date(from: DateComponents(year: y, month: m, day: 1)),
@@ -34,6 +36,7 @@ enum EchoDateFilter {
     static func title(_ key: String) -> String {
         if key.isEmpty { return "全部时间" }
         if key == "d1" { return "今天" }
+        if key == "y1" { return "昨天" }
         if key.hasPrefix("d") { return "最近 \(key.dropFirst()) 天" }
         if let (y, m) = month(key) { return "\(y)年\(m)月" }
         return key

@@ -249,6 +249,7 @@
   const tsMark = (ts) => (ts ? `<i class="ts" data-ts="${esc(ts)}"></i>` : "");
 
   // 每段一个 HTML 片段：日期线、一条消息、一段回复
+  // 每段是一个函数，画到它时才生成 HTML（长会话打开时不用先把全部消息排一遍版）
   function render(turns, partOf) {
     const out = [];
     let lastDay = "";
@@ -257,7 +258,8 @@
       const d = t.ts ? new Date(t.ts) : null;
       if (d && dayKey(d) !== lastDay) {
         lastDay = dayKey(d);
-        out.push(`<div class="divider"><span>${day(d)}</span></div>`);
+        const label = day(d);
+        out.push(() => `<div class="divider"><span>${label}</span></div>`);
       }
       partOf[i] = out.length;
       if (t.role === "assistant") {
@@ -269,22 +271,22 @@
           n.blocks.forEach((b) => { b._ts = n.ts; });
           blocks = blocks.concat(n.blocks); partOf[i] = out.length;
         }
-        out.push(renderAI(blocks));
+        out.push(() => renderAI(blocks));
       } else if (t.role === "user") {
         const long = t.text.length > 1200 || t.text.split("\n").length > 16;
-        out.push(tsMark(t.ts) + `<div class="msg user${long ? " long" : ""}"${t._uid ? ` id="${t._uid}"` : ""}><div class="bubble">${esc(t.text)}</div>${long ? '<button class="more" type="button">展开全部</button>' : ""}<div class="stamp">${d ? hm(d) : ""}</div></div>`);
+        out.push(() => tsMark(t.ts) + `<div class="msg user${long ? " long" : ""}"${t._uid ? ` id="${t._uid}"` : ""}><div class="bubble">${esc(t.text)}</div>${long ? '<button class="more" type="button">展开全部</button>' : ""}<div class="stamp">${d ? hm(d) : ""}</div></div>`);
       } else if (t.role === "session") {
         // 合集里每个会话的开头
-        out.push(`<div class="divider part" id="${t._kid}"><span><b>${esc(t.text)}</b>${t.computer ? "　" + esc(t.computer) : ""}</span></div>`);
+        out.push(() => `<div class="divider part" id="${t._kid}"><span><b>${esc(t.text)}</b>${t.computer ? "　" + esc(t.computer) : ""}</span></div>`);
       } else if (t.role === "command") {
-        out.push(`<div class="event">${ICON.cmd}<code>${esc(t.text)}</code></div>`);
+        out.push(() => `<div class="event">${ICON.cmd}<code>${esc(t.text)}</code></div>`);
       } else if (t.role === "recap") {
         // 回顾：Claude 在你离开一阵后写的阶段小结，淡色小卡片，留在原来的位置
-        out.push(tsMark(t.ts) + `<div class="recap"${t._kid ? ` id="${t._kid}"` : ""}><span class="recap-tag">回顾</span><span class="recap-text">${esc(t.text)}</span><span class="recap-time">${d ? hm(d) : ""}</span></div>`);
+        out.push(() => tsMark(t.ts) + `<div class="recap"${t._kid ? ` id="${t._kid}"` : ""}><span class="recap-tag">回顾</span><span class="recap-text">${esc(t.text)}</span><span class="recap-time">${d ? hm(d) : ""}</span></div>`);
       } else if (t.role === "summary") {
-        out.push(tsMark(t.ts) + `<details class="compact"${t._kid ? ` id="${t._kid}"` : ""}><summary><div class="divider"><span>会话在这里压缩过，点开看摘要</span></div></summary>${md(t.text)}</details>`);
+        out.push(() => tsMark(t.ts) + `<details class="compact"${t._kid ? ` id="${t._kid}"` : ""}><summary><div class="divider"><span>会话在这里压缩过，点开看摘要</span></div></summary>${md(t.text)}</details>`);
       } else {
-        out.push(`<div class="event system">${ICON.sys}<span>${esc(t.text.slice(0, 300))}</span></div>`);
+        out.push(() => `<div class="event system">${ICON.sys}<span>${esc(t.text.slice(0, 300))}</span></div>`);
       }
     }
     return out;
@@ -322,33 +324,60 @@
     const $ = (id) => document.getElementById(id);
     const all = (sel) => root.querySelectorAll(sel);
 
-    // 先画前 80 段，滚到底再接着画
     const keys = keyPoints(S.turns);
     const myMsgs = [];   // 你的消息，右边我的消息栏用
     S.turns.forEach((t, i) => { if (t.role === "user") { t._uid = "u" + i; myMsgs.push({ id: t._uid, turn: i, text: t.text, ts: t.ts }); } });
     const partOf = [];
     const parts = render(S.turns, partOf);
-    let drawn = 0;
-    const sentinel = document.createElement("div");
-    function draw(n) {
-      if (drawn >= parts.length) return;
-      const end = Math.min(parts.length, drawn + n);
+    // 段按需画：打开时先画最底下一屏（最新的），往上滚再往前补；从要点、搜索跳进来时从那一段画起。
+    // 画好的是连着的一截 [lo, hi)，前后各放一个哨兵，离窗口不到 1200 像素时接着画
+    let lo = 0, hi = 0;
+    const above = document.createElement("div"), sentinel = document.createElement("div");
+    // 每段前放一个锚点 p<段号>：要点栏点一条时跳到这一段的开头
+    const html = (a, b) => parts.slice(a, b).map((h, j) => `<i class="pa" id="p${a + j}"></i>${h()}`).join("");
+    function draw(n) {   // 往下画 n 段
+      if (hi >= parts.length) return;
+      const end = Math.min(parts.length, hi + n);
       sentinel.remove();
-      // 每段前放一个锚点 p<段号>：要点栏点一条时跳到这一段的开头
-      $("turns").insertAdjacentHTML("beforeend", parts.slice(drawn, end).map((h, j) => `<i class="pa" id="p${drawn + j}"></i>${h}`).join(""));
-      drawn = end;
-      if (drawn < parts.length) $("turns").appendChild(sentinel);
+      $("turns").insertAdjacentHTML("beforeend", html(hi, end));
+      hi = end;
+      if (hi < parts.length) $("turns").appendChild(sentinel);
       applyToggles();
     }
-    const drawAll = () => draw(parts.length);
-    new IntersectionObserver((es) => { if (es.some((e) => e.isIntersecting)) draw(80); }, { rootMargin: "1200px" }).observe(sentinel);
+    function drawUp(n) {   // 往上补 n 段，补完看到的内容不动
+      if (lo <= 0) return;
+      const from = Math.max(0, lo - n), h0 = document.documentElement.scrollHeight, y0 = window.scrollY;
+      above.remove();
+      $("turns").insertAdjacentHTML("afterbegin", html(from, lo));
+      lo = from;
+      if (lo > 0) $("turns").prepend(above);
+      window.scrollTo(0, y0 + document.documentElement.scrollHeight - h0);
+      applyToggles();
+    }
+    // 画到第 p 段；离画好的那截太远时从 p 重新画，中间的不画
+    const reach = (p) => {
+      if (p >= lo && p < hi) return;
+      if (p < lo - 120 || p >= hi + 120) {
+        $("turns").innerHTML = ""; lo = hi = p; draw(40);
+        if (lo > 0) $("turns").prepend(above);
+        return;
+      }
+      if (p >= hi) draw(p - hi + 1); else drawUp(lo - p);
+    };
+    const drawAll = () => { drawUp(lo); draw(parts.length); };
+    const io = new IntersectionObserver((es) => es.forEach((e) => {
+      if (e.isIntersecting) e.target === sentinel ? draw(80) : drawUp(40);
+    }), { rootMargin: "1200px" });
+    io.observe(sentinel);
+    io.observe(above);
     // 要点栏（左，常驻）和我的消息（右，可收起），规范 需求文档/设计规范/设计规范.md「布局」「组件」。两栏共用 makeRail：
     // 栏名一行，下面一行一项；点了跳过去；滚动对话时当前那项变浅蓝，栏跟着把它滚到中间。
     // 窗口窄时要点栏只剩一列短横线，悬停浮出说明；我的消息收起时什么都不显示
     let LINE = 120;   // 标题栏下面那条线，判断读到哪用它；标题换行变高时跟着改（measureHead）
-    const posOf = (id) => {
+    const posOf = (id, turn) => {
       const el = document.getElementById(id);
-      return el ? (el.closest("details.steps:not([open])") || el).getBoundingClientRect().top : Infinity;   // 还没画出来的算在下面
+      if (!el) return partOf[turn] < lo ? -Infinity : Infinity;   // 还没画出来的：在画好的那截上面还是下面
+      return (el.closest("details.steps:not([open])") || el).getBoundingClientRect().top;
     };
     // 量标题栏高度：写进 --head-h（窄模式的起点、跳转停的位置），读到哪的那条线放在标题栏下 48
     const measureHead = () => {
@@ -387,7 +416,8 @@
     };
     // 画到第 part 段，滚到 id 那里（停在标题栏下），闪一下
     const goTo = (part, id) => {
-      if (part >= drawn) draw(part - drawn + 1);
+      if (/^p\d+$/.test(id)) reach(Math.min(part, +id.slice(1)));   // 跳到段开头时，那一段也要画出来
+      reach(part);
       const el = document.getElementById(id);
       if (!el) return;
       const g = el.closest("details.steps");
@@ -517,10 +547,10 @@
           goTo(partOf[k.turn], "p" + start);
         },
         cur: () => {
-          const next = keys.find((k) => posOf(k.id) > LINE);
+          const next = keys.find((k) => posOf(k.id, k.turn) > LINE);
           if (next && next.kind !== "part") return next.id;
           let part = null;
-          keys.forEach((k) => { if (k.kind === "part" && posOf(k.id) <= LINE) part = k; });
+          keys.forEach((k) => { if (k.kind === "part" && posOf(k.id, k.turn) <= LINE) part = k; });
           return part ? part.id : null;
         },
       }));
@@ -549,7 +579,7 @@
         jump: (it) => goTo(partOf[myMsgs.find((a) => a.id === it.id).turn], it.id),
         cur: () => {
           let cur = null;
-          for (const a of myMsgs) { const y = posOf(a.id); if (y > LINE) break; cur = a.id; }
+          for (const a of myMsgs) { const y = posOf(a.id, a.turn); if (y > LINE) break; cur = a.id; }
           return cur;
         },
       });
@@ -624,7 +654,6 @@
       all(".steps").forEach((g) => g.classList.toggle("hidden", !g.querySelector(".step:not(.hidden)")));
     }
     ["show-thinking", "show-tools", "show-system"].forEach((id) => $(id).addEventListener("change", applyToggles));
-    draw(80);
 
     $("view-btn").addEventListener("click", (e) => { e.stopPropagation(); $("view-menu").hidden = !$("view-menu").hidden; $("view-btn").classList.toggle("on", !$("view-menu").hidden); });
     document.addEventListener("click", (e) => { if (!e.target.closest(".c-menu")) { $("view-menu").hidden = true; $("view-btn").classList.remove("on"); } });
@@ -671,7 +700,8 @@
       marks = [];
       cur = -1;
     }
-    function search(q) {
+    // go：查完跳到第一个；从左栏搜索结果进来、重新整理后停在原处时不跳，由调用的地方定停在哪
+    function search(q, go = true) {
       clearMarks();
       if (!q) { $("hits").textContent = ""; return; }
       const lower = q.toLowerCase();
@@ -700,7 +730,7 @@
         node.replaceWith(frag);
       });
       $("hits").textContent = marks.length ? "" : "无结果";
-      next();
+      if (go) next();
     }
     function next() {
       if (!marks.length) return;
@@ -738,34 +768,82 @@
     };
 
     // 从左栏搜索结果进来：查找关键词，停在 at（命中那一条的时间）那条消息里的第一个命中。
-    // 左栏只搜对话，工具调用和思考过程里的命中跳过；找不到时退到那一段之后的第一个
-    window.echoFind = (q, at) => {
+    // 左栏只搜对话，工具调用和思考过程里的命中跳过；找不到时退到那一段之后的第一个。只跳一次，不先滚到第一个再滚回来
+    const showFind = (q) => {
       $("search").value = q;
       $("search").parentElement.classList.toggle("has", !!q);
-      search(q);
-      if (!at || !marks.length) return;
+      search(q, false);
+    };
+    window.echoFind = (q, at) => {
+      showFind(q);
+      if (!marks.length) return;
       const after = (a) => (mk) => a.compareDocumentPosition(mk) & Node.DOCUMENT_POSITION_FOLLOWING;
       const said = (mk) => !mk.closest(".step");
-      const tm = [...all("#turns i.ts")].find((x) => Date.parse(x.dataset.ts) >= at - 2);
-      let k = tm ? marks.findIndex((mk) => after(tm)(mk) && said(mk)) : -1;
-      if (k < 0) {
-        let i = -1;
-        S.turns.forEach((t, j) => { if (t.ts && new Date(t.ts) <= at) i = j; });
-        const a = i >= 0 && $("p" + partOf[i]);
-        k = a ? marks.findIndex(after(a)) : -1;
+      let k = -1;
+      if (at) {
+        const tm = [...all("#turns i.ts")].find((x) => Date.parse(x.dataset.ts) >= at - 2);
+        k = tm ? marks.findIndex((mk) => after(tm)(mk) && said(mk)) : -1;
+        if (k < 0) {
+          let i = -1;
+          S.turns.forEach((t, j) => { if (t.ts && new Date(t.ts) <= at) i = j; });
+          const a = i >= 0 && $("p" + partOf[i]);
+          k = a ? marks.findIndex(after(a)) : -1;
+        }
       }
-      if (k > 0) { marks[cur].classList.remove("current"); cur = k - 1; next(); }
+      cur = Math.max(k, 0) - 1;
+      next();
+    };
+
+    // 打开会话停在最底下一条（最新的）；没带跳转位置时打开就在这里
+    window.echoEnd = () => {
+      if (parts.length - hi > 40) { $("turns").innerHTML = ""; lo = hi = parts.length; }   // 离底下还远：从底下重新画，中间的不画
+      draw(parts.length - hi);
+      if (hi - lo < 30) drawUp(30 - (hi - lo));
+      window.scrollTo(0, document.documentElement.scrollHeight);
+    };
+
+    // 正在进行的会话又写了，应用重新整理这一页：先问读到哪（最后一个滚过窗口顶的段锚点和它的位置）、页面里查找的词和查到第几个，
+    // 新页面停回原处，不跳回搜索命中的那一处；停在最底下时新页面也停在最底下，跟着看新消息
+    let touched = 0, scrolled = 0;   // 用户最后一次滚轮、按键、按下鼠标，和页面最后一次滚动的时间
+    ["wheel", "keydown", "mousedown"].forEach((ev) => addEventListener(ev, () => (touched = Date.now()), { passive: true, capture: true }));
+    addEventListener("scroll", () => (scrolled = Date.now()), { passive: true });
+    window.echoKeep = () => {
+      if (Date.now() - touched < 1200 || Date.now() - scrolled < 300) return "busy";   // 正在滚，等停下再换页
+      let p = 0, y = 0;
+      all("#turns i.pa").forEach((a) => { const t = a.getBoundingClientRect().top; if (t <= 0) { p = +a.id.slice(1); y = t; } });
+      const q = $("search").value.trim(), end = window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 4;
+      return `&keep=${end ? "end" : p + "," + Math.round(y)},${cur}` + (q ? "&q=" + encodeURIComponent(q) : "");
+    };
+    const keepAt = (keep, q) => {
+      const f = keep.split(","), end = f[0] === "end", c = +f[f.length - 1], p = +f[0], y = +f[1];
+      if (q) {
+        showFind(q);
+        if (marks[c]) { cur = c; marks[c].classList.add("current"); $("hits").textContent = `${c + 1}/${marks.length}`; }
+      }
+      if (end) return window.echoEnd();
+      reach(p);
+      const a = $("p" + p);
+      if (a) window.scrollTo(0, a.getBoundingClientRect().top + window.scrollY - y);
     };
 
     const params = new URLSearchParams(location.search);
-    const at0 = +params.get("at"), q0 = params.get("q"), v0 = params.get("v");
-    if (q0) setTimeout(() => window.echoFind(q0, at0), 0);
+    const at0 = +params.get("at"), q0 = params.get("q"), v0 = params.get("v"), keep0 = params.get("keep");
+    if (keep0) keepAt(keep0, q0);   // 不等下一轮：页面第一次画出来就在原处，不先闪一下开头
+    else if (q0) setTimeout(() => window.echoFind(q0, at0), 0);
     else if (at0) setTimeout(() => window.echoJump(at0, v0), 0);
+    else window.echoEnd();   // 不等下一轮：页面第一次画出来就在最底下
   }
 
   // 回归测试（tests/timeline_test.js）在 node 里加载本文件，取时间轴的规则
   if (typeof module !== "undefined") { module.exports = { commitMessage, summaryLine, keyPoints, versionKey }; return; }
+  // 加载占位：会话还在整理时（长会话要一两秒）应用先打开 ?skel，画几块灰的消息，整块一起呼吸
+  const skeleton = () => {
+    const ask = `<div class="sk-u"><i class="sk"></i></div>`, reply = `<div class="sk-a">${"<i class=\"sk\"></i>".repeat(4)}</div>`;
+    root.innerHTML = `<div class="c-skel"><header class="c-head"><div class="c-head-in"><div class="c-tt"><i class="sk"></i><i class="sk"></i></div></div></header>
+      <main class="c-main">${(ask + reply).repeat(3)}</main></div>`;
+  };
   if (window.SESSION) start(window.SESSION);
+  else if (new URLSearchParams(location.search).has("skel")) skeleton();
   else fetch("session.json" + location.search).then((r) => r.json()).then(start)
     .catch(() => { document.body.innerHTML = Blank.html("error", "这个会话读不出来", "备份文件可能正在写入或已损坏，稍后再打开试试"); });
 })();
