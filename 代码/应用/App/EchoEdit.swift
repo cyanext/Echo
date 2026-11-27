@@ -207,15 +207,27 @@ enum EchoMove {
                      rel: oldDir + "/" + name, newRel: newDir + "/" + name)
     }
 
-    /// 正在 Claude 里开着的会话：~/.claude/sessions/<进程号>.json 里记着会话 ID，进程还在
+    /// 正在 Claude 里开着的会话：~/.claude/sessions/<进程号>.json 里记着会话 ID，进程还在运行。
+    /// 退出了但父进程没回收的（僵尸进程）不算；进程号被别的进程复用的（启动时间晚于登记的 startedAt）也不算
     static func isOpen(_ sessionId: String, sessionsDir: URL = EchoBackup.source.deletingLastPathComponent().appendingPathComponent("sessions")) -> Bool {
         let files = (try? FileManager.default.contentsOfDirectory(at: sessionsDir, includingPropertiesForKeys: nil)) ?? []
         return files.contains { f in
             guard f.pathExtension == "json", let d = try? Data(contentsOf: f),
                   let o = try? JSONSerialization.jsonObject(with: d) as? [String: Any],
-                  o["sessionId"] as? String == sessionId, let pid = o["pid"] as? Int32, pid > 1 else { return false }
-            return kill(pid, 0) == 0 || errno == EPERM
+                  o["sessionId"] as? String == sessionId, let pid = o["pid"] as? Int32, pid > 1,
+                  let started = processStart(pid) else { return false }
+            if let ms = o["startedAt"] as? Double, started.timeIntervalSince1970 > ms / 1000 + 60 { return false }
+            return true
         }
+    }
+
+    /// 进程的启动时间；进程不在或已退出（僵尸进程）时为 nil
+    static func processStart(_ pid: Int32) -> Date? {
+        var info = kinfo_proc(), size = MemoryLayout<kinfo_proc>.stride
+        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, pid]
+        guard sysctl(&mib, 4, &info, &size, nil, 0) == 0, size > 0, Int32(info.kp_proc.p_stat) != SZOMB else { return nil }
+        let t = info.kp_proc.p_starttime
+        return Date(timeIntervalSince1970: Double(t.tv_sec) + Double(t.tv_usec) / 1_000_000)
     }
 
     static func fail(_ text: String) -> Error { CocoaError(.fileWriteUnknown, userInfo: [NSLocalizedDescriptionKey: text]) }
