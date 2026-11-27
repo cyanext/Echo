@@ -591,6 +591,13 @@ enum EchoBackupJob {
         let dir = EchoPrefs.computerDir, claudeDir = EchoPrefs.claudeDir, sources = EchoPrefs.enabledSources
         let started = ISO8601DateFormatter().string(from: Date())
         var logs: [[String: Any]] = []
+        // 另一台电脑交出的会话先自动接到本机，这次备份就带上它，那台下次备份时据此移走交接副本
+        if sources.contains(where: { $0.0 == .claude }) {
+            let key = "接手过的交接副本"
+            let r = EchoHandoff.receive(done: Set(UserDefaults.standard.stringArray(forKey: key) ?? []))
+            UserDefaults.standard.set(Array(r.done), forKey: key)
+            if !r.got.isEmpty { NSLog("回响自动接手：%@", r.got.map { "\($0.title)（\($0.from)）" }.joined(separator: "、")) }
+        }
         let r = Result { () -> EchoBackupResult in
             let lists = try sources.map { s, d -> (EchoSource, [EchoBackup.Item], URL) in
                 (s, s == .claude ? try EchoBackup.claudeItems(EchoBackup.source) : EchoBackup.codexItems(EchoBackup.codexSource), d)

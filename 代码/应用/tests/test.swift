@@ -270,6 +270,23 @@ enum EchoTests {
         let got = try EchoRestore.restore(s, from: EchoRestore.from(s, root: root), to: dir, source: srcB, claudeDir: claudeB)
         check((try? String(contentsOf: got, encoding: .utf8)) == body, "接力：B 写入的是原样的交接副本")
         check(fm.fileExists(atPath: got.deletingPathExtension().appendingPathComponent("subagents/a.jsonl").path), "接力：B 写入时同名目录一起")
+        // 自动接手：B 已包含时不动；B 是旧的时换成交接副本；B 没有时写到猜到的文件夹，猜不到不写；同一份只接一次
+        func recv(_ done: Set<String> = [], guess: String? = nil) -> (got: [(title: String, from: String)], done: Set<String>) {
+            EchoHandoff.receive(root: root, me: "B", source: srcB, claudeDir: claudeB, done: done, open: { _ in false }, trash: rm, guess: { _ in guess })
+        }
+        var r = recv()
+        check(r.got.isEmpty && r.done.count == 1, "自动接手：本机已包含时不动，实际 \(r.got.count) 个")
+        try msg("u1", "第一句").write(to: got, atomically: true, encoding: .utf8)
+        try fm.setAttributes([.modificationDate: Date(timeIntervalSinceNow: -600)], ofItemAtPath: got.path)
+        r = recv()
+        check(r.got.count == 1 && r.got[0].from == "A" && (try? String(contentsOf: got, encoding: .utf8)) == body, "自动接手：本机是旧的时换成交接副本")
+        try msg("u1", "第一句").write(to: got, atomically: true, encoding: .utf8)
+        try fm.setAttributes([.modificationDate: Date(timeIntervalSinceNow: -600)], ofItemAtPath: got.path)
+        check(recv(r.done).got.isEmpty && (try? String(contentsOf: got, encoding: .utf8)) == msg("u1", "第一句"), "自动接手：同一份交接副本只接一次")
+        try fm.removeItem(at: got); try? fm.removeItem(at: got.deletingPathExtension())
+        check(recv().got.isEmpty && EchoRestore.existing("h1", source: srcB) == nil, "自动接手：本机没有、找不到文件夹时不写")
+        r = recv(guess: dir)
+        check(r.got.count == 1 && (EchoRestore.existing("h1", source: srcB).flatMap { try? String(contentsOf: $0, encoding: .utf8) }) == body, "自动接手：本机没有时写到本机对应的文件夹")
         // 清理：B 的备份还没有它时不动；有了全部对话后移走
         check(EchoHandoff.cleanup(root: root, me: "A", source: srcA, trash: rm) == 0 && fm.fileExists(atPath: copy.path), "接力：没人接手时交接副本留着")
         let slimB = claudeB.appendingPathComponent("projects/-x/h1.jsonl")

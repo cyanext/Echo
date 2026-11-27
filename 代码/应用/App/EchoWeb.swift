@@ -185,7 +185,7 @@ struct EchoWebView: NSViewRepresentable {
 
         // 最近打开过的几个会话整理好的数据留在内存里，来回切换时不用再读一遍（key 带着文件状态，会话又写了就换新的）
         nonisolated(unsafe) private static var recent: [(String, Data)] = []
-        private static let lock = NSLock()
+        nonisolated private static let lock = NSLock()
         nonisolated static func cached(_ key: String) -> Data? {
             lock.lock(); defer { lock.unlock() }
             return recent.first { $0.0 == key }?.1
